@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cubicase Tutorial — Complete Guide</title>
+  <meta name="description" content="Learn every detail of Cubicase: create a Minecraft server, invite friends, mods, backups, players, settings and troubleshooting." />
+  <link rel="icon" type="image/png" href="/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/assets/icon.png" />
+  <meta property="og:title" content="Cubicase Tutorial — Complete Guide" />
+  <meta property="og:description" content="From your first server to advanced features: everything about Cubicase, step by step." />
+  <meta property="og:image" content="/assets/logo.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="en_US" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="stylesheet" href="/assets/tutorial.css" />
+  <link rel="alternate" hreflang="pt-BR" href="/tutorial/" />
+  <link rel="alternate" hreflang="en" href="/en/tutorial/" />
+  <link rel="alternate" hreflang="x-default" href="/tutorial/" />
+  <script src="/assets/i18n/en.js"></script>
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="/en/" class="nav-brand">
+        <img src="/assets/logo-dark.png" alt="Cubicase" />
+      </a>
+
+      <div class="nav-links" data-nav-links>
+        <a href="/en/#recursos">Features</a>
+        <a href="/en/#como-funciona">How it works</a>
+        <a href="/en/tutorial/" aria-current="page" style="color: var(--text-primary);">Tutorial</a>
+        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <div class="lang-switch" data-lang-switch></div>
+        <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>Sign in</a>
+        <div class="nav-cta">
+          <a class="btn btn-primary" href="/en/download/">Download</a>
+        </div>
+      </div>
+
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <header class="tut-hero">
+    <div class="container">
+      <div class="eyebrow"><span class="dot"></span>Help center</div>
+      <h1>Cubicase Tutorial</h1>
+      <p>
+        Everything about the program, from the first click to the most advanced features. Pick a topic in the menu
+        or use the search. The names of buttons, tabs and fields appear <span class="ui">like this</span>, exactly as they are in the app.
+      </p>
+    </div>
+  </header>
+
+  <main class="container tut-layout">
+    <div>
+      <button class="tut-menu-btn" id="tutMenuBtn" type="button" aria-expanded="false" aria-controls="tutSidebar">
+        <span id="tutMenuLabel">Tutorial menu</span>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <aside class="tut-sidebar" id="tutSidebar" aria-label="Tutorial menu">
+        <div class="tut-search">
+          <input type="search" id="tutSearch" placeholder="Search the tutorial…" aria-label="Search the tutorial" autocomplete="off" />
+        </div>
+        <nav class="tut-nav" id="tutNav"></nav>
+      </aside>
+    </div>
+
+    <div>
+
+<!-- ==================================================================== -->
+<!-- GETTING STARTED                                                       -->
+<!-- ==================================================================== -->
+
+<article class="tut-article" id="visao-geral" data-title="What is Cubicase" data-group="Getting started">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>What is Cubicase</h2>
+  <p class="tut-lead">Cubicase is a Windows program that creates, runs and shares Minecraft servers without you having to touch your router.</p>
+
+  <h3>The idea in one sentence</h3>
+  <p>
+    Normally, to play with friends on a home server you need to open ports on your router, find out your IP,
+    configure the firewall and install Java. Cubicase does all of that for you: it downloads the right Java,
+    installs the server, and connects you and your friends through a <strong>private (mesh) network</strong>, a kind of VPN, without opening any port.
+  </p>
+
+  <h3>The two roles</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Role</th><th>Tab in the app</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Host</td><td><span class="ui">Host</span></td><td>Creates and runs the server on your own computer. Cubicase must be open and the server on for friends to join.</td></tr>
+        <tr><td>Guest</td><td><span class="ui">Guest</span></td><td>Joins someone else's server using an invite code (or link). You don't need to create any server.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>You can be both: host a server of your own and also keep your friends' servers in your library.</p>
+
+  <h3>How the pieces fit together</h3>
+  <ol class="tut-steps">
+    <li><strong>The host creates a server</strong> (Minecraft version, type, memory) and starts it.</li>
+    <li><strong>Cubicase turns on the mesh network</strong> and generates an <strong>invite code</strong> in the format <code>CF-XXXX</code>.</li>
+    <li><strong>The host sends the code</strong> (or a link) to friends.</li>
+    <li><strong>The guest pastes the code</strong> in the <span class="ui">Guest</span> tab, clicks <span class="ui">Prepare and Play</span>, and Cubicase takes care of the rest: mods, version and connection.</li>
+  </ol>
+
+  <div class="tut-callout is-tip">
+    <strong>Do you need an account?</strong>
+    <p>No. Cubicase works without signing in. An account is only needed for <a href="#plus">Cubicase Plus</a> or to link servers to a profile. See <a href="#conta">Account and sign-in</a>.</p>
+  </div>
+
+  <h3>Where to start</h3>
+  <div class="tut-cards">
+    <a class="tut-card" href="#instalacao"><strong>I want to install</strong><span>Download, install and open it for the first time.</span></a>
+    <a class="tut-card" href="#criar-servidor"><strong>I want to create a server</strong><span>Step by step from zero to a running server.</span></a>
+    <a class="tut-card" href="#entrar-servidor"><strong>I got a code</strong><span>How to join a friend's server.</span></a>
+    <a class="tut-card" href="#problemas-conexao"><strong>Something isn't working</strong><span>A checklist for when nobody can join.</span></a>
+  </div>
+</article>
+
+<article class="tut-article" id="instalacao" data-title="Install and update" data-group="Getting started">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Install and update</h2>
+  <p class="tut-lead">From download to first launch, and how the app keeps itself up to date.</p>
+
+  <h3>Requirements</h3>
+  <ul>
+    <li>Windows 10 or 11, 64-bit.</li>
+    <li>An internet connection (to download the server and Java, and to connect the mesh network).</li>
+    <li>Enough RAM for the server: the app accepts a minimum of 2 GB for the server, but <strong>3 GB or more is recommended</strong>, always leaving at least 2 GB free for Windows.</li>
+    <li>To <em>play</em>, you also need Minecraft Java Edition installed.</li>
+  </ul>
+
+  <h3>Installing</h3>
+  <ol class="tut-steps">
+    <li>Go to the <a href="/en/download/">download</a> page and click <span class="ui">Download for Windows</span>.</li>
+    <li>Open the downloaded <code>.exe</code> installer. There is nothing to configure during installation.</li>
+    <li>When it finishes, open Cubicase.</li>
+  </ol>
+
+  <div class="tut-callout is-warn">
+    <strong>Windows SmartScreen warning</strong>
+    <p>Because Cubicase is a new project, Windows may show "Windows protected your PC". That's normal: click <span class="ui">More info</span> and then <span class="ui">Run anyway</span>. The source code is open on GitHub if you want to check it.</p>
+  </div>
+
+  <h3>First launch</h3>
+  <p>
+    The first time, the app shows a welcome screen asking what you want to do:
+    <span class="ui">Host a server</span> (create and manage your server) or
+    <span class="ui">Connect to a server</span> (join a friend's server with a code).
+    This only decides which tab opens first, and you can change it later in <span class="ui">Settings → Home</span>.
+  </p>
+
+  <h3>Updates</h3>
+  <p>
+    Cubicase checks for new versions on its own. When there is one, a "New version available" notice appears with the
+    <span class="ui">Update and restart</span> button. The app downloads the update, shows the progress and restarts. If it fails, it tells you and you can try again later.
+    The installed version number appears at the bottom of <span class="ui">Settings</span>.
+  </p>
+  <p>
+    The notice can be dismissed, but the <span class="ui">Update</span> button stays in the top bar while a new version exists. If the installation fails, it changes to <span class="ui">Try again</span>: the app checks again for an update and tries to install it, with no need to close and reopen the program. After a failure, it stays disabled for a few seconds so it doesn't overload the server, and repeated clicks are ignored.
+  </p>
+  <div class="tut-callout">
+    <strong>Updating with the server on</strong>
+    <p>Restarting the app to update interrupts whatever is running. Do it when nobody is playing.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="interface" data-title="Getting to know the interface" data-group="Getting started">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Getting to know the interface</h2>
+  <p class="tut-lead">A quick map of everything you see in the Cubicase window.</p>
+
+  <h3>Top bar and general shortcuts</h3>
+  <ul>
+    <li><strong><span class="ui">Host</span> and <span class="ui">Guest</span> tabs:</strong> switch between managing your own server and using the library of your friends' servers.</li>
+    <li><strong><span class="ui">Settings</span>:</strong> general app preferences: startup tab, backups, theme, language, account and subscription. See <a href="#config-app">App settings</a>.</li>
+    <li><strong>Theme switch:</strong> quickly toggles between light and dark mode (also in <span class="ui">Settings</span>).</li>
+    <li><strong><span class="ui">Update</span> button:</strong> only appears when there is a new version. If the automatic update fails, it becomes <span class="ui">Try again</span> and you can try once more without closing the app.</li>
+    <li><strong><span class="ui">?</span> button (Help center):</strong> opens shortcuts to this tutorial and the form to report bugs, problems or suggestions. See <a href="#ajuda-contato">Help center and contact</a>.</li>
+    <li><strong>Diagnostics center:</strong> the history of warnings and errors (network, server, installation…). See <a href="#diagnosticos">Diagnostics</a>.</li>
+  </ul>
+
+  <h3>Host tab</h3>
+  <ul>
+    <li><strong><span class="ui">Local Servers</span> list (sidebar):</strong> all the servers you created or imported. It holds the buttons to create a server, import a server and import a modpack.</li>
+    <li><strong>Selected server panel:</strong> name, status (Online, Starting, Stopping, Crash, Offline), invite code, start/stop buttons and RAM/CPU usage.</li>
+    <li><strong>Server Network:</strong> mesh network status, the code to share and local settings (folder and port).</li>
+    <li><strong>Console:</strong> two tabs, <span class="ui">Minecraft Console</span> and <span class="ui">Mesh Network</span>, with live logs.</li>
+    <li><strong>Management:</strong> players, mods/plugins, world and backups.</li>
+  </ul>
+
+  <h3>Guest tab</h3>
+  <p>The <span class="ui">Library</span> of <span class="ui">Known Servers</span>: every server you have joined stays saved, with its status, players and the play button.</p>
+
+  <h3>When you close the window</h3>
+  <p>Cubicase asks what to do: <span class="ui">Keep running in the background</span> (server and network keep running) or <span class="ui">Close everything</span> (stops the server, the network and the app). See <a href="#segundo-plano">Background and closing the app</a>.</p>
+</article>
+
+<!-- ==================================================================== -->
+<!-- HOSTING                                                               -->
+<!-- ==================================================================== -->
+
+<article class="tut-article" id="criar-servidor" data-title="Create a server" data-group="Hosting (Host)">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Create a server</h2>
+  <p class="tut-lead">From clicking the "+" to an installed server, step by step.</p>
+
+  <ol class="tut-steps">
+    <li>In the <span class="ui">Host</span> tab, in the <span class="ui">Local Servers</span> list, click the <strong>+</strong> button and choose <span class="ui">Create New Server</span>.</li>
+    <li>Fill in the <strong>Server Name</strong> (e.g. <code>My_Server</code>). See the naming rules below.</li>
+    <li>Choose the <strong>Server Type</strong>. If you're unsure, see <a href="#tipos-servidor">Which type to choose</a>.</li>
+    <li>Choose the <strong>Minecraft Version</strong>. The selector has a search box and groups versions into <em>Recommended</em>, <em>Popular</em> and <em>All Versions</em>.</li>
+    <li>If the type is Forge, Fabric or Paper, one more selector appears (Forge version, Fabric Loader version or Paper build). The app already selects the recommended/stable option.</li>
+    <li>Adjust the <strong>Allocated RAM</strong> (see below).</li>
+    <li>Optionally, enter a <strong>World Seed</strong>.</li>
+    <li>Click <span class="ui">Create Server</span> and wait for the installation.</li>
+  </ol>
+
+  <h3>Naming rules</h3>
+  <ul>
+    <li>It can't be empty or repeat the name of another server of yours.</li>
+    <li>It can't contain the characters <code>\ / : * ? " &lt; &gt; |</code>.</li>
+    <li>It can't end with a space or a period.</li>
+    <li>It can't be a reserved Windows name (such as <code>CON</code>, <code>NUL</code>, <code>COM1</code>).</li>
+  </ul>
+
+  <h3>Minecraft version</h3>
+  <p>Cubicase offers versions starting at <strong>1.8.9</strong>. When in doubt, stick to the <em>Recommended</em> ones. If your friends use a specific version (or a modpack requires one), pick exactly that: <strong>everyone must play on the same version as the server</strong>.</p>
+
+  <h3>Allocated RAM</h3>
+  <p>This is the memory the server may use. The app shows your PC's total and warns you:</p>
+  <ul>
+    <li>Less than <strong>3 GB</strong>: can cause slowdowns or freezes, especially with many players or mods.</li>
+    <li>Leaving less than <strong>2 GB</strong> for Windows: can make the system slow or unstable, so lower it.</li>
+  </ul>
+  <p>Rule of thumb: a vanilla server with a few friends runs fine on 3-4 GB; heavy modpacks need 6-8 GB or more, if your PC allows. You can change it later in <a href="#config-servidor">Server Settings</a>.</p>
+
+  <h3>World seed</h3>
+  <p>Leave it blank for a random world. If you want a specific world, type the seed. <strong>You can only set it now</strong>: the world is generated the first time the server starts, and the seed can't be changed afterwards. To generate another world later, use <span class="ui">Reset World</span> (see <a href="#mundo-backups">World and backups</a>).</p>
+
+  <h3>What happens during installation</h3>
+  <ul>
+    <li>The official server files are downloaded (Mojang, Forge, Fabric or Paper depending on the type). This happens <strong>once per installed version</strong>.</li>
+    <li>The required Java is downloaded automatically when missing (see <a href="#java">Automatic Java</a>).</li>
+    <li>Cubicase accepts the Minecraft EULA and creates the initial <code>server.properties</code> for you.</li>
+  </ul>
+  <div class="tut-callout">
+    <strong>About the EULA</strong>
+    <p>When you create a server through Cubicase, the Minecraft EULA is accepted automatically on your behalf. It's worth reading the terms at minecraft.net/eula.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="tipos-servidor" data-title="Which server type to choose" data-group="Hosting (Host)">
+  <span class="tut-tag is-basic">Basic</span>
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Which server type to choose</h2>
+  <p class="tut-lead">Vanilla, Forge, NeoForge, Fabric or Paper: what each one does and when to use it.</p>
+
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Type</th><th>What it is</th><th>Extensions</th><th>Use it when…</th></tr></thead>
+      <tbody>
+        <tr><td>Vanilla</td><td>The official Mojang server, unmodified.</td><td>None</td><td>You want pure Minecraft, it's your first time, or your group plays without mods.</td></tr>
+        <tr><td>Forge</td><td>The classic mod loader, with the largest catalog of mods and modpacks.</td><td>Mods</td><td>You'll play a modpack or mods that require Forge.</td></tr>
+        <tr><td>NeoForge</td><td>Successor to Forge on newer versions. Cubicase offers it together with Forge, in the Forge version list.</td><td>Mods</td><td>The mod or modpack asks for NeoForge.</td></tr>
+        <tr><td>Fabric</td><td>A lightweight, fast mod loader, widely used for performance mods.</td><td>Mods</td><td>The mods you want are for Fabric.</td></tr>
+        <tr><td>Paper</td><td>A performance-optimized server that supports plugins.</td><td>Plugins</td><td>You want better performance with many people and admin plugins (players join with regular Minecraft, no mods).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Mods versus plugins</h3>
+  <ul>
+    <li><strong>Mods</strong> (Forge, NeoForge, Fabric) change the game from the inside. In general <strong>players also need to install the same mods</strong>. Cubicase does this for the guest, see <a href="#preparar-jogar">Prepare and play</a>.</li>
+    <li><strong>Plugins</strong> (Paper) run on the server only, and players join with plain Minecraft.</li>
+    <li>Mods and plugins are <strong>not interchangeable</strong>. Each loader requires files made for it and for the chosen Minecraft version.</li>
+  </ul>
+
+  <div class="tut-callout is-tip">
+    <strong>Not sure which to choose?</strong>
+    <p>Start with <strong>Vanilla</strong>. If you want to add mods later, create another server of the right type (or <a href="#importar-modpack">import the modpack</a>, which sets everything up). The type can't be changed on an existing server.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="iniciar-parar" data-title="Start and stop the server" data-group="Hosting (Host)">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Start and stop the server</h2>
+  <p class="tut-lead">How to turn the server and the network on, what each status means, and how to shut down safely.</p>
+
+  <h3>Turning on</h3>
+  <ol class="tut-steps">
+    <li>Select the server in the <span class="ui">Local Servers</span> list. Only one server can run at a time: stop the current one before switching.</li>
+    <li>Click <span class="ui">Start Server</span>. The status goes through <em>Starting</em> until it becomes <em>Online</em>.</li>
+    <li>For your friends to join, the <strong>mesh network</strong> must also be active: use <span class="ui">Start Mesh Network</span> in the <span class="ui">Server Network</span> section. If you start the network with a server selected, Cubicase also starts the Minecraft server automatically as soon as the connection is ready.</li>
+    <li>When the network is active, <span class="ui">Mesh Network Active</span> appears with the code to share.</li>
+  </ol>
+  <div class="tut-callout is-warn">
+    <strong>Server online without the mesh network</strong>
+    <p>If Minecraft is running but the network is off, the app shows a "Mesh network disabled" notice with the <span class="ui">Start Mesh Network</span> button. In that state only people on the same local network (LAN) can join.</p>
+  </div>
+
+  <h3>The first time</h3>
+  <p>The first start can take a while: the app downloads Java (if missing), and Minecraft generates the world. The progress bar shows how it's going and the console shows everything that happens.</p>
+
+  <h3>The statuses</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Offline</td><td>Server turned off.</td></tr>
+        <tr><td>Starting</td><td>Java is up and Minecraft is loading (the app detects "online" by testing the server port).</td></tr>
+        <tr><td>Online</td><td>Ready to receive players.</td></tr>
+        <tr><td>Stopping</td><td>The server is saving the world and shutting down.</td></tr>
+        <tr><td>Crash</td><td>The server closed unexpectedly. See <a href="#crashes">Common errors</a>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Turning off</h3>
+  <ul>
+    <li>Click <span class="ui">Stop Server</span> and wait until it reaches <em>Offline</em>. Cubicase sends the stop command to Minecraft so everything is saved properly.</li>
+    <li><span class="ui">Stop Mesh Network</span> turns off the network only: the server can keep running locally.</li>
+    <li>From the console you can also use <code>stop</code>.</li>
+  </ul>
+  <div class="tut-callout is-danger">
+    <strong>Avoid killing the process</strong>
+    <p>Forcing Java to close, pulling the PC's plug or ending it in Task Manager can corrupt the world. Always stop it with the button. If it happens, restore a <a href="#mundo-backups">backup</a>.</p>
+  </div>
+
+  <h3 id="java">Automatic Java</h3>
+  <p>You don't need to install Java. Cubicase picks and downloads (from Adoptium) the version your Minecraft version requires and keeps it in the app's data folder:</p>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Minecraft</th><th>Java used</th></tr></thead>
+      <tbody>
+        <tr><td>1.16 and earlier</td><td>Java 8</td></tr>
+        <tr><td>1.17 to 1.20.4</td><td>Java 17</td></tr>
+        <tr><td>1.20.5 onwards</td><td>Java 21</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>If a server's Java is corrupted or incompatible, Cubicase detects it, <strong>reinstalls it automatically</strong> and tries to start again, notifying you with "Fixing automatically".</p>
+</article>
+
+<article class="tut-article" id="convidar-amigos" data-title="Invite friends (code and link)" data-group="Hosting (Host)">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Invite friends (code and link)</h2>
+  <p class="tut-lead">Three ways to hand your server to others: code, link and address.</p>
+
+  <h3>Server code</h3>
+  <p>Every server has a code in the format <code>CF-XXXX</code>. To copy it, use <span class="ui">Copy Server Code</span> (or <span class="ui">Copy Code</span>) in the server panel. The guest only needs it <strong>once</strong>, because afterwards the server stays saved in their library.</p>
+
+  <h3>Invite link</h3>
+  <p>
+    The <span class="ui">Copy invite link</span> button copies an address in the format <code>play.cubicase.net/…</code>. When the link is opened, the guest's Cubicase opens and adds the server to the library. This works through the <code>cubicase://join/…</code> protocol, so the guest needs Cubicase installed.
+  </p>
+  <p>The free link is based on the code. With <a href="#plus">Cubicase Plus</a> you can choose a custom address (e.g. <code>play.cubicase.net/my-server</code>) in <a href="#config-servidor">Server Settings</a>.</p>
+
+  <h3>Minecraft address</h3>
+  <p>In <span class="ui">Server Settings → Minecraft address</span> is the address the player uses in the Multiplayer list. The free address is based on the code and only works while the guest is connected through the app. With Plus you can choose your own name.</p>
+
+  <h3>Generating a new code</h3>
+  <p>Next to the code there is the <span class="ui">Generate new code</span> option. Use it when the code leaked or someone you no longer want there has it.</p>
+  <ul>
+    <li>The old code <strong>stops working immediately</strong>: anyone who only had it can no longer join.</li>
+    <li>You need to give the new code to the people who already play with you.</li>
+    <li>You can only generate a new code with the <strong>server stopped</strong>.</li>
+  </ul>
+
+  <div class="tut-callout is-tip">
+    <strong>Want real control over who joins?</strong>
+    <p>The code gives access to anyone who has it. Enable the <a href="#jogadores">whitelist</a> so only approved names can play.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="console" data-title="Server console" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Server console</h2>
+  <p class="tut-lead">Follow what Minecraft and the network are doing, and send commands.</p>
+
+  <h3>The two tabs</h3>
+  <ul>
+    <li><span class="ui">Minecraft Console</span>: all of the server's output (players joining, warnings, errors). It only shows something after you start the server.</li>
+    <li><span class="ui">Mesh Network</span>: private connection logs. Useful for diagnosing when nobody can connect.</li>
+  </ul>
+  <p>The <span class="ui">Clear</span> button wipes what's on screen (it doesn't delete the server's log files).</p>
+
+  <h3>Sending commands</h3>
+  <p>The text box at the bottom of the console only accepts commands when the server is <strong>Online</strong>. Type without the slash and press Enter. Some useful commands:</p>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>say Hello!</code></td><td>Sends a message to everyone.</td></tr>
+        <tr><td><code>list</code></td><td>Lists who is online.</td></tr>
+        <tr><td><code>op Name</code> / <code>deop Name</code></td><td>Gives or removes administrator powers.</td></tr>
+        <tr><td><code>whitelist add Name</code></td><td>Approves a player (with the whitelist on).</td></tr>
+        <tr><td><code>kick Name</code></td><td>Kicks the player (they can come back).</td></tr>
+        <tr><td><code>ban Name</code> / <code>pardon Name</code></td><td>Bans and unbans.</td></tr>
+        <tr><td><code>gamemode creative Name</code></td><td>Changes someone's game mode.</td></tr>
+        <tr><td><code>time set day</code></td><td>Sets it to daytime.</td></tr>
+        <tr><td><code>weather clear</code></td><td>Clears the rain.</td></tr>
+        <tr><td><code>difficulty hard</code></td><td>Changes the difficulty on the spot.</td></tr>
+        <tr><td><code>save-all</code></td><td>Forces the world to be saved.</td></tr>
+        <tr><td><code>stop</code></td><td>Shuts the server down safely.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Many of these commands require your server's version and type to support them. Servers with plugins (Paper) and mods may have extra commands.</p>
+</article>
+
+<article class="tut-article" id="jogadores" data-title="Players: whitelist, operators and bans" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Players: whitelist, operators and bans</h2>
+  <p class="tut-lead">The <span class="ui">Players</span> panel controls who can join and who is in charge of the server, without typing commands.</p>
+
+  <p>With the server online, the actions in this panel are sent as commands through the console and take effect immediately. The panel has four tabs:</p>
+
+  <h3>Online</h3>
+  <p>Shows who is connected right now. With the server off, it says "Server offline — no players connected".</p>
+
+  <h3>Whitelist (approved list)</h3>
+  <p>While the whitelist is <strong>disabled</strong>, anyone with the code can join. A notice in the panel reminds you, with the <span class="ui">Enable whitelist</span> button.</p>
+  <ol class="tut-steps">
+    <li>Click <span class="ui">Enable whitelist</span>.</li>
+    <li>In the <span class="ui">Whitelist</span> tab, type the <span class="ui">Player name</span> (exactly the Minecraft nickname) and click <span class="ui">Add</span>.</li>
+    <li>To remove someone, use <span class="ui">Remove from whitelist</span> and confirm.</li>
+  </ol>
+  <p>You can also turn the whitelist on/off in <span class="ui">Server Settings → Whitelist</span>.</p>
+
+  <h3>Operators</h3>
+  <p>Operators (ops) have administrator permission inside the game: they can use commands such as <code>gamemode</code> and <code>ban</code>. Add with <span class="ui">Make Operator</span>; the list shows each one's UUID and <strong>level</strong>. Remove with <span class="ui">Remove operator</span>.</p>
+  <div class="tut-callout is-warn">
+    <strong>Be careful who becomes an operator</strong>
+    <p>An operator can ban, change game modes and, depending on the level, even shut the server down. Give this power only to people you trust.</p>
+  </div>
+
+  <h3>Banned</h3>
+  <ul>
+    <li><span class="ui">Ban</span>: type the name and, if you like, a <span class="ui">Reason (optional)</span>.</li>
+    <li><span class="ui">Ban IP</span>: blocks an entire IP address.</li>
+    <li>The list has two sections, <em>Banned players</em> and <em>Banned IPs</em>. Use <span class="ui">Unban</span> or <span class="ui">Remove ban</span> to reverse it.</li>
+  </ul>
+  <p>The <span class="ui">Refresh lists</span> button reloads everything in case something changed through a console command.</p>
+</article>
+
+<article class="tut-article" id="mods-plugins" data-title="Mods and plugins" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Mods and plugins</h2>
+  <p class="tut-lead">Install, disable and remove mods (Forge, NeoForge, Fabric) or plugins (Paper) without leaving the app.</p>
+
+  <p>On servers with a mod loader the panel is called <strong>Mods</strong> and uses the <code>mods</code> folder. On Paper servers it is called <strong>Plugins</strong> and uses the <code>plugins</code> folder. Vanilla servers use neither.</p>
+
+  <h3>Search and install online</h3>
+  <ol class="tut-steps">
+    <li>Click <span class="ui">Browse Mods Online</span> (or <span class="ui">Browse Plugins Online</span>). The search uses the <strong>Modrinth</strong> catalog.</li>
+    <li>Type the name (e.g. <code>Sodium</code>, <code>WorldEdit</code>). Results only show what is compatible with this server.</li>
+    <li>Open the item, choose the <strong>Version</strong> (the app filters by Minecraft version and loader) and click <span class="ui">Install</span>.</li>
+    <li>If the item needs other mods (dependencies), the app warns you under <em>Dependencies not detected</em>, with checkboxes to install them together. If you already installed them manually, just uncheck them.</li>
+    <li><strong>Restart the server</strong>: changes to mods and plugins only apply after that.</li>
+  </ol>
+  <div class="tut-callout">
+    <strong>If the search doesn't show up</strong>
+    <p>The search needs the app to detect the server's Minecraft version (on imported servers this can fail). If Modrinth is unreachable, you see "No connection to Modrinth" and a button to try again. Mods already installed can still be managed.</p>
+  </div>
+
+  <h3>Managing what's already installed</h3>
+  <ul>
+    <li><strong>Disable / Enable:</strong> turns a mod off without deleting it (good for testing which mod causes trouble).</li>
+    <li><strong>Delete:</strong> removes the file, with confirmation. You can select several (<span class="ui">Select all</span>) and use <span class="ui">Delete selected mods</span>.</li>
+    <li><span class="ui">Open Mods Folder</span>: opens the folder in Explorer, so you can copy <code>.jar</code> files downloaded from other sites.</li>
+    <li><span class="ui">Refresh list</span>: rereads the folder.</li>
+  </ul>
+
+  <h3>Manual installation</h3>
+  <p>Copy the <code>.jar</code> file into the panel's folder and click <span class="ui">Refresh list</span>. Make sure the mod is for the <strong>same Minecraft version and the same loader</strong> as the server.</p>
+
+  <div class="tut-callout is-tip">
+    <strong>Diagnostic tip</strong>
+    <p>Server crashing after you installed something? Disable the most recently added mods one at a time and restart. See also <a href="#crashes">Common errors</a>.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="mundo-backups" data-title="World and backups" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>World and backups</h2>
+  <p class="tut-lead">Protect your world's progress: manual and automatic backups, restoring and starting over.</p>
+
+  <h3>Manual backup</h3>
+  <ol class="tut-steps">
+    <li><strong>Stop the server.</strong> The app only manages backups while it is off, so it doesn't copy the world in the middle of a write.</li>
+    <li>In the <span class="ui">World</span> tab, click <span class="ui">Back Up Now</span>.</li>
+    <li>The backup appears in the <span class="ui">Backups</span> list.</li>
+  </ol>
+
+  <h3>Automatic backups</h3>
+  <p>Configured in <span class="ui">Settings → Backups</span> (see <a href="#config-app">App settings</a>). When enabled, Cubicase creates a backup on its own:</p>
+  <ul>
+    <li>when the server is <strong>stopped</strong>;</li>
+    <li>when the server <strong>crashes</strong>;</li>
+    <li>periodically in <strong>long sessions</strong> (interval in hours, configurable).</li>
+  </ul>
+  <p>It skips itself if the world hasn't changed since the last one. You set how many backups to keep (<span class="ui">Keep the last N backups</span>): older ones, automatic or manual, are deleted.</p>
+
+  <h3>Restoring a backup</h3>
+  <ol class="tut-steps">
+    <li>Stop the server.</li>
+    <li>In the backup list, click <span class="ui">Restore backup</span> on the one you want.</li>
+    <li>Confirm by typing <code>RESTORE</code>.</li>
+  </ol>
+  <div class="tut-callout is-danger">
+    <strong>Restoring replaces the current world</strong>
+    <p>The world's current progress is lost. If in doubt, back up the current state first.</p>
+  </div>
+
+  <h3>Resetting the world</h3>
+  <p><span class="ui">Reset World</span> permanently deletes the current world; Minecraft generates a new one the next time the server starts. Confirmation requires typing <code>RESET</code>. Make a backup first if there is any chance you'll want the old world back.</p>
+
+  <h3>Where backups are kept</h3>
+  <p>They live in a <code>CubicaseBackups</code> folder, separated by server name. If you rename the server, Cubicase moves the backups along; if it can't, it tells you where they stayed so you can move them manually.</p>
+  <div class="tut-callout is-tip">
+    <strong>Good practice</strong>
+    <p>Backups on the same machine don't protect against a disk failure. From time to time, copy the <code>CubicaseBackups</code> folder to a flash drive or the cloud.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="config-servidor" data-title="Server Settings" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Server Settings</h2>
+  <p class="tut-lead">A form for all the <code>server.properties</code> options and more, with no file editing.</p>
+
+  <p>Open it with the <span class="ui">Server Settings</span> button in the server panel. Two important rules:</p>
+  <ul>
+    <li>Options can only be changed with the <strong>server stopped</strong>. While it is running, the app says "Server running".</li>
+    <li>If the app can't read the real settings, it <strong>locks the form</strong> instead of risking overwriting everything with wrong values. Close it and try again.</li>
+  </ul>
+
+  <h3>Identity</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Field</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Server Name</td><td>Renames the server (same rules as at creation). Backups go with it. <strong>Imported servers can't be renamed</strong>, since the name comes from the original folder.</td></tr>
+        <tr><td>Invite link</td><td>The <code>play.cubicase.net/…</code> link. Free: based on the code. Plus: custom.</td></tr>
+        <tr><td>Minecraft address</td><td>Address to type in Multiplayer. Free: based on the code. Plus: custom.</td></tr>
+        <tr><td>Server Icon</td><td>Image shown in the players' Minecraft server list. Non-square images are cropped to the center and resized to 64×64. Restart the server for it to apply.</td></tr>
+        <tr><td>Message of the Day (motd)</td><td>The text shown under the name in the server list.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Game rules</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Field</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Game Mode</td><td>Survival, Creative, Adventure or Spectator. It is the default mode for anyone who joins.</td></tr>
+        <tr><td>Difficulty</td><td>Peaceful, Easy, Normal or Hard.</td></tr>
+        <tr><td>Hardcore</td><td>Die and you're banned from the world. Use with care.</td></tr>
+        <tr><td>Whitelist</td><td>Turns the whitelist on (see <a href="#jogadores">Players</a>).</td></tr>
+        <tr><td>Allow Flight</td><td>Stops the server from kicking players who "fly" (needed by some mods; it stops protecting against cheats).</td></tr>
+        <tr><td>Allow Nether</td><td>Enables or disables the Nether dimension.</td></tr>
+        <tr><td>Spawn Monsters / Animals / Villagers</td><td>Controls whether each kind of creature spawns.</td></tr>
+        <tr><td>Max Players</td><td>Limit of simultaneous players.</td></tr>
+        <tr><td>World Seed</td><td>Read-only: the seed is only chosen at creation.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Security and account</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Field</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Online Mode</td><td>Checks that each player has an official Minecraft account. On (default) is the safest: it stops someone from impersonating another person. Turning it off allows unofficial accounts, but anyone can join using someone else's nickname.</td></tr>
+        <tr><td>Secure Profile</td><td>Requires players' chat messages to be signed (a chat moderation feature in the most recent versions).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Performance and network</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Field</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>View Distance</td><td>How many chunks the server sends around each player. High values make the world prettier but weigh on CPU/RAM/network. If there is lag, it is the first thing to lower.</td></tr>
+        <tr><td>Allocated RAM</td><td>The server's memory. Same warnings as at creation: under 3 GB can cause slowdowns; leaving under 2 GB free for Windows is dangerous.</td></tr>
+        <tr><td>Server Port</td><td>Minecraft's local port (between 1024 and 65535; default 25565). You don't need to open this port on your router; only change it if another program already uses it.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Click <span class="ui">Save</span> to apply. Changes take effect the next time the server starts.</p>
+</article>
+
+<article class="tut-article" id="importar-servidor" data-title="Import an existing server" data-group="Hosting (Host)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Import an existing server</h2>
+  <p class="tut-lead">Already have a Minecraft server in a folder? Bring it into Cubicase without copying or losing anything.</p>
+
+  <ol class="tut-steps">
+    <li>In the <span class="ui">Local Servers</span> list, click <strong>+</strong> and choose <span class="ui">Import Existing Server</span>.</li>
+    <li>Select the folder where the server is (the one that contains the <code>server.jar</code> or equivalent).</li>
+    <li>Cubicase analyzes the folder and detects the type and version. Then the server appears in the list and the log confirms the import.</li>
+  </ol>
+
+  <h3>What changes for imported servers</h3>
+  <ul>
+    <li>Files <strong>stay in the original folder</strong>. Cubicase just starts managing them there.</li>
+    <li>You <strong>can't rename</strong> the server through Cubicase, since the name comes from the folder.</li>
+    <li>If the Minecraft version isn't detected, the online mod search is unavailable and the version shows as "Not found".</li>
+    <li>A server that is already in the list can't be imported again ("Server already imported").</li>
+  </ul>
+
+  <h3>Removing from the list</h3>
+  <p>When you delete an imported server, Cubicase only <strong>removes it from the list</strong>. The original files in the folder are <strong>not deleted</strong>. For servers created by Cubicase, deletion wipes everything (see <a href="#excluir-servidor">Delete a server</a>).</p>
+</article>
+
+<article class="tut-article" id="importar-modpack" data-title="Import a modpack" data-group="Hosting (Host)">
+  <span class="tut-tag is-adv">Advanced</span>
+  <h2>Import a modpack</h2>
+  <p class="tut-lead">Create a modded server from a modpack file, with the loader, version and mods set up automatically.</p>
+
+  <p>Cubicase accepts two formats: <code>.zip</code> (CurseForge) and <code>.mrpack</code> (Modrinth).</p>
+  <ol class="tut-steps">
+    <li>Download the modpack file from the CurseForge or Modrinth website.</li>
+    <li>In the <span class="ui">Local Servers</span> list, click <strong>+</strong> and choose <span class="ui">Import Modpack (.zip/.mrpack)</span>.</li>
+    <li>Click <span class="ui">Click to select the file</span> and choose the modpack.</li>
+    <li>The app reads the pack and shows a summary: Minecraft version, loader and number of mods.</li>
+    <li>Enter the <strong>Server Name</strong> and the <strong>Allocated RAM</strong> (big modpacks need a lot) and click <span class="ui">Import Modpack</span>.</li>
+    <li>Wait: Cubicase installs the mod loader and downloads all the mods. The bar shows the percentage and large modpacks can take a few minutes.</li>
+  </ol>
+
+  <div class="tut-callout is-warn">
+    <strong>Mods that need a manual download</strong>
+    <p>Some authors disable third-party distribution. In that case the app lists the mods that <strong>couldn't be downloaded</strong> automatically. Download them yourself and put them in the server's <code>mods</code> folder after importing (use <span class="ui">Open Mods Folder</span> → <span class="ui">Refresh list</span>).</p>
+  </div>
+  <p>Once imported, your friends join as usual. Their <span class="ui">Prepare and Play</span> installs the same mods on each person's machine (see <a href="#preparar-jogar">Prepare and play</a>).</p>
+</article>
+
+<article class="tut-article" id="excluir-servidor" data-title="Delete a server" data-group="Hosting (Host)">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Delete a server</h2>
+  <p class="tut-lead">How to delete a server and exactly what is lost.</p>
+
+  <ol class="tut-steps">
+    <li>Stop the server. A running server can't be deleted.</li>
+    <li>In the <span class="ui">Local Servers</span> list, use <span class="ui">Delete Server</span> on the server you want.</li>
+    <li>To confirm, type the server name and click <span class="ui">Delete Permanently</span>.</li>
+  </ol>
+  <div class="tut-callout is-danger">
+    <strong>There's no undo</strong>
+    <p>For servers created by Cubicase, <strong>all worlds, settings and data are deleted</strong>. If you want to keep the world, copy the server folder or the backups first. The server is also removed from the central code system, and the code stops working.</p>
+  </div>
+  <p>For <a href="#importar-servidor">imported</a> servers, only the list entry is removed.</p>
+</article>
+
+<!-- ==================================================================== -->
+<!-- PLAYING                                                               -->
+<!-- ==================================================================== -->
+
+<article class="tut-article" id="entrar-servidor" data-title="Join a friend's server" data-group="Playing (Guest)">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Join a friend's server</h2>
+  <p class="tut-lead">You received a code or a link. Here is how to turn that into gameplay.</p>
+
+  <h3>Option 1: code</h3>
+  <ol class="tut-steps">
+    <li>Install Cubicase and open the <span class="ui">Guest</span> tab.</li>
+    <li>Click <span class="ui">Add Server</span> (or <span class="ui">Add First Server</span>, if the library is empty).</li>
+    <li>Paste the <span class="ui">Invite Code</span> (something like <code>CF-XXXX</code>) and click <span class="ui">Add</span>.</li>
+    <li>The server enters your library. Now go on to <a href="#preparar-jogar">Prepare and play</a>.</li>
+  </ol>
+
+  <h3>Option 2: invite link</h3>
+  <p>If the host sent a <code>play.cubicase.net/…</code> link, just open it: Cubicase opens and shows "Server added". If the link is invalid or has expired, the app tells you to check with the host.</p>
+
+  <h3>The library</h3>
+  <p>You only need the code <strong>once</strong>: afterwards the server stays saved in <span class="ui">Known Servers</span>. Each card shows name, version, status, players (e.g. 3/8) and there are shortcuts for:</p>
+  <ul>
+    <li><span class="ui">Copy server code</span> and <span class="ui">Copy address</span>;</li>
+    <li><span class="ui">Refresh status</span>, to query again who is online;</li>
+    <li><span class="ui">Remove from library</span>, which only takes it off your list and doesn't affect the server.</li>
+  </ul>
+  <p>If one of the servers is yours, it appears marked <span class="ui">Mine</span>.</p>
+
+  <h3>Common error messages</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Message</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Enter an invite code</td><td>The field is empty.</td></tr>
+        <tr><td>Server not found</td><td>Check the code (letters/numbers). The host may have generated a new code.</td></tr>
+        <tr><td>This server is already in your library</td><td>Look in the list, it's already there.</td></tr>
+        <tr><td>Couldn't connect to the Central API</td><td>Your internet is down or unstable. Try again.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</article>
+
+<article class="tut-article" id="preparar-jogar" data-title="Prepare and play (automatic mods)" data-group="Playing (Guest)">
+  <span class="tut-tag is-basic">Basic</span>
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Prepare and play</h2>
+  <p class="tut-lead">The button that installs everything the server requires and opens Minecraft already connected.</p>
+
+  <h3>Server without mods</h3>
+  <p>Click <span class="ui">Play</span>. Cubicase opens Minecraft set up to connect to that server.</p>
+
+  <h3>Server with mods</h3>
+  <p>Here <span class="ui">Prepare and Play</span> appears. When you click it, a <em>Prepare &lt;server&gt;</em> window checks what you already have and shows what it is going to do:</p>
+  <ul>
+    <li>Install the loader (Forge, NeoForge or Fabric) in the right version in your Minecraft, if it isn't there yet.</li>
+    <li>Select the right profile in the Minecraft Launcher.</li>
+    <li>Download the missing mods, straight from <strong>Modrinth</strong>, copy them from the server folder (if the server is on your computer) or download them from the host itself when they don't exist in a public catalog.</li>
+    <li><strong>Isolate everything in a folder of its own for this server</strong>, without affecting your regular Minecraft or other servers.</li>
+  </ul>
+  <p>Click <span class="ui">Prepare now</span> and follow each mod: <em>ok</em>, <em>Modrinth…</em>, <em>copying…</em>, <em>host…</em> or <em>failed</em>.</p>
+
+  <h3>When it finishes</h3>
+  <ul>
+    <li><strong>All good:</strong> "Ready to play!". Click <span class="ui">Open Minecraft</span>.</li>
+    <li><strong>Some failed:</strong> the window lists which ones. Use <span class="ui">Try again</span>. If that doesn't fix it, you can <span class="ui">Continue anyway</span>, but the server may reject the connection or the game may crash because of the missing mod.</li>
+  </ul>
+  <div class="tut-callout">
+    <strong>If Minecraft isn't found</strong>
+    <p>Cubicase needs to find the Minecraft Java installation (with the Launcher). If it can't, it tells you and you connect manually. See <a href="#conectar-manual">Manual connection</a>.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="conectar-manual" data-title="Manual connection and tunnel" data-group="Playing (Guest)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Manual connection and tunnel</h2>
+  <p class="tut-lead">How the connection works under the hood, and how to connect the "classic" way through the Multiplayer list.</p>
+
+  <h3>Connect / Disconnect</h3>
+  <p>When you click <span class="ui">Connect</span> on the server card, Cubicase establishes a <strong>tunnel</strong> through the private network to the host. When it finishes, the card shows <em>Connected</em> and the message "Connect to &lt;address&gt; in your Minecraft".</p>
+  <ul>
+    <li>The app tries to <strong>automatically</strong> add the server to your Minecraft Multiplayer list.</li>
+    <li>If it can't find your installation or fails, copy the address with <span class="ui">Copy address</span> and add it yourself: in Minecraft, <em>Multiplayer → Add Server</em>, and paste the address.</li>
+    <li>When you're done playing, click <span class="ui">Disconnect</span> to end the tunnel.</li>
+  </ul>
+
+  <h3>One tunnel at a time</h3>
+  <p>One Cubicase installation uses the private network either as a <strong>host</strong> or as a <strong>guest</strong> at a time. If you're connected as a guest, the host's network button is locked ("In use by Guest mode"), and vice versa. Stop one before using the other.</p>
+
+  <h3>Local guest port</h3>
+  <p>In <span class="ui">System Settings</span> there is the <span class="ui">Local Guest Port</span> (default 25565): the local port used <em>only when you join someone else's server</em>. It doesn't affect the servers you host, whose port is set in <a href="#config-servidor">Server Settings</a>. Only change it if another program is already using 25565.</p>
+</article>
+
+<article class="tut-article" id="status-servidor" data-title="Status and “Wake server”" data-group="Playing (Guest)">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Status and “Wake server”</h2>
+  <p class="tut-lead">What each label on the server card is telling you.</p>
+
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Status</th><th>Meaning</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Online</td><td>Server up, with the network active.</td><td>Connect and play.</td></tr>
+        <tr><td>Server starting</td><td>The host has just turned it on.</td><td>Wait a moment.</td></tr>
+        <tr><td>Server shutting down</td><td>The host is stopping the server.</td><td>Wait or talk to them.</td></tr>
+        <tr><td>Server error</td><td>The server went down (crash).</td><td>Let the host know.</td></tr>
+        <tr><td>Server stopped / Offline</td><td>The server isn't running, or the host doesn't have Cubicase open.</td><td>Ask the host to turn it on.</td></tr>
+        <tr><td>Running without mesh network</td><td>Minecraft is up, but the host didn't turn on the mesh network. Only people on the same LAN can join.</td><td>Ask the host to click <em>Start Mesh Network</em>.</td></tr>
+        <tr><td>Standby</td><td>An on-demand server that is asleep (a Plus feature).</td><td>Use <span class="ui">Wake server</span>.</td></tr>
+        <tr><td>Unconfirmed / Status out of date</td><td>The app couldn't confirm the status recently with the central system.</td><td>Click <span class="ui">Refresh status</span> and check your internet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Wake server</h3>
+  <p>When the host uses the <a href="#plus">on-demand server</a>, the server stays in <em>Standby</em> until someone needs it. Click <span class="ui">Wake server</span>: the app shows "Waking up, please wait…" and turns the server on. If you ask again too quickly, it tells you to wait a few seconds. If the server takes too long, try again.</p>
+
+  <h3>Without internet</h3>
+  <p>Without a connection to the central system, a notice appears in the library: the information shown is from the <strong>last saved snapshot</strong> and may be out of date.</p>
+</article>
+
+<!-- ==================================================================== -->
+<!-- APP SETTINGS                                                          -->
+<!-- ==================================================================== -->
+
+<article class="tut-article" id="config-app" data-title="App settings" data-group="Settings and account">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>App settings</h2>
+  <p class="tut-lead">The <span class="ui">Settings</span> button gathers Cubicase's general preferences, in sections.</p>
+
+  <h3>Home</h3>
+  <p><span class="ui">Tab on startup</span>: choose between <em>Host</em> (host a server) and <em>Guest</em> (connect to a server). It is the screen that appears when Cubicase starts.</p>
+
+  <h3>Backups</h3>
+  <ul>
+    <li><span class="ui">Automatic world backup</span>: turns automatic creation on/off (on stop, on crash and periodically).</li>
+    <li><span class="ui">Keep the last N backups</span>: how many to keep. Older ones, automatic or manual, are deleted.</li>
+    <li><span class="ui">Safety backup interval (hours)</span>: in long sessions that are never stopped, creates an extra backup every so many hours.</li>
+  </ul>
+  <p>Details on restoring in <a href="#mundo-backups">World and backups</a>.</p>
+
+  <h3>Theme and language</h3>
+  <ul>
+    <li><span class="ui">Light / dark mode</span>: also reachable from the switch in the top bar.</li>
+    <li><span class="ui">Language</span>: the app interface language. In <em>Automatic</em> it follows the Windows language.</li>
+  </ul>
+
+  <h3>Account and Subscription</h3>
+  <p>See <a href="#conta">Account and sign-in</a> and <a href="#plus">Cubicase Plus</a>.</p>
+</article>
+
+<article class="tut-article" id="conta" data-title="Account and sign-in" data-group="Settings and account">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Account and sign-in</h2>
+  <p class="tut-lead">An account is optional. It is used for Cubicase Plus and to link servers to a profile.</p>
+
+  <h3>Signing in</h3>
+  <ol class="tut-steps">
+    <li>Open <span class="ui">Settings → Account</span> and click <span class="ui">Sign in</span>.</li>
+    <li>The browser opens the Cubicase sign-in page. You can sign in with <strong>Google</strong>, <strong>Discord</strong> or a <strong>magic link</strong> (a link sent to your email).</li>
+    <li>Once signed in, the browser hands you back to the app, which then shows "Signed in as &lt;your email&gt;" and the linked providers.</li>
+  </ol>
+
+  <h3>Setting a password (optional)</h3>
+  <p>Under <span class="ui">Set password</span> you can create a password to sign in without depending on the magic link/Google/Discord. Minimum of 6 characters.</p>
+
+  <h3>Signing out</h3>
+  <p><span class="ui">Sign out</span> disconnects this computer. Your servers keep working normally.</p>
+</article>
+
+<article class="tut-article" id="plus" data-title="Cubicase Plus" data-group="Settings and account">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Cubicase Plus</h2>
+  <p class="tut-lead">Cubicase is free. Plus is an optional subscription that unlocks extra features.</p>
+
+  <h3>What Plus unlocks</h3>
+  <ul>
+    <li><strong>On-demand server:</strong> the server starts on its own when someone tries to join and shuts down on its own after a while with no players.</li>
+    <li><strong>Custom invite link:</strong> <code>play.cubicase.net/your-name</code>.</li>
+    <li><strong>Custom Minecraft address:</strong> an easy-to-remember name instead of the code-based one.</li>
+  </ul>
+
+  <h3>Subscribing</h3>
+  <ol class="tut-steps">
+    <li>Sign in to your account (see <a href="#conta">Account and sign-in</a>).</li>
+    <li>In <span class="ui">Settings → Subscription</span>, choose the <span class="ui">Monthly</span> or <span class="ui">Annual</span> plan.</li>
+    <li>Complete the payment on the secure page that opens in the browser.</li>
+  </ol>
+  <p>After subscribing, the active plan appears with the renewal (or cancellation) date. <span class="ui">Manage subscription</span> opens the portal to switch plans, update payment or cancel.</p>
+
+  <h3>Setting up the on-demand server</h3>
+  <ol class="tut-steps">
+    <li>Select a server in the <span class="ui">Host</span> tab (a server must be selected).</li>
+    <li>In <span class="ui">Settings → Subscription → On-demand server</span>, turn the option on.</li>
+    <li>Set <span class="ui">Shut down with no players after</span> how many minutes.</li>
+  </ol>
+  <div class="tut-callout is-warn">
+    <strong>Start the server at least once first</strong>
+    <p>Standby mode needs the server's Java to be installed already. If "Java isn't installed for this server yet" appears, start the server manually once.</p>
+  </div>
+  <p>With the mode on, the server panel shows the notice <em>“Shutting down for inactivity in N s”</em> shortly before shutting down, with the <span class="ui">Keep running</span> button to cancel.</p>
+</article>
+
+<article class="tut-article" id="painel-web" data-title="Web panel" data-group="Settings and account">
+  <span class="tut-tag is-adv">Advanced</span>
+  <h2>Web panel</h2>
+  <p class="tut-lead">Monitor and control your servers from the browser, from anywhere.</p>
+
+  <p>The panel is at <a href="/painel/">cubicase.net/painel</a>. You sign in with the same account used in the app (Google, Discord or magic link).</p>
+
+  <h3>What you can do</h3>
+  <ul>
+    <li>See the servers linked to your account and the state of each one (online/offline).</li>
+    <li>Start and stop servers remotely. <strong>Cubicase must be open on the host's computer</strong>: the panel sends the request and the app carries it out.</li>
+    <li>Follow the console and send commands, when you have permission to.</li>
+    <li><strong>Share access</strong>: give other people permissions over the server (for example, view only or also control), without handing over your account.</li>
+  </ul>
+
+  <div class="tut-callout is-tip">
+    <strong>When it's useful</strong>
+    <p>Turning the server on from your phone before you get home, or letting a trusted friend restart the server when you're away.</p>
+  </div>
+  <p>If the panel asks to start a server while another one is already running, the app refuses and tells you ("Remote start refused"), because only one server runs at a time.</p>
+</article>
+
+<article class="tut-article" id="segundo-plano" data-title="Background and closing the app" data-group="Settings and account">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Background and closing the app</h2>
+  <p class="tut-lead">Closing the window doesn't have to take the server down.</p>
+
+  <p>When you close the window with the server or the network active, Cubicase asks:</p>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Option</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr><td>Keep running in the background</td><td>The window disappears, but the server and the mesh network keep running. Ideal for leaving your friends playing.</td></tr>
+        <tr><td>Close everything</td><td>Stops the server, the mesh network and the app.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The app stays active in the system tray (near the clock). To bring the window back, click its icon.</p>
+  <div class="tut-callout is-warn">
+    <strong>Restarting Windows or turning off the PC</strong>
+    <p>Turns everything off. If your PC sleeps or hibernates, the server becomes unreachable: set Windows not to suspend while you're hosting.</p>
+  </div>
+</article>
+
+<!-- ==================================================================== -->
+<!-- PROBLEMS                                                              -->
+<!-- ==================================================================== -->
+
+<article class="tut-article" id="diagnosticos" data-title="Diagnostics and automatic alerts" data-group="Problems and questions">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <span class="tut-tag is-adv">Advanced</span>
+  <h2>Diagnostics and automatic alerts</h2>
+  <p class="tut-lead">Cubicase watches the server and your PC and warns you before a problem ruins the session.</p>
+
+  <h3>Diagnostics Center</h3>
+  <p>Every important warning goes into the <span class="ui">Diagnostics Center</span> history, classified by source (<em>Network, Server, Panel, Invite, Installation, Backup</em>) and level (<em>Info, Warning, Error, Critical</em>). Use <span class="ui">Dismiss</span> to close a warning and <span class="ui">Clear history</span> to empty the list.</p>
+
+  <h3>Lag detection</h3>
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Alert</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td>Server lagging</td><td>The server struggled to keep up with the game several times in the last minute. Usually heavy mods, excessive terrain generation or little RAM/CPU.</td></tr>
+        <tr><td>Severe lag</td><td>The server is many milliseconds behind and may freeze soon.</td></tr>
+        <tr><td>Server freezing (Watchdog)</td><td>Minecraft itself detected a serious freeze: some mod or plugin may be in a loop. If it repeats, the server may go down.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Resource analysis</h3>
+  <p>When there is lag, the app checks whether the bottleneck is the processor or the memory of the PC, and tells you which:</p>
+  <ul>
+    <li><strong>CPU at its limit:</strong> lower the View Distance, remove heavy mods or (long term) upgrade the processor.</li>
+    <li><strong>RAM almost full:</strong> lower the RAM allocated to the server, close other programs or add RAM to the PC.</li>
+    <li><strong>Neither at the limit:</strong> the likely cause is a specific mod/plugin or too many entities/players loaded.</li>
+  </ul>
+  <p>There are also <em>sustained pressure</em> warnings: the computer's CPU or RAM above normal for a few minutes, even before lag shows up. A <strong>computer RAM/CPU</strong> usage bar (not just the server's) is always visible in the panel.</p>
+
+  <h3>Out of memory (OutOfMemory)</h3>
+  <p>If the server runs out of RAM, the app compares what you allocated with the PC's total:</p>
+  <ul>
+    <li>If the PC has <strong>headroom</strong>, it suggests a safe value to raise in <span class="ui">Server Settings</span>.</li>
+    <li>If the PC is <strong>already at its limit</strong>, it suggests reducing mods/players, lowering the allocated RAM a bit or upgrading the RAM.</li>
+  </ul>
+</article>
+
+<article class="tut-article" id="crashes" data-title="Common errors and crashes" data-group="Problems and questions">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <span class="tut-tag is-adv">Advanced</span>
+  <h2>Common errors and crashes</h2>
+  <p class="tut-lead">When the server closes on its own, Cubicase reads the log and explains the most likely cause in plain language.</p>
+
+  <p>A red notice appears in the panel with the title and explanation. Click <span class="ui">Show technical details</span> for the raw log excerpt (useful when asking for help). If Automatic backup is on, a backup is also made on the crash. Causes the app recognizes:</p>
+
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Diagnosis</th><th>Cause and fix</th></tr></thead>
+      <tbody>
+        <tr><td>Two mods with the same ID</td><td>A mod is duplicated (downloaded twice, or bundled inside another). Delete the extra copy from the <code>mods</code> folder.</td></tr>
+        <tr><td>A mod or library is missing</td><td>A mod requires another (a dependency) that isn't installed or is an incompatible version. Install what's missing. The online mod search suggests dependencies.</td></tr>
+        <tr><td>Mod conflict (mixin)</td><td>Two mods change the same part of the game. Find the last mod added, disable one of the two and test.</td></tr>
+        <tr><td>Mod incompatible with the version</td><td>A mod was made for another Minecraft or Forge version. Check that all of them match the server's version.</td></tr>
+        <tr><td>Corrupted world</td><td>A region/chunk file is damaged (power loss, forced shutdown). Restore a <a href="#mundo-backups">backup</a>.</td></tr>
+        <tr><td>Out of memory (OutOfMemoryError)</td><td>Increase the allocated RAM (if the PC has headroom) or reduce mods/players. See <a href="#diagnosticos">Diagnostics</a>.</td></tr>
+        <tr><td>Server froze (Watchdog)</td><td>A mod or plugin stuck in a loop, a query that is too heavy, or a slow disk/network. Check in the details which mod shows up near the error.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>A general method to find the culprit</h3>
+  <ol class="tut-steps">
+    <li>Read Cubicase's notice and the <em>technical details</em>.</li>
+    <li>Remember what changed: did you install a mod? change a setting? raise the view distance?</li>
+    <li>Undo the last change (disable the mod, restore the setting).</li>
+    <li>If the world may be damaged, restore a backup.</li>
+    <li>If nothing works, ask for help with the log in hand, in Issues on <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>.</li>
+  </ol>
+</article>
+
+<article class="tut-article" id="problemas-conexao" data-title="Nobody can join" data-group="Problems and questions">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Nobody can join</h2>
+  <p class="tut-lead">A checklist in the order problems show up most often.</p>
+
+  <h3>On the host's side</h3>
+  <ol class="tut-steps">
+    <li>Is the server <strong>Online</strong>? (If it's <em>Starting</em>, wait.)</li>
+    <li>Is the <strong>mesh network</strong> active, showing <span class="ui">Mesh Network Active</span>? If the "Mesh network disabled" notice is showing, click <span class="ui">Start Mesh Network</span>.</li>
+    <li>Is Cubicase <strong>open</strong> and the PC <strong>not asleep</strong>?</li>
+    <li>Did you <strong>not generate a new code</strong> recently? If you did, hand out the new code.</li>
+    <li>Are you currently using the app as a <em>guest</em> of another server? That occupies the network (see <a href="#conectar-manual">Manual connection and tunnel</a>).</li>
+    <li>Look at the <span class="ui">Mesh Network</span> tab of the console for errors.</li>
+  </ol>
+
+  <h3>On the guest's side</h3>
+  <ol class="tut-steps">
+    <li>Is the code correct? "Server not found" points to a wrong or old code.</li>
+    <li>Is the status on the card <em>Online</em>? If it's <em>Running without mesh network</em> or <em>Offline</em>, the problem is on the host's side.</li>
+    <li>Did you use <span class="ui">Prepare and Play</span> (or <span class="ui">Connect</span>) and wait for "Connected"?</li>
+    <li>Do your version/mods match the server's? Run <span class="ui">Prepare and Play</span> again to reinstall what's missing.</li>
+    <li>Does the server use a <em>whitelist</em>? Ask the host to add your exact nickname.</li>
+    <li>Official Minecraft account: with <em>Online Mode</em> on (default), only people with an official account can join.</li>
+    <li>Try <span class="ui">Disconnect</span> and <span class="ui">Connect</span> again.</li>
+  </ol>
+
+  <div class="tut-callout is-tip">
+    <strong>Same version!</strong>
+    <p>Messages such as "incompatible version" in Minecraft mean the player and the server are on different versions. In Guest mode the <span class="ui">Prepare and Play</span> button already opens the correct profile.</p>
+  </div>
+</article>
+
+<article class="tut-article" id="ajuda-contato" data-title="Help center and contact" data-group="Problems and questions">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Help center and contact</h2>
+  <p class="tut-lead">Found a bug, have a question or an idea? Talk directly to the people who make Cubicase, without leaving the program.</p>
+
+  <ol class="tut-steps">
+    <li>Click the <span class="ui">?</span> button in the app's top bar.</li>
+    <li>Choose the <span class="ui">Type</span>: <em>Bug</em>, <em>Problem or question</em>, <em>Suggestion</em> or <em>Something else</em>.</li>
+    <li>Write the <span class="ui">Subject</span> (one sentence) and the <span class="ui">Description</span>: what happened, what you expected and, if you can, the steps to reproduce.</li>
+    <li>Enter <span class="ui">Your email</span>: that's where the reply goes. It stays saved on this computer for next time.</li>
+    <li>Leave the option to include the app and system version checked (it helps us fix things faster) and click <span class="ui">Send message</span>.</li>
+  </ol>
+  <div class="tut-callout is-tip">
+    <strong>How to write a good report</strong>
+    <p>Say the Minecraft version, the server type (Vanilla, Forge…), whether there are mods, and what appeared in the console or the Diagnostics Center. The more detail, the faster the fix.</p>
+  </div>
+  <p>The same window has the <span class="ui">Quick guides</span>, shortcuts that open the most useful articles of this tutorial in your browser.</p>
+  <p>About privacy: we use your email only to reply to the message. Nothing beyond what you wrote and the app and system version (if you leave it checked) is sent.</p>
+</article>
+
+<article class="tut-article" id="faq" data-title="Frequently asked questions" data-group="Problems and questions">
+  <span class="tut-tag is-basic">Basic</span>
+  <h2>Frequently asked questions</h2>
+
+  <h3>Is it free?</h3>
+  <p>Yes. Cubicase is free and open source. <a href="#plus">Cubicase Plus</a> is an optional subscription with extra features.</p>
+
+  <h3>Do I need to open ports on my router?</h3>
+  <p>No. The connection goes through a private (mesh) network, without exposing your router.</p>
+
+  <h3>Do my friends need to install Cubicase?</h3>
+  <p>To join with the code/link, yes: their Cubicase makes the connection (and installs the mods, if any). Only the host creates the server.</p>
+
+  <h3>Does the server work with my PC turned off?</h3>
+  <p>No. The server runs on your computer. If the PC or Cubicase is off, nobody can join. Plus's on-demand mode starts the server when someone arrives, but the computer must be on.</p>
+
+  <h3>How many players can it handle?</h3>
+  <p>It depends on your RAM, CPU and internet, and on the server type. Start with a few friends and watch the RAM/CPU usage in the panel. If there is lag, see <a href="#diagnosticos">Diagnostics</a>.</p>
+
+  <h3>Can I have several servers?</h3>
+  <p>Yes, several in the list, but <strong>only one runs at a time</strong>.</p>
+
+  <h3>Can I play on Bedrock, on a phone or on a console?</h3>
+  <p>Cubicase is made for Minecraft <strong>Java Edition</strong> on Windows.</p>
+
+  <h3>I changed PCs. How do I take my server with me?</h3>
+  <p>Copy the server folder (or the backup) to the new computer and use <a href="#importar-servidor">Import Existing Server</a>.</p>
+
+  <h3>Where are the server files?</h3>
+  <p>In <span class="ui">Server Network → Local settings → Server Directory</span> the path is shown, with the <span class="ui">Choose directory</span> button.</p>
+
+  <h3>How do I change the app language?</h3>
+  <p>In <span class="ui">Settings → Language</span>.</p>
+
+  <h3>I found a bug or have a suggestion</h3>
+  <p>Use the <span class="ui">?</span> button in the app (see <a href="#ajuda-contato">Help center and contact</a>). You can also open an issue on the <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">project's GitHub</a>, ideally with the text of the error's <em>technical details</em>.</p>
+</article>
+
+<article class="tut-article" id="glossario" data-title="Glossary" data-group="Problems and questions">
+  <span class="tut-tag is-basic">Reference</span>
+  <h2>Glossary</h2>
+  <p class="tut-lead">Terms that appear in the app and in this tutorial.</p>
+
+  <div class="tut-table-wrap">
+    <table class="tut-table">
+      <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Host</td><td>The person who hosts the server on their own PC.</td></tr>
+        <tr><td>Guest</td><td>The person who joins someone else's server.</td></tr>
+        <tr><td>Mesh network</td><td>A virtual private network that links host and guests directly, without opening router ports.</td></tr>
+        <tr><td>Tunnel</td><td>The connection created by the mesh network between you and the host.</td></tr>
+        <tr><td>Code (CF-XXXX)</td><td>Short server identifier, used for inviting.</td></tr>
+        <tr><td>Vanilla</td><td>Pure Minecraft, with no mods or plugins.</td></tr>
+        <tr><td>Mod</td><td>A game modification. Needs a mod loader (Forge, NeoForge or Fabric).</td></tr>
+        <tr><td>Mod loader</td><td>The program that loads mods (Forge, NeoForge, Fabric).</td></tr>
+        <tr><td>Plugin</td><td>An extension that runs on the server only (Paper). Players join with the plain game.</td></tr>
+        <tr><td>Modpack</td><td>A ready-made bundle of mods and settings (CurseForge <code>.zip</code>, Modrinth <code>.mrpack</code>).</td></tr>
+        <tr><td>Modrinth</td><td>The open catalog of mods and plugins used by the app's search.</td></tr>
+        <tr><td>JRE / Java</td><td>The environment that runs the server. Cubicase downloads the right one automatically.</td></tr>
+        <tr><td>Allocated RAM</td><td>The memory the server may use.</td></tr>
+        <tr><td>Whitelist</td><td>List of approved players; only they can join.</td></tr>
+        <tr><td>Operator (op)</td><td>A player with administrator powers.</td></tr>
+        <tr><td>Seed</td><td>A number that defines how the world is generated. Only chosen at creation.</td></tr>
+        <tr><td>MOTD</td><td>"Message of the day": text shown in the server list.</td></tr>
+        <tr><td>View distance</td><td>How many chunks are loaded around each player.</td></tr>
+        <tr><td>Chunk</td><td>A 16×16 block of the world, the unit the server loads.</td></tr>
+        <tr><td>Watchdog</td><td>Minecraft's internal guard that takes the server down when it freezes.</td></tr>
+        <tr><td>Online Mode</td><td>Verification of players' official accounts.</td></tr>
+        <tr><td>On-demand mode</td><td>A Plus feature: starts the server when someone arrives and shuts it down with no players.</td></tr>
+        <tr><td>LAN</td><td>Local network (the same home/router).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tut-callout is-tip">
+    <strong>Ready to get started?</strong>
+    <p>Go back to the start of the tutorial with <a href="#visao-geral">What is Cubicase</a> or <a href="/en/download/">download the program</a>.</p>
+  </div>
+</article>
+
+    </div>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/assets/icon-dark.png" alt="" width="18" height="18" />
+        © 2026 Cubicase
+      </div>
+      <div class="footer-links">
+        <a href="/en/">Home</a>
+        <a href="/en/download/">Download</a>
+        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FelipoArts/cubeforge/releases" target="_blank" rel="noopener">Releases</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/assets/site.js"></script>
+  <script src="/assets/tutorial.js"></script>
+</body>
+</html>

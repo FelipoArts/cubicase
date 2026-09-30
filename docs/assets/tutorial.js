@@ -9,6 +9,14 @@
   "use strict";
   document.documentElement.classList.add("js");
 
+  // Textos fixos da interface, por idioma da página (<html lang>). O conteúdo
+  // dos artigos vem do próprio HTML (docs/tutorial/ e docs/en/tutorial/).
+  var STRINGS = {
+    pt: { prev: "← Anterior", next: "Próximo →", none: "Nada encontrado. Tente outra palavra.", suffix: " — Tutorial do Cubicase" },
+    en: { prev: "← Previous", next: "Next →", none: "Nothing found. Try another word.", suffix: " — Cubicase Tutorial" },
+  };
+  var L = STRINGS[(document.documentElement.lang || "pt").toLowerCase().indexOf("en") === 0 ? "en" : "pt"];
+
   var articles = Array.prototype.slice.call(document.querySelectorAll(".tut-article"));
   var nav = document.getElementById("tutNav");
   var sidebar = document.getElementById("tutSidebar");
@@ -54,14 +62,14 @@
     var pager = document.createElement("div");
     pager.className = "tut-pager";
     pager.innerHTML =
-      (prev ? '<a href="#' + prev.id + '"><small>← Anterior</small>' + prev.getAttribute("data-title") + "</a>" : '<a class="is-empty"></a>') +
-      (next ? '<a class="is-next" href="#' + next.id + '"><small>Próximo →</small>' + next.getAttribute("data-title") + "</a>" : '<a class="is-empty"></a>');
+      (prev ? '<a href="#' + prev.id + '"><small>' + L.prev + '</small>' + prev.getAttribute("data-title") + "</a>" : '<a class="is-empty"></a>') +
+      (next ? '<a class="is-next" href="#' + next.id + '"><small>' + L.next + '</small>' + next.getAttribute("data-title") + "</a>" : '<a class="is-empty"></a>');
     art.appendChild(pager);
   });
 
   var emptyMsg = document.createElement("div");
   emptyMsg.className = "tut-empty";
-  emptyMsg.textContent = "Nada encontrado. Tente outra palavra.";
+  emptyMsg.textContent = L.none;
   emptyMsg.hidden = true;
   nav.appendChild(emptyMsg);
 
@@ -79,7 +87,7 @@
       else links[k].removeAttribute("aria-current");
     });
     var title = byId[id].getAttribute("data-title");
-    document.title = title + " — Tutorial do Cubicase";
+    document.title = title + L.suffix;
     if (menuLabel) menuLabel.textContent = title;
     if (sidebar) sidebar.classList.remove("is-open");
     if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
@@ -120,6 +128,20 @@
       if (first) location.hash = first.getAttribute("href");
     });
   }
+
+  // ---- trocar de idioma continua no mesmo artigo ----
+  // Os links PT/EN são montados por i18n.js; aqui só anexamos o #artigo atual
+  // (fase de captura, antes da navegação) às URLs de página, não às de ?lang=.
+  document.addEventListener(
+    "click",
+    function (e) {
+      var a = e.target && e.target.closest ? e.target.closest("[data-lang-switch] a") : null;
+      if (!a || !location.hash) return;
+      var href = a.getAttribute("href") || "";
+      if (href.charAt(0) === "/") a.setAttribute("href", href.split("#")[0] + location.hash);
+    },
+    true
+  );
 
   // ---- menu no celular ----
   if (menuBtn && sidebar) {

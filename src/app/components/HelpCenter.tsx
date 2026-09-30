@@ -6,7 +6,8 @@ import { HelpCircle, X, ExternalLink, Send, CheckCircle2, Loader2, BookOpen } fr
 import { getVersion } from "@tauri-apps/api/app";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useT, type TKey } from "@/i18n";
+import { getLocale, useT, type TKey } from "@/i18n";
+import { tutorialUrl } from "@/lib/help";
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_LIMITS,
@@ -26,8 +27,6 @@ import {
 // relato (bug, problema, sugestão) — vai por e-mail para o mantenedor, com o
 // e-mail informado como Reply-To. Ao lado, atalhos para o tutorial do site.
 // ============================================================
-
-const TUTORIAL_URL = "https://cubicase.net/tutorial/";
 
 const GUIDES = [
   ["criar-servidor", "help.guide.criar-servidor"],
@@ -152,7 +151,7 @@ export function HelpCenter({ isOpen, onClose }: HelpCenterProps) {
   };
 
   const openGuide = (id?: string) => {
-    openExternal(id ? `${TUTORIAL_URL}#${id}` : TUTORIAL_URL).catch(() => {});
+    openExternal(tutorialUrl(getLocale(), id)).catch(() => {});
   };
 
   const fieldClass = (field: FeedbackField) => `${INPUT_CLASS} ${badField === field ? "!border-rose-500" : ""}`;

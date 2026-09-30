@@ -11,11 +11,17 @@
   <meta property="og:description" content="Do primeiro servidor aos recursos avançados: tudo sobre o Cubicase, passo a passo." />
   <meta property="og:image" content="/assets/logo.png" />
   <meta property="og:type" content="website" />
+  <meta property="og:locale" content="pt_BR" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/style.css" />
   <link rel="stylesheet" href="/assets/tutorial.css" />
+  <link rel="alternate" hreflang="pt-BR" href="/tutorial/" />
+  <link rel="alternate" hreflang="en" href="/en/tutorial/" />
+  <link rel="alternate" hreflang="x-default" href="/tutorial/" />
+  <script src="/assets/i18n/en.js"></script>
+  <script src="/assets/i18n.js"></script>
 </head>
 <body>
   <div class="ambient-glow"></div>
@@ -31,6 +37,7 @@
         <a href="/#como-funciona">Como funciona</a>
         <a href="/tutorial/" aria-current="page" style="color: var(--text-primary);">Tutorial</a>
         <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <div class="lang-switch" data-lang-switch></div>
         <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>Entrar</a>
         <div class="nav-cta">
           <a class="btn btn-primary" href="/download/">Baixar</a>
