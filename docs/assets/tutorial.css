@@ -1,0 +1,381 @@
+/* ============================================================
+   Cubicase — Tutorial (/tutorial/)
+   Complementa style.css (usa as mesmas variáveis de cor).
+   ============================================================ */
+
+.tut-hero {
+  padding: 56px 0 28px;
+}
+
+.tut-hero h1 {
+  font-size: clamp(30px, 4.6vw, 46px);
+  margin-top: 14px;
+}
+
+.tut-hero p {
+  color: var(--text-secondary);
+  max-width: 640px;
+  margin-top: 14px;
+  font-size: 17px;
+}
+
+.tut-layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+  padding-bottom: 80px;
+}
+
+.tut-layout > div { min-width: 0; }
+
+.tut-sidebar {
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.tut-search input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.tut-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tut-group-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 20px 0 6px 10px;
+}
+
+.tut-nav a {
+  display: block;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  border-left: 2px solid transparent;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.tut-nav a:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.tut-nav a.is-active {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.tut-nav a[hidden],
+.tut-group[hidden],
+.tut-empty[hidden] {
+  display: none;
+}
+
+.tut-empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.tut-menu-btn {
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+/* Sem JS: todos os artigos aparecem em sequência. Com JS: um por vez. */
+.js .tut-article { display: none; }
+.js .tut-article.is-current { display: block; }
+
+.tut-article {
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px 44px;
+  margin-bottom: 24px;
+}
+
+.tut-article h2 {
+  font-size: clamp(26px, 3.4vw, 34px);
+  margin: 8px 0 12px;
+}
+
+.tut-article .tut-lead {
+  font-size: 17px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.tut-article h3 {
+  font-size: 20px;
+  margin: 34px 0 10px;
+}
+
+.tut-article h4 {
+  font-size: 16px;
+  margin: 22px 0 6px;
+}
+
+.tut-article p,
+.tut-article li {
+  color: var(--text-secondary);
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+
+.tut-article p {
+  margin: 12px 0;
+}
+
+.tut-article ul,
+.tut-article ol {
+  margin: 12px 0;
+  padding-left: 22px;
+}
+
+.tut-article li {
+  margin: 6px 0;
+}
+
+.tut-article li::marker {
+  color: var(--accent);
+}
+
+.tut-article strong {
+  color: var(--text-primary);
+}
+
+.tut-article a:not(.btn):not(.tut-card) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tut-article code {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  font-size: 0.88em;
+  color: var(--text-primary);
+}
+
+/* Nome de botão / campo / aba do app */
+.ui {
+  display: inline-block;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 0 7px;
+  font-size: 0.92em;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.tut-tag {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.tut-tag.is-basic { color: #6fd08c; border-color: rgba(111, 208, 140, 0.35); }
+.tut-tag.is-mid { color: #f0b429; border-color: rgba(240, 180, 41, 0.35); }
+.tut-tag.is-adv { color: var(--accent); border-color: var(--accent-soft-strong); }
+
+.tut-callout {
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--text-secondary);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+  margin: 20px 0;
+}
+
+.tut-callout > strong:first-child {
+  display: block;
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.tut-callout p {
+  margin: 4px 0 0;
+  font-size: 14.5px;
+}
+
+.tut-callout.is-tip { border-left-color: #6fd08c; }
+.tut-callout.is-warn { border-left-color: #f0b429; }
+.tut-callout.is-danger { border-left-color: var(--accent); }
+
+.tut-steps {
+  list-style: none;
+  counter-reset: tut-step;
+  padding-left: 0 !important;
+}
+
+.tut-steps > li {
+  counter-increment: tut-step;
+  position: relative;
+  padding-left: 46px;
+  margin: 16px 0;
+}
+
+.tut-steps > li::before {
+  content: counter(tut-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tut-table-wrap {
+  overflow-x: auto;
+  margin: 18px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.tut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+
+.tut-table th,
+.tut-table td {
+  text-align: left;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.tut-table th {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tut-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tut-table td:first-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tut-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 44px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.tut-pager a {
+  flex: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  color: var(--text-primary);
+  transition: border-color 0.15s ease;
+}
+
+.tut-pager a:hover { border-color: var(--accent); }
+.tut-pager a small { display: block; color: var(--text-muted); font-size: 12px; }
+.tut-pager a.is-next { text-align: right; }
+.tut-pager a.is-empty { visibility: hidden; }
+
+.tut-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.tut-card {
+  display: block;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  color: var(--text-primary);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.tut-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.tut-card strong { display: block; margin-bottom: 4px; }
+.tut-card span { color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+
+@media (max-width: 900px) {
+  .tut-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .js .tut-menu-btn { display: flex; }
+  .js .tut-sidebar {
+    position: static;
+    max-height: none;
+    display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    margin-bottom: 18px;
+  }
+  .js .tut-sidebar.is-open { display: block; }
+  .tut-article { padding: 26px 20px; }
+}

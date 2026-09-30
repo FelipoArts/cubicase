@@ -18,6 +18,7 @@ window.CUBICASE_I18N = {
     "© 2026 Cubicase": "© 2026 Cubicase",
     "CPU / RAM": "CPU / RAM",
     "Releases": "Releases",
+    "Tutorial": "Tutorial",
     "Discord": "Discord",
     "Google": "Google",
 
