@@ -1,9 +1,118 @@
 import { invoke } from "@tauri-apps/api/core";
 import { join, documentDir } from "@tauri-apps/api/path";
-import { exists, mkdir, writeTextFile, readDir, readTextFile, remove, size } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, rename, writeTextFile, readDir, readTextFile, remove, size } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
 import { isJREInstalled, installJRE, getJREPath } from "@/lib/jre";
 import { t as tn } from "@/i18n";
+
+// ============================================================
+// Backups do mundo — pasta dedicada, FORA da pasta do servidor
+// ============================================================
+// Antes os backups ficavam em `{serverDir}/backups`. Problema: deletar um
+// servidor (opção "Deletar" na sidebar) apaga a pasta inteira recursivamente
+// (ver handleConfirmDelete em HostView.tsx) — os backups, que existem
+// justamente como rede de segurança, sumiam junto, sem chance de
+// recuperação. Agora vivem em `Documentos/CubicaseBackups/<nome>`, uma
+// árvore irmã de `CubicaseServers`, sobrevivendo à exclusão do servidor.
+// Backups pré-existentes na localização antiga são migrados automaticamente
+// na primeira listagem (ver migrate_legacy_backups em src-tauri/src/lib.rs).
+export async function getBackupsDir(serverName: string): Promise<string> {
+  const docsDir = await documentDir();
+  return await join(docsDir, "CubicaseBackups", serverName);
+}
+
+// Caracteres proibidos em nome de arquivo/pasta no Windows (a única
+// plataforma que o Cubicase builda hoje — ver release.yml). `rename()` do
+// plugin-fs já falharia sozinho com um desses, mas validar antes dá uma
+// mensagem clara em vez do erro cru do sistema operacional.
+const INVALID_NAME_CHARS = /[\\/:*?"<>|]/;
+
+// Nomes reservados pelo Windows para QUALQUER arquivo/pasta, com ou sem
+// extensão (ex: "CON", "com1.txt") — tentar criar/renomear pra um desses
+// falha na Explorer e em várias APIs do sistema, com um erro que não deixa
+// óbvio o motivo real.
+const RESERVED_WINDOWS_NAMES = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\.|$)/i;
+
+/**
+ * Valida um nome de pasta de servidor (usado no rename): vazio, caracteres
+ * proibidos, espaço/ponto no final (o Windows aceita escrever mas rejeita ou
+ * trunca silenciosamente esse sufixo em várias APIs — inconsistente o
+ * bastante pra valer a pena barrar aqui) e nomes reservados do sistema.
+ * Lança com a mensagem já traduzida; não lança nada se o nome for válido.
+ */
+function assertValidServerFolderName(name: string): void {
+  if (!name) throw new Error(tn("config.name.empty"));
+  if (INVALID_NAME_CHARS.test(name)) throw new Error(tn("config.name.invalidChars"));
+  if (/[ .]$/.test(name)) throw new Error(tn("config.name.trailingDotOrSpace"));
+  if (RESERVED_WINDOWS_NAMES.test(name)) throw new Error(tn("config.name.reservedName", { name }));
+}
+
+/**
+ * Renomeia um servidor PADRÃO (pasta dentro de `CubicaseServers`) e migra os
+ * backups dele junto (se existirem), pra continuarem associados ao novo
+ * nome. NÃO serve para servidores importados — eles vivem numa pasta
+ * arbitrária escolhida pelo usuário, fora do controle do Cubicase (mesma
+ * distinção já feita em handleConfirmDelete, HostView.tsx).
+ *
+ * `existingNames` deve conter os nomes de TODOS os outros servidores já
+ * conhecidos (padrão E importados, exceto este) — servidores importados
+ * vivem fora de `CubicaseServers`, então o próprio sistema de arquivos não
+ * bloqueia colisão de nome com eles (ao contrário de dois servidores
+ * padrão, onde `rename()` já falha sozinho — ver comentário abaixo). Sem
+ * checar isso à parte, dois servidores podiam acabar com o mesmo `.name`,
+ * que é a chave usada por mcLogsByServer/selectedServer/runningServer/
+ * findServerById — misturando console e escolhendo o servidor errado.
+ *
+ * `rename()` do plugin-fs mapeia pro `rename()`/`MoveFileEx` do sistema —
+ * no Windows, renomear um diretório para um nome que JÁ EXISTE como
+ * diretório falha (ao contrário do Unix, que substitui um diretório vazio),
+ * então isto já é seguro contra sobrescrever outro servidor PADRÃO sem
+ * precisar de um `exists()` + `rename()` em dois passos separados (que
+ * teria a mesma janela de corrida corrigida em installMinecraftServer/etc.).
+ */
+export async function renameServer(
+  oldName: string,
+  newNameRaw: string,
+  existingNames: string[] = [],
+): Promise<{ name: string; path: string; backupsMigrationFailed: boolean }> {
+  const newName = newNameRaw.trim();
+  assertValidServerFolderName(newName);
+
+  const docsDir = await documentDir();
+  const serversRoot = await join(docsDir, "CubicaseServers");
+  const oldPath = await join(serversRoot, oldName);
+
+  if (newName === oldName) return { name: oldName, path: oldPath, backupsMigrationFailed: false };
+
+  if (existingNames.some((n) => n.toLowerCase() === newName.toLowerCase())) {
+    throw new Error(tn("config.name.alreadyExists", { name: newName }));
+  }
+
+  const newPath = await join(serversRoot, newName);
+  try {
+    await rename(oldPath, newPath);
+  } catch (err) {
+    throw new Error(tn("config.name.saveFailed", { error: String(err) }));
+  }
+
+  // Migra os backups junto (best-effort): uma falha aqui não desfaz o
+  // rename do servidor em si — os backups antigos continuam acessíveis em
+  // `CubicaseBackups/<nome antigo>`, só não ficam mais associados ao novo
+  // nome. `backupsMigrationFailed` avisa o chamador pra não deixar isso
+  // passar em silêncio (o usuário precisa saber que precisa ir buscá-los lá).
+  let backupsMigrationFailed = false;
+  try {
+    const oldBackupsDir = await getBackupsDir(oldName);
+    if (await exists(oldBackupsDir)) {
+      await rename(oldBackupsDir, await getBackupsDir(newName));
+    }
+  } catch (err) {
+    console.warn("Falha ao migrar backups durante o rename do servidor:", err);
+    backupsMigrationFailed = true;
+  }
+
+  return { name: newName, path: newPath, backupsMigrationFailed };
+}
 
 // ============================================================
 // Tipos exportados
@@ -351,8 +460,16 @@ export async function installMinecraftServer(
   // --- Criar pasta ---
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
   if (!(await exists(serversRoot))) await mkdir(serversRoot, { recursive: true });
-  if (await exists(serverPath)) throw new Error(tn("modpack.nameExists", { name: serverName }));
-  await mkdir(serverPath, { recursive: true });
+  // mkdir SEM `recursive` cria e falha atomicamente se o diretório já
+  // existir — ao contrário de exists()+mkdir({recursive:true}) em dois
+  // passos separados, que tem uma janela entre os dois `await`s onde duas
+  // criações com o mesmo nome (duplo clique, ou duas chamadas quase
+  // simultâneas) passam pela checagem juntas e escrevem no mesmo diretório.
+  try {
+    await mkdir(serverPath);
+  } catch {
+    throw new Error(tn("modpack.nameExists", { name: serverName }));
+  }
 
   // A partir daqui a pasta do servidor já existe — se qualquer etapa falhar,
   // apagamos a pasta parcial em vez de deixá-la pela metade bloqueando uma
@@ -785,8 +902,16 @@ export async function installForgeServer(
   // 1. Criar pasta
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
   if (!(await exists(serversRoot))) await mkdir(serversRoot, { recursive: true });
-  if (await exists(serverPath)) throw new Error(tn("modpack.nameExists", { name: serverName }));
-  await mkdir(serverPath, { recursive: true });
+  // mkdir SEM `recursive` cria e falha atomicamente se o diretório já
+  // existir — ao contrário de exists()+mkdir({recursive:true}) em dois
+  // passos separados, que tem uma janela entre os dois `await`s onde duas
+  // criações com o mesmo nome (duplo clique, ou duas chamadas quase
+  // simultâneas) passam pela checagem juntas e escrevem no mesmo diretório.
+  try {
+    await mkdir(serverPath);
+  } catch {
+    throw new Error(tn("modpack.nameExists", { name: serverName }));
+  }
 
   // A partir daqui a pasta do servidor já existe — se qualquer etapa falhar,
   // apagamos a pasta parcial em vez de deixá-la pela metade bloqueando uma
@@ -822,12 +947,14 @@ export async function installForgeServer(
     }
 
     // 3. Baixar installer.jar
-    // Sem SHA1 conhecido de antemão (providers de Forge/NeoForge não publicam um
-    // manifest com checksum como a Mojang) — ainda assim se beneficia do retry
-    // com backoff e da limpeza de arquivo truncado que o comando já faz.
+    // Nenhum manifest com checksum como o da Mojang, mas o Maven do Forge/
+    // NeoForge publica um `.sha1` ao lado do jar por convenção — tenta usar
+    // (best-effort; None se não existir/formato inesperado, mesmo
+    // comportamento de antes).
     onProgress({ status: tn("srv.progress.downloadingForge"), percent: 15 });
     const installerPath = await join(serverPath, "forge-installer.jar");
-    await invoke("download_server_jar", { url: installerUrl, destPath: installerPath, expectedSha1: null });
+    const installerSha1 = await fetchMavenSha1(installerUrl);
+    await invoke("download_server_jar", { url: installerUrl, destPath: installerPath, expectedSha1: installerSha1 });
 
     // 3. Executar instalador headless via Rust (não bloqueia IPC do Tauri)
     onProgress({ status: tn("srv.progress.runningForge"), percent: 50 });
@@ -1006,8 +1133,16 @@ export async function installFabricServer(
 
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
   if (!(await exists(serversRoot))) await mkdir(serversRoot, { recursive: true });
-  if (await exists(serverPath)) throw new Error(tn("modpack.nameExists", { name: serverName }));
-  await mkdir(serverPath, { recursive: true });
+  // mkdir SEM `recursive` cria e falha atomicamente se o diretório já
+  // existir — ao contrário de exists()+mkdir({recursive:true}) em dois
+  // passos separados, que tem uma janela entre os dois `await`s onde duas
+  // criações com o mesmo nome (duplo clique, ou duas chamadas quase
+  // simultâneas) passam pela checagem juntas e escrevem no mesmo diretório.
+  try {
+    await mkdir(serverPath);
+  } catch {
+    throw new Error(tn("modpack.nameExists", { name: serverName }));
+  }
 
   try {
     onProgress({ status: tn("srv.progress.selectingFabric"), percent: 15 });
@@ -1161,8 +1296,16 @@ export async function installPaperServer(
 
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
   if (!(await exists(serversRoot))) await mkdir(serversRoot, { recursive: true });
-  if (await exists(serverPath)) throw new Error(tn("modpack.nameExists", { name: serverName }));
-  await mkdir(serverPath, { recursive: true });
+  // mkdir SEM `recursive` cria e falha atomicamente se o diretório já
+  // existir — ao contrário de exists()+mkdir({recursive:true}) em dois
+  // passos separados, que tem uma janela entre os dois `await`s onde duas
+  // criações com o mesmo nome (duplo clique, ou duas chamadas quase
+  // simultâneas) passam pela checagem juntas e escrevem no mesmo diretório.
+  try {
+    await mkdir(serverPath);
+  } catch {
+    throw new Error(tn("modpack.nameExists", { name: serverName }));
+  }
 
   try {
     onProgress({ status: tn("srv.progress.consultingPaper"), percent: 10 });
@@ -1818,6 +1961,27 @@ async function urlExists(url: string): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/// Busca o arquivo `.sha1` "irmão" que repositórios Maven publicam ao lado de
+/// cada artefato por convenção (não é uma API documentada — é só como o
+/// layout padrão do Maven funciona). Usado pro instalador do Forge/NeoForge,
+/// que ao contrário do Vanilla (manifest da Mojang) e do Paper (API com
+/// checksum) não tem nenhum jeito oficial de verificar integridade — sem
+/// isso, uma conexão truncada gerava um jar corrompido que só falhava depois,
+/// com um erro opaco do instalador Java, sem indicar que o download é que
+/// tinha vindo ruim. Best-effort: se não existir ou vier num formato
+/// inesperado, segue sem verificação (mesmo comportamento de antes).
+async function fetchMavenSha1(jarUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${jarUrl}.sha1`);
+    if (!res.ok) return null;
+    const text = (await res.text()).trim();
+    const match = text.match(/[0-9a-fA-F]{40}/);
+    return match ? match[0].toLowerCase() : null;
+  } catch {
+    return null;
   }
 }
 

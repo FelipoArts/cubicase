@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { cn } from "@/lib/utils";
 import { pushDiagnostic } from "@/app/diagnostics";
+import { getBackupsDir } from "@/lib/server";
 import type { ServerStatus } from "@/app/store";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
@@ -49,6 +50,7 @@ interface BackupInfo {
 
 interface ServerManagePanelProps {
   serverDir: string;
+  serverName: string;
   serverType: string;
   serverStatus: ServerStatus;
   mcVersion: string | null;
@@ -76,7 +78,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ServerManagePanel({ serverDir, serverType, serverStatus, mcVersion }: ServerManagePanelProps) {
+export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion }: ServerManagePanelProps) {
   const { t, rich } = useT();
   // Forge/NeoForge/Fabric usam pasta "mods"; Paper (e derivados como Spigot/Purpur)
   // usam pasta "plugins" — mesmo conceito de gerenciamento, pasta e rótulo diferentes.
@@ -131,7 +133,8 @@ export function ServerManagePanel({ serverDir, serverType, serverStatus, mcVersi
   const loadBackups = useCallback(async () => {
     setLoadingBackups(true);
     try {
-      const list = await invoke<BackupInfo[]>("list_world_backups", { serverDir });
+      const backupsDir = await getBackupsDir(serverName);
+      const list = await invoke<BackupInfo[]>("list_world_backups", { serverDir, backupsDir });
       setBackups(list);
     } catch (err) {
       console.error("Erro ao listar backups:", err);
@@ -139,7 +142,7 @@ export function ServerManagePanel({ serverDir, serverType, serverStatus, mcVersi
     } finally {
       setLoadingBackups(false);
     }
-  }, [serverDir]);
+  }, [serverDir, serverName]);
 
   // Nota: HostView monta este componente com `key={serverDir}`, então trocar de
   // servidor remonta o componente e reinicia todo o estado local automaticamente.
@@ -190,7 +193,8 @@ export function ServerManagePanel({ serverDir, serverType, serverStatus, mcVersi
     try {
       setIsBackingUp(true);
       setError(null);
-      await invoke("backup_world", { serverDir });
+      const backupsDir = await getBackupsDir(serverName);
+      await invoke("backup_world", { serverDir, backupsDir });
       await loadBackups();
     } catch (err) {
       console.error(err);
@@ -214,10 +218,12 @@ export function ServerManagePanel({ serverDir, serverType, serverStatus, mcVersi
         setSelectedMods(new Set());
         await loadMods();
       } else if (pendingAction.kind === "delete-backup") {
-        await invoke("delete_world_backup", { serverDir, fileName: pendingAction.fileName });
+        const backupsDir = await getBackupsDir(serverName);
+        await invoke("delete_world_backup", { backupsDir, fileName: pendingAction.fileName });
         await loadBackups();
       } else if (pendingAction.kind === "restore-backup") {
-        await invoke("restore_world_backup", { serverDir, fileName: pendingAction.fileName });
+        const backupsDir = await getBackupsDir(serverName);
+        await invoke("restore_world_backup", { serverDir, backupsDir, fileName: pendingAction.fileName });
       } else if (pendingAction.kind === "reset-world") {
         await invoke("reset_world", { serverDir });
       }

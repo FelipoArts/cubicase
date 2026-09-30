@@ -12,6 +12,7 @@ export default defineMessages({
     "jre.apiFailed": "Falha ao consultar a API da Adoptium",
     "jre.noBuild": "Nenhum build de JRE disponível na API da Adoptium para esta versão.",
     "jre.installError": "Erro na instalação do JRE: {error}",
+    "jre.waitingInProgress": "Aguardando instalação do Java já em andamento...",
 
     "client.fabricInstallerHttp": "Falha ao consultar o instalador do Fabric (HTTP {status}).",
     "client.fabricNoInstaller": "Nenhuma versão do instalador do Fabric disponível no momento.",
@@ -42,6 +43,7 @@ export default defineMessages({
     "jre.apiFailed": "Failed to query the Adoptium API",
     "jre.noBuild": "No JRE build available from the Adoptium API for this version.",
     "jre.installError": "JRE installation error: {error}",
+    "jre.waitingInProgress": "Waiting for the Java install already in progress...",
 
     "client.fabricInstallerHttp": "Failed to query the Fabric installer (HTTP {status}).",
     "client.fabricNoInstaller": "No Fabric installer version available right now.",

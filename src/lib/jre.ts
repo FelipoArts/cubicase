@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { appLocalDataDir, join } from "@tauri-apps/api/path";
-import { exists, mkdir, remove } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
 import { t } from "@/i18n";
 
@@ -20,15 +20,59 @@ export async function getJREPath(version: JREVersion): Promise<string> {
   return await join(dataDir, "runtime", `java-${version}`);
 }
 
+// Nome do arquivo-marcador escrito só depois que download+extração terminam
+// de verdade (ver installJREOnce) — usado por isJREInstalled pra diferenciar
+// uma instalação completa de uma pela metade (app morto/crash durante a
+// extração, sem rodar nenhum catch de limpeza). Sem isso, bastava
+// `bin/java.exe` ter sido escrito antes do resto pra essa pasta quebrada
+// passar como "instalada" pra sempre, e o próximo start do servidor tentava
+// rodar um Java incompleto com um erro nativo sem explicação nenhuma.
+const INSTALL_MARKER_FILE = ".cubicase-install-complete";
+
 export async function isJREInstalled(version: JREVersion): Promise<boolean> {
   const jrePath = await getJREPath(version);
   const javaExe = await join(jrePath, "bin", "java.exe");
-  return await exists(javaExe);
+  if (!(await exists(javaExe))) return false;
+
+  const marker = await join(jrePath, INSTALL_MARKER_FILE);
+  if (await exists(marker)) return true;
+
+  // java.exe existe mas o marcador não — instalação incompleta. Limpa a
+  // pasta quebrada agora pra próxima tentativa não herdar lixo dela.
+  await remove(jrePath, { recursive: true }).catch(() => {});
+  return false;
 }
 
 const MAX_INSTALL_ATTEMPTS = 3;
 
+// Uma instalação por versão por vez: duas chamadas concorrentes pra instalar
+// o MESMO Java (ex: dois servidores criados em sequência que precisam da
+// mesma versão) compartilhavam o mesmo zip/pasta temporários — a limpeza de
+// uma no catch podia apagar o download que a outra ainda estava fazendo.
+// Chamadas concorrentes pra versões DIFERENTES não colidem (cada uma usa seu
+// próprio caminho) e continuam rodando em paralelo normalmente.
+const installInFlight = new Map<JREVersion, Promise<void>>();
+
 export async function installJRE(
+  version: JREVersion,
+  onProgress: (p: DownloadProgress) => void
+): Promise<void> {
+  const existing = installInFlight.get(version);
+  if (existing) {
+    onProgress({ status: t("jre.waitingInProgress"), percent: 5 });
+    return existing;
+  }
+
+  const promise = installJREWithRetry(version, onProgress);
+  installInFlight.set(version, promise);
+  try {
+    await promise;
+  } finally {
+    installInFlight.delete(version);
+  }
+}
+
+async function installJREWithRetry(
   version: JREVersion,
   onProgress: (p: DownloadProgress) => void
 ): Promise<void> {
@@ -102,6 +146,12 @@ async function installJREOnce(
     // 3. Extração em Rust com proteção contra zip-slip (enclosed_name), e já
     // achata a pasta-raiz do JDK para dentro de jrePath.
     await invoke("extract_jre_zip", { zipPath: tempZip, extractPath: jrePath });
+
+    // Marcador de "instalação completa" — só é escrito DEPOIS que a extração
+    // termina de verdade (ver isJREInstalled). Se o app morrer bem aqui no
+    // meio, sem marcador, a próxima checagem detecta a pasta incompleta e
+    // limpa sozinha em vez de achar que o Java já está pronto.
+    await writeTextFile(await join(jrePath, INSTALL_MARKER_FILE), new Date().toISOString());
   } catch (err) {
     // Não deixar um zip parcial ou uma pasta de JRE pela metade entre tentativas —
     // sem isso, a tentativa seguinte podia herdar lixo do download interrompido.

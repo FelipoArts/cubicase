@@ -40,6 +40,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Run tests (backend + frontend + API)
+        run: npm run test
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

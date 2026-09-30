@@ -30,6 +30,7 @@ import { pushDiagnostic } from "@/app/diagnostics";
 import { installJRE, isJREInstalled, getJREPath, type DownloadProgress } from "@/lib/jre";
 import {
   listLocalServers,
+  listAllServers,
   installMinecraftServer,
   installForgeServer,
   installFabricServer,
@@ -518,6 +519,19 @@ export function HostView({
       console.error(err);
       onSetMcLogs(prev => [...prev, tn("host.mc.stopFailed", { error: String(err) })]);
       pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("host.err.stopServer"), message: String(err) });
+      // Sem isso, um comando "stop_minecraft_server" que falha (IPC, painc no
+      // backend) deixava serverStatus travado em "stopping" pra sempre — o
+      // botão Iniciar/Parar fica desabilitado nesse estado, e nenhum evento
+      // vai corrigir sozinho um comando que nem chegou a rodar de verdade no
+      // backend. Consulta o estado real em vez de chutar "offline" (o
+      // servidor pode muito bem ainda estar rodando).
+      try {
+        const status = await invoke<{ minecraftStatus: ServerStatus }>("get_system_status");
+        setServerStatus(status.minecraftStatus);
+      } catch (statusErr) {
+        console.error("Falha ao verificar estado real do servidor após erro no stop:", statusErr);
+        setServerStatus("offline");
+      }
     }
   };
 
@@ -1092,6 +1106,7 @@ export function HostView({
             <ServerManagePanel
               key={`manage-${serverInfo.path}`}
               serverDir={serverInfo.path}
+              serverName={serverInfo.name}
               serverType={serverInfo.serverType}
               serverStatus={serverStatus}
               mcVersion={serverInfo.version}
@@ -1246,6 +1261,9 @@ export function HostView({
         {showConfigModal && configServerDir && (
           <ServerConfigModal
             serverDir={configServerDir}
+            serverName={localServers.find((s) => s.path === configServerDir)?.name ?? ""}
+            isImported={importedServerPaths.some((p) => p.toLowerCase() === configServerDir.toLowerCase())}
+            existingServerNames={localServers.filter((s) => s.path !== configServerDir).map((s) => s.name)}
             shortCode={localServers.find((s) => s.path === configServerDir)?.shortCode ?? null}
             isOpen={showConfigModal}
             onClose={() => {
@@ -1254,6 +1272,82 @@ export function HostView({
             }}
             onSaved={async () => {
               const servers = await listLocalServers();
+              onSetLocalServers(servers);
+            }}
+            onRenamed={async ({ name: newName, path: newPath, backupsMigrationFailed }) => {
+              const oldServerInfo = localServers.find((s) => s.path === configServerDir);
+              const oldName = oldServerInfo?.name;
+
+              // A pasta física já mudou de lugar (renameServer já rodou) —
+              // atualiza a prop que o próprio modal usa antes de qualquer
+              // outra coisa, senão a próxima ação nele (ex: salvar
+              // propriedades) tentaria ler/escrever num caminho que não
+              // existe mais.
+              onSetConfigServerDir(newPath);
+
+              // Atualiza a lista local NA HORA (sem esperar o listAllServers
+              // no fim) — só pra não deixar o campo de nome do modal piscar
+              // vazio no instante entre o rename e o refresh completo mais
+              // abaixo (que ainda roda, pra pegar qualquer outra mudança).
+              if (oldServerInfo) {
+                onSetLocalServers(
+                  localServers.map((s) => (s.path === configServerDir ? { ...s, name: newName, path: newPath } : s))
+                );
+              }
+
+              const store = useAppStore.getState();
+              if (oldName && oldName !== newName) {
+                // Console (histórico de log) segue o servidor pro nome novo
+                // em vez de ficar órfão com o nome antigo (mesma preocupação
+                // do achado de pré-lançamento sobre logs vazando entre
+                // servidores de mesmo nome — aqui é o oposto: preservar, não
+                // vazar).
+                store.renameMcLogs(oldName, newName);
+                if (selectedServer === oldName) setSelectedServer(newName);
+                if (store.runningServer === oldName) setRunningServer(newName);
+              }
+
+              if (backupsMigrationFailed) {
+                pushDiagnostic({
+                  level: "warning",
+                  source: tn("diag.source.server"),
+                  title: tn("config.name.title"),
+                  message: tn("config.name.backupsMigrationWarning", { oldName: oldName ?? "", newName }),
+                });
+              }
+
+              // Sincroniza com a API Central, se este servidor já tiver sido
+              // registrado lá — usa sync_register_server (não só
+              // sync_update_server) de propósito: além de atualizar o nome
+              // lá (idempotente por shortCode desde a correção do Worker),
+              // também refaz `active_short_code`/`active_server_dir` no
+              // AppState do Rust com o caminho NOVO. Sem isso, se a rede
+              // mesh deste host continuasse de pé com o Minecraft só parado
+              // (são ciclos de vida independentes — nada impede renomear
+              // nesse estado), "GET /mods" pra um convidado continuaria
+              // servindo a pasta antiga (ou falhando) até o próximo registro
+              // manual — o que podia nunca acontecer de novo na mesma sessão,
+              // já que o registro normal é deduplicado por shortCode.
+              // Best-effort: se falhar, o rename local já valeu mesmo assim.
+              if (oldServerInfo?.shortCode) {
+                try {
+                  await invoke("sync_register_server", {
+                    name: newName,
+                    version: oldServerInfo.version || "1.20.1",
+                    serverType: oldServerInfo.serverType || "vanilla",
+                    description: oldServerInfo.description || "",
+                    shortCode: oldServerInfo.shortCode,
+                    owner: null,
+                    forgeVersion: oldServerInfo.forgeVersion ?? null,
+                    modLoaderVersion: oldServerInfo.modLoaderVersion ?? null,
+                    serverDir: newPath,
+                  });
+                } catch (err) {
+                  console.warn("Falha ao sincronizar nome com a API Central:", err);
+                }
+              }
+
+              const servers = await listAllServers(importedServerPaths);
               onSetLocalServers(servers);
             }}
             serverStatus={serverStatus}

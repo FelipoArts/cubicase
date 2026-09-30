@@ -329,8 +329,7 @@ fn set_locale(app: tauri::AppHandle, locale: String) {
   }
 }
 
-#[tauri::command]
-async fn start_network_node(
+async fn start_network_node_impl(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     mode: String,
@@ -691,6 +690,56 @@ async fn start_network_node(
     }
 
     Ok(())
+}
+
+/// Timeout de segurança por tentativa: um teste real já mostrou
+/// start_network_node_impl (especificamente session_manager.start() lá
+/// dentro) travando por MINUTOS sem nunca completar nem falhar — nenhum
+/// erro, nenhum timeout interno disparando, só um comando novo vindo do
+/// frontend (ex.: reabrir a UI) "destravando" e fazendo a MESMA chamada
+/// funcionar em segundos logo em seguida. Sem conseguir confirmar a causa
+/// exata remotamente, a defesa possível é: nunca deixar essa chamada travar
+/// pra sempre, e reaproveitar o padrão observado (tentar de novo já
+/// resolve). Usado tanto pelo comando `start_network_node` (clique normal de
+/// "Hospedar"/"Entrar" — era o caminho que ainda NÃO tinha essa proteção)
+/// quanto por wake_from_sleep (Cubicase Plus).
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(45);
+const NETWORK_MAX_ATTEMPTS: u32 = 3;
+
+async fn start_network_node_with_retry(
+    app: tauri::AppHandle,
+    mode: String,
+    short_code: String,
+    target_ip: Option<String>,
+    local_port: u16,
+) -> Result<(), String> {
+    let mut result: Result<(), String> = Err(tr!("err.neverTried"));
+    for attempt in 1..=NETWORK_MAX_ATTEMPTS {
+        result = match tokio::time::timeout(
+            NETWORK_TIMEOUT,
+            start_network_node_impl(app.clone(), app.state::<AppState>(), mode.clone(), short_code.clone(), target_ip.clone(), local_port),
+        ).await {
+            Ok(inner_result) => inner_result,
+            Err(_) => Err(tr!("err.networkTimeout", seconds = NETWORK_TIMEOUT.as_secs(), attempt = attempt, max = NETWORK_MAX_ATTEMPTS)),
+        };
+        if result.is_ok() { break; }
+        log_to_file(&app, &format!("[start_network_node] Tentativa {}/{} falhou: {:?}", attempt, NETWORK_MAX_ATTEMPTS, result));
+        if attempt < NETWORK_MAX_ATTEMPTS {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+    result
+}
+
+#[tauri::command]
+async fn start_network_node(
+    app: tauri::AppHandle,
+    mode: String,
+    short_code: String,
+    target_ip: Option<String>,
+    local_port: u16,
+) -> Result<(), String> {
+    start_network_node_with_retry(app, mode, short_code, target_ip, local_port).await
 }
 
 /// Opt-in de desenvolvimento: procura um `network_session.json` local (cwd,
@@ -1528,6 +1577,48 @@ fn detect_known_mc_error(line: &str) -> Option<(String, String, String)> {
     None
 }
 
+/// Detecta a linha de log que sinaliza que o servidor Minecraft terminou de
+/// inicializar e está pronto para aceitar conexões (ex: "[12:00:00] [Server
+/// thread/INFO]: Done (5.432s)! For help, type "help""). Usada tanto pela
+/// thread de leitura do PTY quanto pelos testes de lifecycle (ver tests.rs).
+fn is_server_ready_line(line: &str) -> bool {
+    line.contains("Done (") && line.contains("INFO")
+}
+
+/// Resultado da decisão de "por que o processo Java encerrou", combinando os
+/// três sinais independentes usados na thread de monitoramento de
+/// start_minecraft_server (ver comentário original lá: exit code, se surgiu
+/// um crash-report novo, e se a parada foi pedida pelo usuário).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McShutdownOutcome {
+    /// Parada normal: comando "stop" salvou o mundo e encerrou (exit code 0),
+    /// ou o usuário/app pediu a parada explicitamente — mesmo que isso tenha
+    /// exigido um kill forçado depois do timeout de 15s.
+    Normal,
+    /// Crash: o processo saiu sem ter sido pedido E sem exit code 0, OU
+    /// (mesmo com exit code 0 / stop pedido) apareceu um crash-report novo —
+    /// este último sempre vence, pois indica que algo deu errado durante a
+    /// execução mesmo que o processo tenha conseguido sair "normalmente" depois.
+    Crashed,
+}
+
+/// Decide se o encerramento do processo Java foi uma parada normal ou um
+/// crash. Extraído de start_minecraft_server para poder ser testado sem
+/// precisar spawnar um processo de verdade nem um AppHandle.
+fn decide_mc_shutdown_outcome(
+    exit_code: Option<i32>,
+    stop_requested: bool,
+    has_new_crash_report: bool,
+) -> McShutdownOutcome {
+    let exit_code_ok = exit_code == Some(0);
+    let is_normal_shutdown = exit_code_ok || stop_requested;
+    if is_normal_shutdown && !has_new_crash_report {
+        McShutdownOutcome::Normal
+    } else {
+        McShutdownOutcome::Crashed
+    }
+}
+
 /// Detecta as mensagens padrão do servidor vanilla/Forge/Fabric/Paper que indicam
 /// entrada/saída de um jogador ("X joined the game" / "X left the game"), extraindo
 /// o nome (sempre a última palavra antes do sufixo, independente do prefixo de
@@ -1857,7 +1948,7 @@ async fn start_minecraft_server(
                     panel_agent::push_minecraft_log_line(&l);
                     let state_ref = unsafe { &*(state_pty_handle as *const AppState) };
                     // Detect server ready line
-                    if l.contains("Done (") && l.contains("INFO") {
+                    if is_server_ready_line(&l) {
                         // Marcar que o servidor ficou online (para a thread de polling TCP
                         // não emitir "crashed" quando o servidor for parado depois)
                         state_ref.minecraft_was_online.store(true, Ordering::SeqCst);
@@ -1944,7 +2035,6 @@ async fn start_minecraft_server(
     let state_resources_handle = app.state::<AppState>().inner() as *const AppState as usize;
     std::thread::spawn(move || {
         let mut sys = System::new_all();
-        let pid = Pid::from_u32(mc_pid);
         let mut heartbeat_tick: u32 = 0;
         loop {
             let state_ref = unsafe { &*(state_resources_handle as *const AppState) };
@@ -1969,11 +2059,22 @@ async fn start_minecraft_server(
                 report_mc_status(&app_resources, state_ref, "online");
             }
 
+            // No Windows, mc_pid é o PID do `cmd.exe` usado só como wrapper (ver
+            // início de start_minecraft_server — roda "chcp 65001" antes do Java).
+            // Amostrar mc_pid direto mediria o cmd.exe, praticamente ocioso, não o
+            // java.exe de verdade — quebrando silenciosamente o diagnóstico de RAM
+            // (achado de pré-lançamento). Resolve o PID real do Java a cada
+            // iteração via job_object::child_pids_of (mesmo mecanismo que
+            // kill_process_tree já usa pra achar o java.exe filho do cmd.exe);
+            // sem wrapper (não-Windows, ou ainda não deu tempo do cmd.exe
+            // spawnar o Java) cai de volta pro próprio mc_pid.
+            let sampled_pid = Pid::from_u32(job_object::child_pids_of(mc_pid).into_iter().next().unwrap_or(mc_pid));
+
             sys.refresh_cpu_usage();
             sys.refresh_memory();
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sampled_pid]), true);
 
-            let (process_ram_mb, process_cpu_percent) = match sys.process(pid) {
+            let (process_ram_mb, process_cpu_percent) = match sys.process(sampled_pid) {
                 Some(p) => (Some(p.memory() / 1024 / 1024), Some(p.cpu_usage())),
                 None => (None, None),
             };
@@ -2115,16 +2216,15 @@ async fn start_minecraft_server(
             val
         };
 
-        // Lógica de decisão final:
+        // Lógica de decisão final (ver decide_mc_shutdown_outcome):
         // - Se exit code == 0: parada NORMAL (servidor salvou e fechou após "stop")
         // - Se crash_reports aumentou: CRASH (Minecraft gerou novo crash-report)
         // - Se stop_requested == true: parada NORMAL (usuário pediu, pode ter sido kill forçado)
         // - Caso contrário: CRASH (exit code != 0, sem crash-report, sem parada solicitada)
-        let is_normal_shutdown = exit_code_ok || stop_requested;
-        let is_crash_by_report = has_new_crash_report;
+        let outcome = decide_mc_shutdown_outcome(exit_code, stop_requested, has_new_crash_report);
 
-        log_to_file(&app_monitor, &format!("[MC-DEBUG] Decisão final: is_normal_shutdown={}, is_crash_by_report={}",
-            is_normal_shutdown, is_crash_by_report));
+        log_to_file(&app_monitor, &format!("[MC-DEBUG] Decisão final: outcome={:?} (exit_code_ok={}, stop_requested={}, has_new_crash_report={})",
+            outcome, exit_code_ok, stop_requested, has_new_crash_report));
 
         // Causa específica capturada pelas threads de stdout/stderr (se alguma).
         let known_cause = {
@@ -2132,13 +2232,13 @@ async fn start_minecraft_server(
             state_ref.minecraft_last_error.lock().unwrap_or_else(|e| e.into_inner()).take()
         };
 
-        if is_normal_shutdown && !is_crash_by_report {
+        if outcome == McShutdownOutcome::Normal {
             log_to_file(&app_monitor, "[MC] Parada NORMAL detectada. Emitindo 'offline'.");
             let _ = app_monitor.emit("minecraft-status-changed", "offline");
             let state_ref = unsafe { &*(state_monitor_handle as *const AppState) };
             report_mc_status(&app_monitor, state_ref, "offline");
         } else {
-            let reason = if is_crash_by_report {
+            let reason = if has_new_crash_report {
                 "via crash-reports".to_string()
             } else {
                 format!("exit_code={:?}, stop_requested={}, crash_reports_aumentou={}", exit_code, stop_requested, has_new_crash_report)
@@ -2799,9 +2899,29 @@ async fn read_server_properties(server_dir: String) -> Result<serde_json::Value,
     Ok(serde_json::Value::Object(map))
 }
 
+/// Escreve `content` em `path` de forma atômica: grava num arquivo temporário
+/// no MESMO diretório (garante que o rename final seja atômico — entre
+/// discos/dispositivos diferentes não seria) e só então substitui o destino.
+/// Sem isso, um `std::fs::write` direto TRUNCA o arquivo antes de escrever —
+/// se o processo for morto ou o disco encher no meio (plausível numa máquina
+/// também rodando uma JVM pesada), o arquivo vira bytes truncados/vazios em
+/// vez de continuar com o conteúdo antigo ou virar o novo. Usada por
+/// write_server_properties e write_json_list (whitelist/ops/bans).
+fn atomic_write(path: &std::path::Path, content: &[u8]) -> Result<(), String> {
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
+    let file_name = path.file_name().ok_or_else(|| "caminho sem nome de arquivo".to_string())?;
+    let tmp_path = dir.join(format!(".{}.tmp-{}", file_name.to_string_lossy(), std::process::id()));
+    std::fs::write(&tmp_path, content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        e.to_string()
+    })
+}
+
 /// Writes supplied properties to `server.properties`, preserving existing comments and order where possible.
 #[tauri::command]
-async fn write_server_properties(server_dir: String, props: HashMap<String, String>) -> Result<(), String> {
+async fn write_server_properties(state: tauri::State<'_, AppState>, server_dir: String, props: HashMap<String, String>) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = format!("{}/server.properties", server_dir);
     // Read existing file lines if present
     let mut lines: Vec<String> = if let Ok(content) = std::fs::read_to_string(&path) {
@@ -2824,7 +2944,7 @@ async fn write_server_properties(server_dir: String, props: HashMap<String, Stri
         }
     }
     let new_content = lines.join("\n");
-    std::fs::write(&path, new_content).map_err(|e| e.to_string())
+    atomic_write(std::path::Path::new(&path), new_content.as_bytes())
 }
 
 /// Recorta a imagem para um quadrado centralizado e redimensiona para o tamanho
@@ -2897,7 +3017,25 @@ struct BackupInfo {
     created_at: String,
 }
 
-/// Lê o `level-name` do server.properties; usa "world" como padrão.
+/// Verifica que `name` é um único componente de caminho relativo "normal"
+/// (nem vazio, nem absoluto, nem "." / ".."/ com separador embutido) —
+/// usado para impedir que um valor vindo de fora (ex: `level-name` em
+/// server.properties, editável à mão ou por um servidor importado) escape
+/// do diretório do servidor ao ser passado pra `PathBuf::join`. Sem isso,
+/// `PathBuf::join` com um valor absoluto SUBSTITUI o caminho inteiro, e um
+/// valor com ".." sobe diretórios — as duas formas de escapar da pasta do
+/// servidor em reset_world/backup_world/restore_world_backup.
+fn is_safe_relative_component(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let path = std::path::Path::new(name);
+    path.components().count() == 1
+        && matches!(path.components().next(), Some(std::path::Component::Normal(_)))
+}
+
+/// Lê o `level-name` do server.properties; usa "world" como padrão (também o
+/// fallback se o valor lido não passar por `is_safe_relative_component`).
 fn read_level_name(server_dir: &str) -> String {
     let path = format!("{}/server.properties", server_dir);
     if let Ok(contents) = std::fs::read_to_string(&path) {
@@ -2906,7 +3044,7 @@ fn read_level_name(server_dir: &str) -> String {
             if let Some((k, v)) = trimmed.split_once('=') {
                 if k.trim() == "level-name" {
                     let name = v.trim();
-                    if !name.is_empty() {
+                    if !name.is_empty() && is_safe_relative_component(name) {
                         return name.to_string();
                     }
                 }
@@ -2986,8 +3124,43 @@ async fn list_mods(server_dir: String, folder_name: Option<String>) -> Result<Ve
     Ok(mods)
 }
 
+/// Impede que comandos que mudam mundo/config/mods/listas de jogadores rodem
+/// enquanto o servidor Minecraft está de pé (starting/online/stopping) —
+/// nesses estados o próprio processo pode reescrever esses arquivos por
+/// cima a qualquer momento (whitelist.json/ops.json/banned-*.json ficam em
+/// memória e são persistidos periodicamente; server.properties pode ser
+/// reescrito ao encerrar), ou o Java pode estar com um mod jar aberto.
+///
+/// A UI já evita isso na maioria dos casos (ver `isServerRunning`/
+/// `isServerStopped` no frontend, e o comentário acima da seção de
+/// Gerenciamento de Jogadores) — mas só no frontend, e ao menos um painel
+/// (jogadores/whitelist) só checava `serverStatus === "online"`, deixando os
+/// estados intermediários "starting"/"stopping" passarem direto pra edição
+/// de arquivo. Isto fecha essa brecha no backend, onde nenhum outro caminho
+/// consegue contornar. NÃO se aplica a `backup_world`: o backup automático de
+/// segurança roda DE PROPÓSITO com o servidor ligado (ver autoBackup.ts) —
+/// só operações que SUBSTITUEM ou CONFIGURAM o servidor precisam desta trava.
+fn ensure_mc_server_stopped(state: &AppState) -> Result<(), String> {
+    let alive = match state.minecraft_process.try_lock() {
+        Ok(mut guard) => match guard.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => false,
+        },
+        // Lock ocupado pela thread de monitoramento: ela só segura isso mesmo
+        // (child.try_wait() não-bloqueante) enquanto o processo está vivo —
+        // trata contenção como "vivo" por segurança em vez de deixar passar.
+        Err(_) => true,
+    };
+    if alive {
+        Err(tr!("err.serverMustBeStopped"))
+    } else {
+        Ok(())
+    }
+}
+
 #[tauri::command]
-async fn toggle_mod(server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
+async fn toggle_mod(state: tauri::State<'_, AppState>, server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let mods_dir = PathBuf::from(&server_dir).join(folder_name.as_deref().unwrap_or("mods"));
     let from = mods_dir.join(&file_name);
     if !from.is_file() {
@@ -3002,7 +3175,8 @@ async fn toggle_mod(server_dir: String, file_name: String, folder_name: Option<S
 }
 
 #[tauri::command]
-async fn delete_mod(server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
+async fn delete_mod(state: tauri::State<'_, AppState>, server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join(folder_name.as_deref().unwrap_or("mods")).join(&file_name);
     if !path.is_file() {
         return Err(tr!("err.modNotFound", file = file_name));
@@ -3027,9 +3201,45 @@ fn open_path_in_explorer(path: String) -> Result<(), String> {
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Migra backups da localização antiga (`{server_dir}/backups`, de antes dos
+/// backups terem passado a viver fora da pasta do servidor) para a nova
+/// `backups_dir`. Sem isso, quem já tinha backups guardados perderia o
+/// acesso a eles na hora de atualizar. `rename` é a via principal (rápida,
+/// mesma unidade de disco na prática); `copy`+remove é o fallback só pro
+/// raro caso de `rename` falhar (ex: unidades diferentes). Nunca sobrescreve
+/// um arquivo que já exista no destino. Best-effort: uma falha pontual não
+/// impede o restante da migração nem o uso normal do comando que a chamou.
+fn migrate_legacy_backups(server_dir: &str, backups_dir: &str) {
+    let legacy_dir = PathBuf::from(server_dir).join("backups");
+    if !legacy_dir.is_dir() {
+        return;
+    }
+    if std::fs::create_dir_all(backups_dir).is_err() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(&legacy_dir) {
+        for entry in entries.flatten() {
+            let src = entry.path();
+            if !src.is_file() {
+                continue;
+            }
+            let dest = PathBuf::from(backups_dir).join(entry.file_name());
+            if dest.exists() {
+                continue;
+            }
+            if std::fs::rename(&src, &dest).is_err() && std::fs::copy(&src, &dest).is_ok() {
+                let _ = std::fs::remove_file(&src);
+            }
+        }
+    }
+    // Best-effort: remove a pasta antiga se ficou vazia (não força se não conseguir).
+    let _ = std::fs::remove_dir(&legacy_dir);
+}
+
 #[tauri::command]
-async fn list_world_backups(server_dir: String) -> Result<Vec<BackupInfo>, String> {
-    let backups_dir = PathBuf::from(&server_dir).join("backups");
+async fn list_world_backups(server_dir: String, backups_dir: String) -> Result<Vec<BackupInfo>, String> {
+    migrate_legacy_backups(&server_dir, &backups_dir);
+    let backups_dir = PathBuf::from(&backups_dir);
     if !backups_dir.is_dir() {
         return Ok(Vec::new());
     }
@@ -3082,16 +3292,22 @@ fn zip_add_dir(
 }
 
 /// Compacta as pastas do mundo atual (principal + nether + the_end, as que existirem)
-/// em um novo arquivo .zip dentro de `{server_dir}/backups`.
+/// em um novo arquivo .zip dentro de `backups_dir`.
+///
+/// `backups_dir` fica FORA da pasta do servidor de propósito (ver
+/// getBackupsDir no lado TS, `Documentos/CubicaseBackups/<nome>`) — antes
+/// ficava em `{server_dir}/backups`, e deletar um servidor (`remove`
+/// recursivo da pasta inteira) apagava os backups junto, sem chance de
+/// recuperação nenhuma.
 #[tauri::command]
-async fn backup_world(server_dir: String) -> Result<BackupInfo, String> {
+async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
     let level_name = read_level_name(&server_dir);
     let folders = world_folder_paths(&server_dir, &level_name);
     if folders.is_empty() {
         return Err(tr!("backup.noWorld"));
     }
 
-    let backups_dir = PathBuf::from(&server_dir).join("backups");
+    let backups_dir = PathBuf::from(&backups_dir);
     std::fs::create_dir_all(&backups_dir).map_err(|e| e.to_string())?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -3124,8 +3340,9 @@ async fn backup_world(server_dir: String) -> Result<BackupInfo, String> {
 /// é movido para uma pasta de staging (não apagado) durante a extração; se a
 /// extração falhar no meio, o mundo original é restaurado automaticamente.
 #[tauri::command]
-async fn restore_world_backup(server_dir: String, file_name: String) -> Result<(), String> {
-    let zip_path = PathBuf::from(&server_dir).join("backups").join(&file_name);
+async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: String, backups_dir: String, file_name: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
+    let zip_path = PathBuf::from(&backups_dir).join(&file_name);
     if !zip_path.is_file() {
         return Err(tr!("backup.notFound", file = file_name));
     }
@@ -3153,9 +3370,22 @@ async fn restore_world_backup(server_dir: String, file_name: String) -> Result<(
     for folder in &folders {
         let dest = staging_dir.join(folder.file_name().unwrap());
         if let Err(e) = std::fs::rename(folder, &dest) {
-            // Rollback do que já foi movido antes de propagar o erro.
+            // Rollback do que já foi movido antes de propagar o erro. Mesmo
+            // cuidado do bloco de extração logo abaixo: só apaga staging_dir
+            // se TODO o rollback confirmadamente voltou pro lugar — senão o
+            // usuário perde a pasta que não conseguiu voltar sem aviso nenhum.
+            let mut rollback_failed = false;
             for (original, staged) in moved.iter().rev() {
-                let _ = std::fs::rename(staged, original);
+                if std::fs::rename(staged, original).is_err() {
+                    rollback_failed = true;
+                }
+            }
+            if rollback_failed {
+                return Err(tr!(
+                    "backup.restoreRollbackFailed",
+                    staging = staging_dir.display(),
+                    error = e
+                ));
             }
             let _ = std::fs::remove_dir_all(&staging_dir);
             return Err(tr!("backup.prepareFailed", error = e));
@@ -3191,9 +3421,32 @@ async fn restore_world_backup(server_dir: String, file_name: String) -> Result<(
             Ok(())
         }
         Err(e) => {
+            // Restaura cada pasta original a partir do staging. Diferente da versão
+            // anterior, NENHUM erro aqui é ignorado (`let _ =`): um remove_dir_all
+            // parcial (arquivo travado por antivírus, por exemplo) seguido de um
+            // rename que falha porque o destino ainda existe deixava o staging_dir
+            // (única cópia do mundo original) apagado incondicionalmente logo depois —
+            // perdendo o backup que falhou E o mundo original numa única operação.
+            let mut rollback_failed = false;
             for (original, staged) in moved.iter().rev() {
-                let _ = std::fs::remove_dir_all(original);
-                let _ = std::fs::rename(staged, original);
+                if original.exists() && std::fs::remove_dir_all(original).is_err() {
+                    rollback_failed = true;
+                    continue;
+                }
+                if std::fs::rename(staged, original).is_err() {
+                    rollback_failed = true;
+                }
+            }
+            if rollback_failed {
+                // NÃO apaga staging_dir aqui: pode ser a única cópia que sobrou
+                // do mundo original do usuário. Devolve o caminho pra ele recuperar
+                // manualmente em vez de arriscar apagar o que talvez não tenha
+                // sido restaurado ainda.
+                return Err(tr!(
+                    "backup.restoreRollbackFailed",
+                    staging = staging_dir.display(),
+                    error = e
+                ));
             }
             let _ = std::fs::remove_dir_all(&staging_dir);
             Err(tr!("backup.extractFailed", error = e))
@@ -3202,8 +3455,8 @@ async fn restore_world_backup(server_dir: String, file_name: String) -> Result<(
 }
 
 #[tauri::command]
-async fn delete_world_backup(server_dir: String, file_name: String) -> Result<(), String> {
-    let path = PathBuf::from(&server_dir).join("backups").join(&file_name);
+async fn delete_world_backup(backups_dir: String, file_name: String) -> Result<(), String> {
+    let path = PathBuf::from(&backups_dir).join(&file_name);
     if !path.is_file() {
         return Err(tr!("backup.notFound", file = file_name));
     }
@@ -3212,7 +3465,8 @@ async fn delete_world_backup(server_dir: String, file_name: String) -> Result<()
 
 /// Apaga as pastas do mundo atual sem gerar backup; o Minecraft regenera no próximo start.
 #[tauri::command]
-async fn reset_world(server_dir: String) -> Result<(), String> {
+async fn reset_world(state: tauri::State<'_, AppState>, server_dir: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let level_name = read_level_name(&server_dir);
     let folders = world_folder_paths(&server_dir, &level_name);
     if folders.is_empty() {
@@ -3284,7 +3538,7 @@ fn read_json_list<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<Vec<
 
 fn write_json_list<T: Serialize>(path: &PathBuf, items: &[T]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    atomic_write(path, json.as_bytes())
 }
 
 /// Lê a flag `online-mode` do server.properties; usa `true` (padrão do Minecraft) se ausente.
@@ -3364,7 +3618,8 @@ async fn list_whitelist(server_dir: String) -> Result<Vec<WhitelistEntry>, Strin
 }
 
 #[tauri::command]
-async fn add_whitelist_player(server_dir: String, name: String) -> Result<WhitelistEntry, String> {
+async fn add_whitelist_player(state: tauri::State<'_, AppState>, server_dir: String, name: String) -> Result<WhitelistEntry, String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("whitelist.json");
     let mut entries: Vec<WhitelistEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -3378,7 +3633,8 @@ async fn add_whitelist_player(server_dir: String, name: String) -> Result<Whitel
 }
 
 #[tauri::command]
-async fn remove_whitelist_player(server_dir: String, uuid: String) -> Result<(), String> {
+async fn remove_whitelist_player(state: tauri::State<'_, AppState>, server_dir: String, uuid: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("whitelist.json");
     let mut entries: Vec<WhitelistEntry> = read_json_list(&path)?;
     let before = entries.len();
@@ -3395,7 +3651,8 @@ async fn list_ops(server_dir: String) -> Result<Vec<OpEntry>, String> {
 }
 
 #[tauri::command]
-async fn add_op(server_dir: String, name: String) -> Result<OpEntry, String> {
+async fn add_op(state: tauri::State<'_, AppState>, server_dir: String, name: String) -> Result<OpEntry, String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("ops.json");
     let mut entries: Vec<OpEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -3409,7 +3666,8 @@ async fn add_op(server_dir: String, name: String) -> Result<OpEntry, String> {
 }
 
 #[tauri::command]
-async fn remove_op(server_dir: String, uuid: String) -> Result<(), String> {
+async fn remove_op(state: tauri::State<'_, AppState>, server_dir: String, uuid: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("ops.json");
     let mut entries: Vec<OpEntry> = read_json_list(&path)?;
     let before = entries.len();
@@ -3426,7 +3684,8 @@ async fn list_banned_players(server_dir: String) -> Result<Vec<BannedPlayerEntry
 }
 
 #[tauri::command]
-async fn ban_player(server_dir: String, name: String, reason: Option<String>) -> Result<BannedPlayerEntry, String> {
+async fn ban_player(state: tauri::State<'_, AppState>, server_dir: String, name: String, reason: Option<String>) -> Result<BannedPlayerEntry, String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("banned-players.json");
     let mut entries: Vec<BannedPlayerEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -3449,7 +3708,8 @@ async fn ban_player(server_dir: String, name: String, reason: Option<String>) ->
 }
 
 #[tauri::command]
-async fn pardon_player(server_dir: String, uuid: String) -> Result<(), String> {
+async fn pardon_player(state: tauri::State<'_, AppState>, server_dir: String, uuid: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("banned-players.json");
     let mut entries: Vec<BannedPlayerEntry> = read_json_list(&path)?;
     let before = entries.len();
@@ -3466,7 +3726,8 @@ async fn list_banned_ips(server_dir: String) -> Result<Vec<BannedIpEntry>, Strin
 }
 
 #[tauri::command]
-async fn ban_ip(server_dir: String, ip: String, reason: Option<String>) -> Result<BannedIpEntry, String> {
+async fn ban_ip(state: tauri::State<'_, AppState>, server_dir: String, ip: String, reason: Option<String>) -> Result<BannedIpEntry, String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("banned-ips.json");
     let mut entries: Vec<BannedIpEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.ip == ip) {
@@ -3487,7 +3748,8 @@ async fn ban_ip(server_dir: String, ip: String, reason: Option<String>) -> Resul
 }
 
 #[tauri::command]
-async fn pardon_ip(server_dir: String, ip: String) -> Result<(), String> {
+async fn pardon_ip(state: tauri::State<'_, AppState>, server_dir: String, ip: String) -> Result<(), String> {
+    ensure_mc_server_stopped(&state)?;
     let path = PathBuf::from(&server_dir).join("banned-ips.json");
     let mut entries: Vec<BannedIpEntry> = read_json_list(&path)?;
     let before = entries.len();
@@ -4604,6 +4866,20 @@ impl Default for SyncTelemetry {
 // ============================================================
 // Gerenciamento da Fila Persistente
 // ============================================================
+//
+// TODA leitura+mutação+escrita do arquivo da fila (enqueue/remove/mark-failed/
+// cleanup) passa por SYNC_QUEUE_LOCK como uma seção crítica só-síncrona (nunca
+// segurada através de um `.await`, já que load/save são só std::fs). Sem isso
+// havia uma corrida clássica de "última escrita vence": process_sync_queue
+// carregava a fila UMA VEZ, processava várias operações (cada `.await` de rede
+// podia levar segundos), e só regravava o arquivo INTEIRO no final — uma
+// sync_register_server/sync_update_server chamada pelo usuário nesse meio
+// tempo enfileirava e salvava a própria operação normalmente, mas o save final
+// do process_sync_queue (calculado a partir do estado de ANTES) sobrescrevia
+// o arquivo por cima, apagando silenciosamente a operação que acabara de ser
+// enfileirada. Agora cada operação individual é removida/atualizada assim que
+// seu próprio resultado é conhecido (ver process_sync_queue), nunca em lote.
+static SYNC_QUEUE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Obtém o caminho do arquivo de fila de sincronização
 fn get_sync_queue_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -4611,13 +4887,15 @@ fn get_sync_queue_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir.join("cubeforge_sync_queue.json"))
 }
 
-/// Carrega a fila de sincronização do disco
+/// Carrega a fila de sincronização do disco. Chame só dentro de uma seção
+/// crítica de SYNC_QUEUE_LOCK se o resultado for usado para decidir uma
+/// escrita — leituras "de relance" (ex: telemetria) não precisam do lock.
 fn load_sync_queue(app: &tauri::AppHandle) -> SyncQueueState {
     let path = match get_sync_queue_path(app) {
         Ok(p) => p,
         Err(_) => return SyncQueueState { operations: Vec::new() },
     };
-    
+
     if path.exists() {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
@@ -4636,21 +4914,22 @@ fn save_sync_queue(app: &tauri::AppHandle, state: &SyncQueueState) {
         Ok(p) => p,
         Err(_) => return,
     };
-    
+
     if let Ok(content) = serde_json::to_string(state) {
         let _ = std::fs::write(&path, &content);
     }
 }
 
-/// Adiciona uma operação à fila de sincronização
+/// Adiciona uma operação à fila de sincronização (atômico — ver SYNC_QUEUE_LOCK).
 fn enqueue_operation(
     app: &tauri::AppHandle,
     op_type: SyncOperationType,
     payload: serde_json::Value,
 ) -> String {
+    let _guard = SYNC_QUEUE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut queue = load_sync_queue(app);
     let id = Uuid::new_v4().to_string();
-    
+
     let operation = SyncOperation {
         id: id.clone(),
         op_type,
@@ -4659,30 +4938,47 @@ fn enqueue_operation(
         retry_count: 0,
         last_attempt: None,
     };
-    
+
     // Limitar a 100 operações na fila (descarta as mais antigas)
     if queue.operations.len() >= 100 {
         queue.operations.remove(0);
     }
-    
+
     queue.operations.push(operation);
     save_sync_queue(app, &queue);
-    
+
     id
 }
 
-/// Remove uma operação da fila pelo ID
+/// Remove uma operação da fila pelo ID (atômico — ver SYNC_QUEUE_LOCK).
 fn remove_operation(app: &tauri::AppHandle, operation_id: &str) {
+    let _guard = SYNC_QUEUE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut queue = load_sync_queue(app);
     queue.operations.retain(|op| op.id != operation_id);
     save_sync_queue(app, &queue);
 }
 
-/// Remove operações expiradas (> 24h) da fila
+/// Registra que uma tentativa de `operation_id` falhou — incrementa
+/// retry_count e atualiza last_attempt SÓ dessa operação (atômico — ver
+/// SYNC_QUEUE_LOCK). Se a operação já não estiver mais na fila (removida por
+/// outra chamada concorrente nesse meio tempo, ex: o usuário apagou o
+/// servidor), não faz nada — não a recria.
+fn mark_operation_failed(app: &tauri::AppHandle, operation_id: &str) {
+    let _guard = SYNC_QUEUE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut queue = load_sync_queue(app);
+    if let Some(op) = queue.operations.iter_mut().find(|o| o.id == operation_id) {
+        op.retry_count += 1;
+        op.last_attempt = Some(chrono::Utc::now().to_rfc3339());
+    }
+    save_sync_queue(app, &queue);
+}
+
+/// Remove operações expiradas (> 24h) da fila (atômico — ver SYNC_QUEUE_LOCK).
 fn cleanup_expired_operations(app: &tauri::AppHandle) {
+    let _guard = SYNC_QUEUE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut queue = load_sync_queue(app);
     let cutoff = chrono::Utc::now() - chrono::Duration::hours(24);
-    
+
     queue.operations.retain(|op| {
         if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&op.created_at) {
             created > cutoff
@@ -4690,7 +4986,7 @@ fn cleanup_expired_operations(app: &tauri::AppHandle) {
             true
         }
     });
-    
+
     save_sync_queue(app, &queue);
 }
 
@@ -4950,9 +5246,16 @@ async fn process_sync_queue(
     }
     
     log_to_file(&app, &format!("[SYNC] Processando {} operações pendentes...", queue.operations.len()));
-    
-    let mut remaining = Vec::new();
-    
+
+    // Cada operação é removida/atualizada individualmente assim que seu próprio
+    // resultado é conhecido (remove_operation/mark_operation_failed, ambas
+    // atômicas via SYNC_QUEUE_LOCK) em vez de acumular num Vec `remaining` e
+    // regravar o arquivo inteiro só no final — isso é o que causava a corrida
+    // de "perde a última escrita" com enqueue_operation chamado por outra
+    // task (ex: usuário renomeando/apagando o servidor) enquanto esta função
+    // ainda está no meio de várias chamadas de rede (`.await`, podem levar
+    // segundos cada). `queue` aqui é só um retrato do início do tick — usado
+    // pra decidir O QUE tentar agora, nunca reescrito de volta em lote.
     for op in queue.operations {
         // Calcular backoff: 30s * 2^retry_count, max 16 min
         let backoff_seconds = std::cmp::min(30 * (2u64.pow(op.retry_count)), 960); // 16 min
@@ -4967,12 +5270,11 @@ async fn process_sync_queue(
             }
             None => true, // Nunca tentou, pode tentar agora
         };
-        
+
         if !should_retry {
-            remaining.push(op);
             continue;
         }
-        
+
         // Máximo de 5 tentativas
         if op.retry_count >= 5 {
             log_to_file(&app, &format!("[SYNC] Operação {} excedeu 5 tentativas. Removendo da fila.", op.id));
@@ -4980,41 +5282,36 @@ async fn process_sync_queue(
                 let mut t = telemetry.lock().unwrap_or_else(|e| e.into_inner());
                 t.failed_operations += 1;
             }
+            remove_operation(&app, &op.id);
             continue;
         }
-        
+
         // Tentar executar
         match execute_sync_operation(&app, &op, &telemetry).await {
             Ok(_) => {
                 log_to_file(&app, &format!("[SYNC] Operação {} executada com sucesso.", op.id));
-                // Não adiciona a `remaining` — foi removida com sucesso
+                remove_operation(&app, &op.id);
             }
             Err(e) => {
                 log_to_file(&app, &format!("[SYNC] Operação {} falhou (tentativa {}/5): {}", op.id, op.retry_count + 1, e));
-                let mut updated_op = op.clone();
-                updated_op.retry_count += 1;
-                updated_op.last_attempt = Some(chrono::Utc::now().to_rfc3339());
-                
                 {
                     let mut t = telemetry.lock().unwrap_or_else(|e| e.into_inner());
                     t.total_retries += 1;
                 }
-                
-                remaining.push(updated_op);
+                mark_operation_failed(&app, &op.id);
             }
         }
     }
-    
-    // Salvar operações restantes
-    let new_queue = SyncQueueState { operations: remaining };
-    save_sync_queue(&app, &new_queue);
-    
-    // Atualizar telemetria
+
+    // Telemetria de pendentes: lê o estado ATUAL do arquivo (não o retrato do
+    // início do tick), já refletindo tudo que foi removido/atualizado acima
+    // mais qualquer enqueue concorrente que tenha acontecido nesse meio tempo.
     {
+        let current = load_sync_queue(&app);
         let mut t = telemetry.lock().unwrap_or_else(|e| e.into_inner());
-        t.pending_operations = new_queue.operations.len();
+        t.pending_operations = current.operations.len();
     }
-    
+
     // Limpar operações expiradas
     cleanup_expired_operations(&app);
 }
@@ -5355,32 +5652,11 @@ async fn wake_from_sleep(app: tauri::AppHandle, cfg: Arc<WakeOnDemandConfig>) {
         ).await
     });
 
-    // Rede: um teste real mostrou session_manager.start() (dentro de
-    // start_network_node) travando por minutos sem nunca completar nem
-    // falhar — nenhum erro, nenhum timeout interno disparando, só um
-    // comando novo vindo do frontend (ex.: reabrir a UI) "destravando" e
-    // fazendo a MESMA chamada funcionar em segundos logo em seguida. Sem
-    // conseguir confirmar a causa exata remotamente, a defesa possível é:
-    // nunca deixar essa chamada travar pra sempre, e reaproveitar o padrão
-    // observado (tentar de novo já resolve) em vez de depender de alguém
-    // notar e mexer na interface manualmente.
-    const NETWORK_TIMEOUT: Duration = Duration::from_secs(45);
-    const NETWORK_MAX_ATTEMPTS: u32 = 3;
-    let mut net_res: Result<(), String> = Err(tr!("err.neverTried"));
-    for attempt in 1..=NETWORK_MAX_ATTEMPTS {
-        net_res = match tokio::time::timeout(
-            NETWORK_TIMEOUT,
-            start_network_node(app.clone(), app.state::<AppState>(), "host".to_string(), cfg.short_code.clone(), None, cfg.local_port),
-        ).await {
-            Ok(inner_result) => inner_result,
-            Err(_) => Err(tr!("err.networkTimeout", seconds = NETWORK_TIMEOUT.as_secs(), attempt = attempt, max = NETWORK_MAX_ATTEMPTS)),
-        };
-        if net_res.is_ok() { break; }
-        log_to_file(&app, &format!("[WakeOnDemand] Tentativa {}/{} de iniciar a rede falhou: {:?}", attempt, NETWORK_MAX_ATTEMPTS, net_res));
-        if attempt < NETWORK_MAX_ATTEMPTS {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
-    }
+    // Rede: usa o mesmo helper de timeout+retry do comando start_network_node
+    // (ver comentário completo em start_network_node_with_retry) — antes essa
+    // proteção só existia aqui; agora é compartilhada com o clique normal de
+    // "Hospedar"/"Entrar".
+    let net_res = start_network_node_with_retry(app.clone(), "host".to_string(), cfg.short_code.clone(), None, cfg.local_port).await;
 
     match mc_handle.await {
         Ok(Err(e)) => log_to_file(&app, &format!("[WakeOnDemand] Falha ao iniciar servidor: {}", e)),

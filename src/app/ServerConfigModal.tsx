@@ -28,22 +28,75 @@ import {
   CONNECT_NAME_DOMAIN,
   connectNameFormatHint,
 } from '@/lib/connectAddress';
+import { renameServer } from '@/lib/server';
+import { waitForPendingBackup } from '@/lib/autoBackup';
 import { useT } from '@/i18n';
 
 interface ServerConfigModalProps {
   /** Full filesystem path to the server directory */
   serverDir: string;
+  /** Nome atual do servidor (nome da pasta, para servidores padrão). */
+  serverName: string;
+  /** Servidor importado (fora de CubicaseServers) — o nome não pode ser alterado por aqui. */
+  isImported?: boolean;
+  /** Nomes de todos os OUTROS servidores já conhecidos (padrão e importados) —
+   * usado para recusar colisão de nome antes mesmo de tentar o rename (o
+   * próprio sistema de arquivos só bloquearia colisão com outro servidor
+   * PADRÃO; um importado vive fora de CubicaseServers e não colide lá). */
+  existingServerNames?: string[];
   /** Código de convite (CF-XXXXXX) deste servidor — null se ele nunca chegou a ser registrado na API Central. */
   shortCode: string | null;
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void; // refresh parent data after save
+  /** Servidor renomeado com sucesso — o pai precisa atualizar serverDir/serverName
+   * (e qualquer estado próprio, como store.selectedServer/runningServer/mcLogsByServer)
+   * antes do próximo render, já que a pasta física mudou de lugar.
+   * `backupsMigrationFailed` indica que o rename em si funcionou, mas os
+   * backups antigos não puderam ser movidos junto (ver renameServer). */
+  onRenamed?: (result: { name: string; path: string; backupsMigrationFailed: boolean }) => void | Promise<void>;
   /** Current server status — if "online" or "starting", form is disabled */
   serverStatus?: string;
 }
 
-export function ServerConfigModal({ serverDir, shortCode, isOpen, onClose, onSaved, serverStatus }: ServerConfigModalProps) {
+export function ServerConfigModal({ serverDir, serverName, isImported, existingServerNames, shortCode, isOpen, onClose, onSaved, onRenamed, serverStatus }: ServerConfigModalProps) {
   const { t } = useT();
+  const [nameInput, setNameInput] = useState(serverName);
+  const [nameSubmitting, setNameSubmitting] = useState(false);
+  const [nameError, setNameError] = useState('');
+
+  // O modal não é remontado ao trocar de servidor (sem `key` na instância —
+  // ver HostView.tsx), então precisa reagir a `serverName` mudando de fora
+  // (troca de servidor selecionado, ou o próprio rename tendo sucesso).
+  useEffect(() => {
+    setNameInput(serverName);
+    setNameError('');
+  }, [serverName]);
+
+  const handleRenameServer = async () => {
+    const trimmed = nameInput.trim();
+    if (trimmed === serverName) return;
+    if ((existingServerNames ?? []).some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+      setNameError(t("config.name.alreadyExists", { name: trimmed }));
+      return;
+    }
+    setNameSubmitting(true);
+    setNameError('');
+    try {
+      // Espera um backup automático de parada/crash em andamento (disparado
+      // sem `await` bem no mesmo instante em que este botão é liberado —
+      // ver comentário em waitForPendingBackup) terminar ANTES de mexer na
+      // pasta, senão o rename podia acontecer no meio da leitura/zipagem
+      // desse backup.
+      await waitForPendingBackup(serverDir);
+      const result = await renameServer(serverName, trimmed, existingServerNames);
+      await onRenamed?.(result);
+    } catch (err) {
+      setNameError(String((err as Error)?.message ?? err));
+    } finally {
+      setNameSubmitting(false);
+    }
+  };
   const [motd, setMotd] = useState('');
   const [gamemode, setGamemode] = useState('survival');
   const [difficulty, setDifficulty] = useState('easy');
@@ -442,6 +495,38 @@ export function ServerConfigModal({ serverDir, shortCode, isOpen, onClose, onSav
                   </div>
                 </div>
               )}
+
+              {/* Nome do servidor — mesmo esquema do link de convite abaixo: salvo
+                  na hora (renomeia a pasta de verdade), fora do <form> de
+                  server.properties, sem precisar do botão "Salvar" principal. */}
+              <div className="mb-4 p-4 bg-theme-muted border border-theme-card rounded-2xl space-y-2.5">
+                <label className="text-sm font-medium text-theme-primary">{t("config.name.title")}</label>
+                {isImported ? (
+                  <p className="text-[10px] text-theme-secondary">{t("config.name.importedHint")}</p>
+                ) : (
+                  <>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={nameInput}
+                        disabled={isServerRunning || nameSubmitting}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        className="flex-1 min-w-0 h-11 px-3 rounded-xl border border-theme-card bg-theme-card focus:outline-none text-sm text-theme-primary disabled:opacity-70 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRenameServer}
+                        disabled={isServerRunning || nameSubmitting || !nameInput.trim() || nameInput.trim() === serverName}
+                        className="h-11 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer flex-shrink-0"
+                      >
+                        {nameSubmitting ? t("config.saving") : t("config.save")}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-theme-secondary">{t("config.name.hint")}</p>
+                  </>
+                )}
+                {nameError && <p className="text-[10px] text-rose-500">{nameError}</p>}
+              </div>
 
               {/* Link de convite — não faz parte do <form> de server.properties: é
                   salvo na hora, direto na API Central, sem precisar do botão "Salvar". */}

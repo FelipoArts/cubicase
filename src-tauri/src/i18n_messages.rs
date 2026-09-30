@@ -78,6 +78,10 @@ messages! {
     "net.mock.stopped" => ("[mock-provider] Rede mesh simulada encerrada.", "[mock-provider] Simulated mesh network stopped."),
 
     // ---------- Arquivos / launcher / instalação ----------
+    "err.serverMustBeStopped" => (
+        "O servidor Minecraft precisa estar parado para fazer isso — pare o servidor e tente novamente.",
+        "The Minecraft server needs to be stopped to do this — stop the server and try again."
+    ),
     "err.serversDatRead" => ("Falha ao ler servers.dat: {error}", "Failed to read servers.dat: {error}"),
     "err.serversDatBuild" => ("Falha ao montar servers.dat: {error}", "Failed to build servers.dat: {error}"),
     "err.serversDatSerialize" => ("Falha ao serializar servers.dat: {error}", "Failed to serialize servers.dat: {error}"),
@@ -153,6 +157,10 @@ messages! {
     "backup.corruptedEntry" => ("Backup corrompido (entrada {index} ilegível) — mundo atual preservado: {error}", "Corrupted backup (entry {index} unreadable) — current world preserved: {error}"),
     "backup.prepareFailed" => ("Não foi possível preparar a restauração (mundo atual preservado): {error}", "Couldn't prepare the restore (current world preserved): {error}"),
     "backup.extractFailed" => ("Falha ao extrair o backup — mundo original restaurado: {error}", "Failed to extract the backup — original world restored: {error}"),
+    "backup.restoreRollbackFailed" => (
+        "Falha ao extrair o backup, e não foi possível restaurar o mundo original automaticamente (talvez travado por outro programa, como um antivírus). SEU MUNDO ORIGINAL NÃO FOI PERDIDO: ele está preservado em \"{staging}\" — mova essa pasta de volta manualmente. Erro da extração: {error}",
+        "Failed to extract the backup, and the original world couldn't be restored automatically (it may be locked by another program, such as antivirus software). YOUR ORIGINAL WORLD WAS NOT LOST: it's preserved at \"{staging}\" — move that folder back manually. Extraction error: {error}"
+    ),
 
     // ---------- Jogadores ----------
     "players.mojangNotFound" => ("Jogador \"{name}\" não encontrado (verifique o nome da conta Minecraft/Microsoft).", "Player \"{name}\" not found (check the Minecraft/Microsoft account name)."),

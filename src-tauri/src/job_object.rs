@@ -72,26 +72,28 @@ mod imp {
     /// PIDs de processos cujo pai é `parent_pid`, via Toolhelp (não requer
     /// nenhum handle guardado de antemão — funciona mesmo sem ter criado o
     /// processo filho diretamente, olhando o PPID de todo processo do sistema).
-    unsafe fn child_pids_of(parent_pid: u32) -> Vec<u32> {
-        let mut result = Vec::new();
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snapshot == INVALID_HANDLE_VALUE {
-            return result;
-        }
-        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-        if Process32FirstW(snapshot, &mut entry) != 0 {
-            loop {
-                if entry.th32ParentProcessID == parent_pid {
-                    result.push(entry.th32ProcessID);
-                }
-                if Process32NextW(snapshot, &mut entry) == 0 {
-                    break;
+    pub fn child_pids_of(parent_pid: u32) -> Vec<u32> {
+        unsafe {
+            let mut result = Vec::new();
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snapshot == INVALID_HANDLE_VALUE {
+                return result;
+            }
+            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            if Process32FirstW(snapshot, &mut entry) != 0 {
+                loop {
+                    if entry.th32ParentProcessID == parent_pid {
+                        result.push(entry.th32ProcessID);
+                    }
+                    if Process32NextW(snapshot, &mut entry) == 0 {
+                        break;
+                    }
                 }
             }
+            CloseHandle(snapshot);
+            result
         }
-        CloseHandle(snapshot);
-        result
     }
 
     /// Mata um processo e, recursivamente, todos os processos filhos dele.
@@ -126,6 +128,9 @@ mod imp {
 mod imp {
     pub fn track_process(_pid: u32) {}
     pub fn kill_process_tree(_pid: u32) {}
+    pub fn child_pids_of(_parent_pid: u32) -> Vec<u32> {
+        Vec::new()
+    }
 }
 
-pub use imp::{kill_process_tree, track_process};
+pub use imp::{child_pids_of, kill_process_tree, track_process};

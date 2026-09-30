@@ -306,6 +306,22 @@ impl SessionManager {
                     None, Some(timing_map.clone()), None, None,
                 ).await {
                     Ok(_) => { succeeded = true; break; }
+                    Err(e) if e.code == "STALE_WRITE" => {
+                        // Cada tentativa deste loop reusa a MESMA `revision` capturada
+                        // antes do laço, mas gera um requestId novo por chamada (ver
+                        // update_connection_session/generate_ids) — se a tentativa 1
+                        // tiver sido aplicada de verdade no servidor mas a resposta se
+                        // perdeu (timeout/rede), a tentativa 2 reenvia essa MESMA
+                        // revision, agora desatualizada, e o servidor rejeita com
+                        // STALE_WRITE (não é um erro transitório igual aos outros: é
+                        // exatamente o sinal de "isso já foi aplicado por outra
+                        // chamada"). Insistir com a mesma revision só repetiria esse
+                        // 409 pra sempre até esgotar as tentativas e cair em
+                        // DEGRADED — com o host 100% online de verdade. Trata como
+                        // sucesso em vez de reportar falha por algo que já aconteceu.
+                        succeeded = true;
+                        break;
+                    }
                     Err(e) => {
                         last_err = e.to_string();
                         if attempt < MAX_ATTEMPTS {
@@ -573,6 +589,33 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(sm.get_status(), SessionStatus::Degraded);
+    }
+
+    #[tokio::test]
+    async fn set_online_treats_stale_write_as_success_instead_of_degrading() {
+        // Achado de pré-lançamento: cada tentativa deste retry reenvia a MESMA
+        // `revision` capturada antes do laço — se a tentativa 1 tiver sido
+        // aplicada de verdade no servidor mas a resposta se perder (timeout,
+        // conexão instável), o servidor já avançou a revision sozinho, e
+        // qualquer retry subsequente com a revision antiga toma STALE_WRITE.
+        // Sem tratar esse código especificamente, isso insistia com a mesma
+        // revision já ultrapassada até esgotar as 4 tentativas e cair em
+        // DEGRADED — mesmo com o host 100% online de verdade. Simula
+        // exatamente isso: a ÚNICA tentativa de update retorna STALE_WRITE
+        // (nunca SESSION_NOT_FOUND nem timeout) — se o código tratasse isso
+        // como um erro comum, não haveria resposta roteirizada suficiente
+        // pras 3 tentativas restantes e o teste falharia com "EXHAUSTED".
+        let sm = session_manager_with(vec![
+            fake_ok(connection_session_json("sess-stale")),
+            fake_err("STALE_WRITE", "revision desatualizada"),
+        ]);
+
+        sm.start("ABCDEF", "host", 25565).await.expect("start deveria funcionar");
+        sm.set_waiting_provider().expect("set_waiting_provider deveria funcionar");
+        let result = sm.set_online("100.64.0.1").await;
+
+        assert!(result.is_ok(), "STALE_WRITE deveria ser tratado como sucesso: {:?}", result);
+        assert_eq!(sm.get_status(), SessionStatus::Online);
     }
 
     #[tokio::test]

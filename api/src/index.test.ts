@@ -62,6 +62,73 @@ describe("ciclo de vida do servidor", () => {
     expect(body.code).toBe("SERVER_NOT_FOUND");
   });
 
+  // Regressão: sync_update_server (desktop) já mandava PATCH /api/v1/servers/{sc}
+  // há tempos, mas nenhuma rota respondia — toda renomeação/atualização
+  // simplesmente 404ava e nunca chegava a aplicar (achado de pré-lançamento).
+  it("PATCH atualiza nome/versão/descrição sem tocar em uuid/owner/createdAt", async () => {
+    const { body: createBody, shortCode } = await createTestServer("NomeOriginal");
+    const original = createBody.data;
+
+    const patchRes = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shortCode, name: "NomeNovo", version: "1.21.1" }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patchBody = await patchRes.json();
+    expect(patchBody.code).toBe("SERVER_UPDATED");
+    expect(patchBody.data.name).toBe("NomeNovo");
+    expect(patchBody.data.version).toBe("1.21.1");
+    // Campos não mandados no PATCH continuam como estavam.
+    expect(patchBody.data.description).toBe(original.description);
+    // Identidade nunca muda num update.
+    expect(patchBody.data.uuid).toBe(original.uuid);
+    expect(patchBody.data.owner).toBe(original.owner);
+    expect(patchBody.data.createdAt).toBe(original.createdAt);
+    expect(patchBody.data.shortCode).toBe(shortCode);
+
+    const discoverRes = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`);
+    const discoverBody = await discoverRes.json();
+    expect(discoverBody.data.server.name).toBe("NomeNovo");
+  });
+
+  it("PATCH num shortCode inexistente dá 404, não cria nada", async () => {
+    const res = await SELF.fetch(`${BASE}/api/v1/servers/ZZZZZZ`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shortCode: "ZZZZZZ", name: "Fantasma" }),
+    });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("SERVER_NOT_FOUND");
+  });
+
+  // Regressão: um retry automático de sync_register_server (ex: resposta do
+  // primeiro POST perdida por timeout, mas já aplicada no servidor) reenvia o
+  // MESMO shortCode — antes disso gerava um `uuid`/`owner` novos e resetava
+  // `createdAt` a cada tentativa, corrompendo a identidade do servidor em
+  // silêncio (achado de pré-lançamento).
+  it("POST com shortCode já existente é um retry idempotente, não recria identidade", async () => {
+    const { body: createBody, shortCode } = await createTestServer("Original");
+    const original = createBody.data;
+
+    // Espera 1 tick de relógio pra createdAt/updatedAt não empatarem por acaso.
+    await new Promise((r) => setTimeout(r, 5));
+
+    const retryRes = await SELF.fetch(`${BASE}/api/v1/servers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Original", version: "1.20.1", serverType: "vanilla", description: "", shortCode }),
+    });
+    expect(retryRes.status).toBe(201);
+    const retryBody = await retryRes.json();
+    expect(retryBody.data.shortCode).toBe(shortCode);
+    // A identidade do servidor não pode mudar entre o create original e o retry.
+    expect(retryBody.data.uuid).toBe(original.uuid);
+    expect(retryBody.data.owner).toBe(original.owner);
+    expect(retryBody.data.createdAt).toBe(original.createdAt);
+  });
+
   it("regenera o código, invalidando o antigo", async () => {
     const { shortCode } = await createTestServer();
 

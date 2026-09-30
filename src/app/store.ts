@@ -167,8 +167,11 @@ interface AppSettings {
   updateKnownServerStatus: (shortCode: string, status: ServerStatus, minecraftStatus?: ServerStatus | null, currentPlayers?: number) => void;
   addImportedServerPath: (path: string) => void;
   removeImportedServerPath: (path: string) => void;
-  setLogs: (logs: any) => void;
+  setLogs: (logs: string[] | ((prev: string[]) => string[])) => void;
   setMcLogs: (serverName: string, logs: string[] | ((prev: string[]) => string[])) => void;
+  /** Move o histórico do console de `oldName` pra `newName` (usado ao renomear
+   * um servidor) — sem isso, sobraria uma chave órfã com o nome antigo. */
+  renameMcLogs: (oldName: string, newName: string) => void;
 }
 
 
@@ -282,6 +285,11 @@ export const useAppStore = create<AppSettings>()(
         const prevLogs = state.mcLogsByServer[serverName] ?? [];
         const newLogs = typeof logs === 'function' ? logs(prevLogs) : logs;
         return { mcLogsByServer: { ...state.mcLogsByServer, [serverName]: newLogs.slice(-500) } };
+      }),
+      renameMcLogs: (oldName, newName) => set((state) => {
+        if (oldName === newName || !(oldName in state.mcLogsByServer)) return state;
+        const { [oldName]: moved, ...rest } = state.mcLogsByServer;
+        return { mcLogsByServer: { ...rest, [newName]: moved } };
       }),
     }),
     {
