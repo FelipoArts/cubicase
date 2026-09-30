@@ -6,6 +6,7 @@ import {
   Globe,
   Monitor,
   Settings as SettingsIcon,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
@@ -26,6 +27,8 @@ import { OnboardingScreen } from "@/app/components/OnboardingScreen";
 import { DiagnosticsToasts, DiagnosticsBell } from "@/app/components/DiagnosticsCenter";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { UpdateBanner } from "@/app/components/UpdateBanner";
+import { UpdateButton } from "@/app/components/UpdateButton";
+import { HelpCenter } from "@/app/components/HelpCenter";
 import { useUpdaterStore } from "@/app/updater";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
@@ -95,6 +98,8 @@ export default function Home() {
     mcLogsByServer,
     setMcLogs: setMcLogsInStore,
     importedServerPaths,
+    logs,
+    setLogs,
   } = useAppStore();
 
   // --- Estados locais (compartilhados entre Host e Guest) ---
@@ -106,7 +111,19 @@ export default function Home() {
   const [netIp, setNetIp] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
+  // logs (console de rede) vem do store (useAppStore) — ver comentário onde é
+  // desestruturado, acima. Não é mais um useState local com leitura/escrita
+  // manual do localStorage (ver histórico do arquivo): esse localStorage
+  // manual escrevia na MESMA chave ("cubeforge-storage") que o middleware
+  // `persist` do Zustand já é dono, e qualquer outra mutação do store (um
+  // jogador entrando, uma linha de log do Minecraft) reserializava o estado
+  // inteiro por cima — incluindo o `state.logs` do PRÓPRIO Zustand, congelado
+  // no valor de quando a store carregou (a ação `setLogs` do store nunca era
+  // chamada) — sobrescrevendo silenciosamente o que acabara de ser salvo.
+  // Resultado: o log de rede não sobrevivia a um Ctrl+R, mesmo com o
+  // comentário no código dizendo que deveria. Usar o `logs`/`setLogs` do
+  // próprio store elimina o segundo dono de estado — a persistência já é
+  // automática via `partialize` (ver store.ts).
   // O console do Minecraft (mcLogsByServer) vive no store (persistido por servidor);
   // aqui derivamos apenas a sessão do servidor atualmente selecionado para exibição.
   const mcLogs = selectedServer ? (mcLogsByServer[selectedServer] ?? []) : [];
@@ -129,51 +146,11 @@ export default function Home() {
     state.setMcLogs(target, prev => [...prev, line]);
   };
 
-  // Carregar logs de rede do localStorage na montagem e persistir em toda mudança
-  // IMPORTANTE: isso precisa acontecer em UM único useEffect para evitar que
-  // o salvamento com array vazio sobrescreva os dados carregados.
-  const logsLoadedRef = useRef(false);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('cubeforge-storage');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const savedLogs = parsed?.state?.logs;
-        if (savedLogs?.length) {
-          setLogs(savedLogs.slice(-150));
-          logsLoadedRef.current = true;
-          return; // Não persiste de volta logo após carregar
-        }
-      }
-    } catch {}
-
-    // Se não tinha nada no localStorage, marca como carregado mesmo assim
-    logsLoadedRef.current = true;
-  }, []);
-
-  // Persistir SEPARADAMENTE: só roda quando logs mudam (não na montagem)
-  const prevLogsRef = useRef<string[]>([]);
-  useEffect(() => {
-    // Ignorar a primeira execução (quando logsLoadedRef acabou de ficar true)
-    if (!logsLoadedRef.current) return;
-    // Só persistir se realmente mudou
-    if (logs === prevLogsRef.current) return;
-    prevLogsRef.current = logs;
-    try {
-      const raw = localStorage.getItem('cubeforge-storage');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        parsed.state = parsed.state || {};
-        parsed.state.logs = logs.slice(-150);
-        localStorage.setItem('cubeforge-storage', JSON.stringify(parsed));
-      }
-    } catch {}
-  }, [logs]);
-
   const [localServers, setLocalServers] = useState<ServerInfo[]>([]);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAppSettings, setShowAppSettings] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [appSettingsCategory, setAppSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -379,11 +356,19 @@ export default function Home() {
     let unlistenMcDiagnostic: (() => void) | null = null;
     let unlistenNetDiagnostic: (() => void) | null = null;
     let unlistenResourceSample: (() => void) | null = null;
+    // Sem isso, um cleanup que dispara NO MEIO do registro dos 7 listeners
+    // abaixo (entre dois `await listen(...)`) deixa órfão qualquer listener
+    // cujo registro só resolve DEPOIS do cleanup já ter rodado — ele nunca é
+    // desligado (o `return` de cleanup só roda uma vez). Cada `listen()`
+    // abaixo confere isto logo após o `await` e já desliga na hora se for o
+    // caso, em vez de confiar só nas variáveis `unlistenX` (mesmo padrão já
+    // usado pelos outros listeners deste arquivo, ex: "panel-start-server-request").
+    let cancelled = false;
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
 
-      unlistenStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
+      const unStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
         const newNetStatus = event.payload.status === "online" ? "online" : "offline";
         setNetStatus(newNetStatus);
 
@@ -428,8 +413,9 @@ export default function Home() {
           useAppStore.getState().setGuestConnectedShortCode(null);
         }
       });
+      if (cancelled) unStatus(); else unlistenStatus = unStatus;
 
-      unlistenLogs = await listen<{ message: string; is_error: boolean }>("network-log", (event) => {
+      const unLogs = await listen<{ message: string; is_error: boolean }>("network-log", (event) => {
         setLogs(prev => {
           const newLogs = [...prev, `[${event.payload.is_error ? 'ERR' : 'INFO'}] ${event.payload.message}`];
           return newLogs.slice(-150);
@@ -443,11 +429,12 @@ export default function Home() {
           });
         }
       });
+      if (cancelled) unLogs(); else unlistenLogs = unLogs;
 
       // Diagnósticos estruturados vindos do backend Rust (causa específica de
       // crash do Minecraft: porta ocupada, falta de RAM, JRE incompatível, etc)
       // e do sidecar Go (auth inválida, sem internet, hostname duplicado, etc).
-      unlistenMcDiagnostic = await listen<{
+      const unMcDiagnostic = await listen<{
         level: "info" | "warning" | "error" | "critical";
         title: string;
         message: string;
@@ -521,14 +508,17 @@ export default function Home() {
           }
         }
       );
-      unlistenNetDiagnostic = await listen<{ level: "info" | "warning" | "error" | "critical"; title: string; message: string; detail?: string }>(
+      if (cancelled) unMcDiagnostic(); else unlistenMcDiagnostic = unMcDiagnostic;
+
+      const unNetDiagnostic = await listen<{ level: "info" | "warning" | "error" | "critical"; title: string; message: string; detail?: string }>(
         "network-diagnostic",
         (event) => {
           pushDiagnostic({ ...event.payload, source: t("diag.source.network") });
         }
       );
+      if (cancelled) unNetDiagnostic(); else unlistenNetDiagnostic = unNetDiagnostic;
 
-      unlistenMcStatus = await listen<string>("minecraft-status-changed", (event) => {
+      const unMcStatus = await listen<string>("minecraft-status-changed", (event) => {
         const status = event.payload as ServerStatus;
         setServerStatus(status);
 
@@ -567,12 +557,13 @@ export default function Home() {
             : null;
           if (serverInfo) {
             const { autoBackupEnabled: enabled, backupRetentionCount: retentionCount } = useAppStore.getState();
-            maybeBackupWorld(serverInfo.path, status === "crashed" ? "crash" : "stop", { enabled, retentionCount });
+            maybeBackupWorld(serverInfo.path, serverInfo.name, status === "crashed" ? "crash" : "stop", { enabled, retentionCount });
           }
         }
       });
+      if (cancelled) unMcStatus(); else unlistenMcStatus = unMcStatus;
 
-      unlistenMcLogs = await listen<string>("minecraft-log", (event) => {
+      const unMcLogs = await listen<string>("minecraft-log", (event) => {
         const line = event.payload.trim();
         // Não há RCON/consulta de estado disponível — a lista de jogadores online
         // (exibida no painel de Jogadores) é derivada das mensagens padrão do
@@ -604,12 +595,13 @@ export default function Home() {
 
         appendMcLogToRunningServer(event.payload);
       });
+      if (cancelled) unMcLogs(); else unlistenMcLogs = unMcLogs;
 
       // Amostra periódica de RAM/CPU real da máquina (a cada ~15s enquanto o
       // servidor roda — ver a thread de amostragem em src-tauri/src/lib.rs).
       // Alimenta o indicador de saúde na UI e o monitor de pressão sustentada
       // (aviso proativo antes mesmo do Minecraft acusar lag no log).
-      unlistenResourceSample = await listen<ResourceSnapshot>("mc-resource-sample", (event) => {
+      const unResourceSample = await listen<ResourceSnapshot>("mc-resource-sample", (event) => {
         latestResourceSampleRef.current = event.payload;
         setResourceSample(event.payload);
 
@@ -630,10 +622,16 @@ export default function Home() {
             : null;
           if (serverInfo) {
             const { autoBackupEnabled: enabled, backupRetentionCount: retentionCount } = useAppStore.getState();
-            maybeBackupWorld(serverInfo.path, "safety-net", { enabled, retentionCount });
+            maybeBackupWorld(serverInfo.path, serverInfo.name, "safety-net", { enabled, retentionCount });
           }
         }
       });
+      if (cancelled) unResourceSample(); else unlistenResourceSample = unResourceSample;
+
+      // Se o efeito foi cancelado durante o registro dos listeners acima (ver
+      // comentário no início do efeito), nem tenta restaurar estado — o
+      // componente já está sendo desmontado/o efeito já vai rodar de novo.
+      if (cancelled) return;
 
       // Restaurar estado real APÓS os listeners estarem registrados.
       // Se chamássemos antes, os listeners sobrescreveriam o estado.
@@ -672,6 +670,7 @@ export default function Home() {
     })();
 
     return () => {
+      cancelled = true;
       unlistenStatus?.();
       unlistenLogs?.();
       unlistenMcStatus?.();
@@ -680,7 +679,14 @@ export default function Home() {
       unlistenNetDiagnostic?.();
       unlistenResourceSample?.();
     };
-  }, [setServerStatus, setLastCrashInfo, minecraftPort]);
+    // `minecraftPort` NÃO é usado em nenhum lugar deste efeito (nenhum dos 7
+    // listeners nem o restore de estado lê essa variável) — era uma
+    // dependência perdida que fazia salvar a porta de convidado nas
+    // Configurações desmontar e remontar todos os listeners à toa,
+    // duplicando linhas de log/diagnóstico e re-rodando o restore de estado
+    // (get_system_status) sem nenhum motivo relacionado a essa mudança.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setServerStatus, setLastCrashInfo]);
 
   // Login opcional (Supabase) — registra o listener do deep link de volta
   // do fluxo de login uma única vez. Ver src/lib/auth.ts.
@@ -1002,7 +1008,17 @@ export default function Home() {
               </button>
             </div>
 
+            <UpdateButton />
             <DiagnosticsBell />
+            <button
+              type="button"
+              onClick={() => setShowHelp(true)}
+              title={tr("help.button")}
+              aria-label={tr("help.button")}
+              className="w-9 h-9 flex items-center justify-center rounded-xl text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors cursor-pointer"
+            >
+              <HelpCircle className="w-4.5 h-4.5" />
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -1018,6 +1034,7 @@ export default function Home() {
         </div>
       </header>
 
+      <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
       <AppSettingsPanel
         isOpen={showAppSettings}
         onClose={() => setShowAppSettings(false)}

@@ -1,6 +1,7 @@
 import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from './supabase';
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { localizeResponse } from './i18n';
+import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
 export { HostChannel } from './durable-objects/host-channel';
 
 const LEASE_DURATION_MS = 90_000;  // 90s lease
@@ -51,6 +52,16 @@ interface Env {
   // desktop e roteia mensagens para o(s) painel(is) web logados no mesmo
   // usuário. Ver durable-objects/host-channel.ts e plans/remote-web-panel-plan.md.
   HOST_CHANNEL: DurableObjectNamespace;
+  // Central de ajuda (POST /api/v1/feedback) — envio por e-mail via Resend.
+  // Nunca em wrangler.toml. Configurar com:
+  //   wrangler secret put RESEND_API_KEY
+  //   wrangler secret put FEEDBACK_TO_EMAIL     (para onde os relatos chegam)
+  // Opcional (precisa de domínio verificado no Resend; sem isso usa o remetente
+  // de testes onboarding@resend.dev, que só entrega ao dono da conta Resend):
+  //   wrangler secret put FEEDBACK_FROM_EMAIL   (ex.: Cubicase <ajuda@cubicase.net>)
+  RESEND_API_KEY?: string;
+  FEEDBACK_TO_EMAIL?: string;
+  FEEDBACK_FROM_EMAIL?: string;
 }
 
 // 'sleeping' = wake-on-demand armado, host de pé só em modo de espera (sem
@@ -157,6 +168,8 @@ const WAKE_COOLDOWN_SECONDS = 60;   // por shortCode, independente do IP — ver
 const SLUG_RATE_LIMIT = 5;          // definir/trocar link de convite: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const CONNECT_NAME_RATE_LIMIT = 5;  // definir/trocar endereço de conexão: mesmo raciocínio de SLUG_RATE_LIMIT
 const SLUG_RESOLVE_RATE_LIMIT = 20; // resolver slug->shortCode: chamado pela página de convite (uma vez por visita) — folgado o bastante pra não incomodar visitas legítimas, apertado o bastante pra desanimar varredura de slugs
+const FEEDBACK_RATE_LIMIT = 3;      // central de ajuda: por IP/min — relato é ação manual e rara; barra spam e duplo clique em cascata
+const FEEDBACK_DEDUPE_SECONDS = 3600; // o mesmo relato (mesmo e-mail/assunto/texto) só passa uma vez por hora
 const PANEL_TICKET_RATE_LIMIT = 20; // painel web (Cubicase Plus): um ticket por tentativa de conexão/reconexão — folgado o bastante para quedas de rede legítimas
 
 function clientIp(req: Request): string {
@@ -329,12 +342,63 @@ async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: {
 async function handleCreateServer(req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   if (!body.name || !body.version || !body.serverType) return json(fail(ResponseCodes.VALIDATION_ERROR, 'name, version, serverType obrigatórios.'), 400, cors);
+
+  // Se o cliente já manda um shortCode que existe, isto é um RETRY (o cliente
+  // não recebeu a resposta do POST anterior, mas ele já tinha sido aplicado —
+  // o próprio sync_register_server do desktop reenfileira/retenta automaticamente
+  // com backoff quando acha que falhou). Sem checar isso, cada retry minerava
+  // um `uuid`/`owner` NOVOS e resetava `createdAt`, corrompendo silenciosamente
+  // a identidade do servidor a cada tentativa automática.
+  if (body.shortCode) {
+    const existingJson = await env.CUBEFORGE_REGISTRY.get(`server:${body.shortCode}`);
+    if (existingJson) {
+      const existing: ServerEntity = JSON.parse(existingJson);
+      const updated: ServerEntity = {
+        ...existing,
+        name: body.name,
+        version: body.version,
+        serverType: body.serverType,
+        description: body.description ?? existing.description,
+        forgeVersion: body.forgeVersion ?? existing.forgeVersion,
+        modLoaderVersion: body.modLoaderVersion ?? existing.modLoaderVersion,
+        updatedAt: new Date().toISOString(),
+      };
+      await env.CUBEFORGE_REGISTRY.put(`server:${body.shortCode}`, JSON.stringify(updated));
+      return json(ok(ResponseCodes.SERVER_CREATED, 'Servidor criado.', updated), 201, cors);
+    }
+  }
+
   const sc = body.shortCode || await genCode(env, parseInt(env.SHORT_CODE_LENGTH || '6'));
   const id = uuid();
   const sv: ServerEntity = { shortCode: sc, uuid: id, name: body.name, version: body.version, serverType: body.serverType, description: body.description || '', owner: body.owner || id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), forgeVersion: body.forgeVersion ?? null, modLoaderVersion: body.modLoaderVersion ?? null };
   await env.CUBEFORGE_REGISTRY.put(`server:${sc}`, JSON.stringify(sv));
   await env.CUBEFORGE_REGISTRY.put(`shortCode:${id}`, sc);
   return json(ok(ResponseCodes.SERVER_CREATED, 'Servidor criado.', sv), 201, cors);
+}
+
+/** PATCH /api/v1/servers/{sc} — atualiza metadados mutáveis (nome/versão/descrição/
+ * loader) de um servidor já registrado. Só sobrescreve os campos que vierem no
+ * corpo — nunca uuid/owner/createdAt/shortCode — o que já torna isto seguro
+ * pra retry automático (reaplicar os mesmos valores não muda nada). Faltava
+ * inteiramente: o cliente desktop (sync_update_server) já mandava esse PATCH
+ * há tempos, mas nenhuma rota o atendia — toda renomeação/atualização de
+ * servidor 404ava, ficava só na fila de sync local até esgotar as 5
+ * tentativas, e nunca chegava a aplicar no lado da API Central. */
+async function handleUpdateServer(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+  const key = `server:${shortCode}`;
+  const existingJson = await env.CUBEFORGE_REGISTRY.get(key);
+  if (!existingJson) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const existing: ServerEntity = JSON.parse(existingJson);
+  const updated: ServerEntity = {
+    ...existing,
+    name: body.name ?? existing.name,
+    version: body.version ?? existing.version,
+    description: body.description ?? existing.description,
+    updatedAt: new Date().toISOString(),
+  };
+  await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(updated));
+  return json(ok(ResponseCodes.SERVER_UPDATED, 'Servidor atualizado.', updated), 200, cors);
 }
 
 // ============================================================
@@ -1185,6 +1249,40 @@ async function handleRemoveConnectName(shortCode: string, req: Request, env: Env
  * customizado de verdade (ver handleSetServerSlug), então a busca cai aqui
  * primeiro e só tenta o shortCode cru como fallback.
  */
+// Mensagem por campo inválido — todas têm tradução em i18n.ts (EN_MESSAGES).
+const FEEDBACK_FIELD_ERRORS: Record<FeedbackField, string> = {
+  category: 'Escolha o tipo da mensagem.',
+  subject: 'O assunto deve ter entre 3 e 120 caracteres.',
+  message: 'A descrição deve ter entre 10 e 4000 caracteres.',
+  email: 'Informe um e-mail válido para podermos responder.',
+};
+
+async function handleFeedback(req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const text = await req.text();
+  if (text.length > FEEDBACK_LIMITS.bodyMaxBytes) return json(fail(ResponseCodes.BAD_REQUEST, 'Mensagem grande demais.'), 413, cors);
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+
+  const parsed = parseFeedback(raw);
+  if (!parsed.ok) return json(fail(ResponseCodes.VALIDATION_ERROR, FEEDBACK_FIELD_ERRORS[parsed.field], { field: parsed.field }), 400, cors);
+  const feedback = parsed.value;
+
+  // Bot preencheu o campo escondido: finge sucesso e descarta.
+  if (feedback.honeypot) return json(ok(ResponseCodes.SUCCESS, 'Mensagem enviada. Obrigado!'), 200, cors);
+
+  if (!feedbackMailConfigured(env)) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O envio de mensagens está indisponível no momento.'), 503, cors);
+
+  // Mesmo relato reenviado (duplo clique, outra janela): aceita sem mandar de novo.
+  const dupKey = `feedback:dup:${await feedbackFingerprint(feedback)}`;
+  if (await env.CUBEFORGE_REGISTRY.get(dupKey)) return json(ok(ResponseCodes.SUCCESS, 'Mensagem enviada. Obrigado!'), 200, cors);
+
+  if (!(await sendFeedbackEmail(env, feedback))) {
+    return json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível enviar sua mensagem agora. Tente novamente em instantes.'), 502, cors);
+  }
+  await env.CUBEFORGE_REGISTRY.put(dupKey, '1', { expirationTtl: FEEDBACK_DEDUPE_SECONDS });
+  return json(ok(ResponseCodes.SUCCESS, 'Mensagem enviada. Obrigado!'), 200, cors);
+}
+
 async function handleResolveSlug(slug: string, env: Env, cors: Record<string, string>): Promise<Response> {
   let shortCode = await env.CUBEFORGE_REGISTRY.get(`slug:${slug}`);
   if (!shortCode) {
@@ -1247,6 +1345,12 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
     if (m === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       const cfg = { ttlSeconds: SESSION_TTL_SECONDS, leaseTtlSeconds: Math.ceil(LEASE_DURATION_MS / 1000), shortCodeLength: parseInt(env.SHORT_CODE_LENGTH || '6') };
+
+      // POST /api/v1/feedback — central de ajuda (bug, problema, sugestão) -> e-mail do dono
+      if (m === 'POST' && p === '/api/v1/feedback') {
+        if (!(await checkRateLimit(env, 'feedback', clientIp(req), FEEDBACK_RATE_LIMIT))) return rateLimitedResponse(cors);
+        return await handleFeedback(req, env, cors);
+      }
 
       // POST /api/v1/servers/{sc}/connection-sessions
       const m1 = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/connection-sessions$/);
@@ -1324,6 +1428,9 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
 
       // DELETE /api/v1/servers/{sc}
       if (m === 'DELETE' && m3) return await handleDeleteServer(m3[1].toUpperCase(), env, cors);
+
+      // PATCH /api/v1/servers/{sc} — atualizar nome/versão/descrição/loader
+      if (m === 'PATCH' && m3) return await handleUpdateServer(m3[1].toUpperCase(), req, env, cors);
 
       // LEGADO: GET /api/servers/{sc} — mesmo raciocínio acima, sem checkRateLimit.
       const m4 = p.match(/^\/api\/servers\/([A-Za-z0-9]+)$/);

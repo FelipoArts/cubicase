@@ -17,6 +17,9 @@ import { t } from "@/i18n";
 
 export type UpdaterPhase = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
 
+/** Espera mínima depois de uma falha antes de aceitar "tentar de novo" (evita martelar o servidor de updates). */
+export const UPDATE_RETRY_COOLDOWN_MS = 5000;
+
 interface UpdaterState {
   phase: UpdaterPhase;
   version: string | null;
@@ -24,45 +27,38 @@ interface UpdaterState {
   progress: number;
   dismissed: boolean;
   update: Update | null;
+  /** Quando a última tentativa falhou (ms desde a época) — base do cooldown do botão. */
+  lastFailureAt: number | null;
+  /** true durante o cooldown pós-falha — só para a UI (a trava de verdade usa lastFailureAt). */
+  cooling: boolean;
   checkForUpdates: () => Promise<void>;
   installAndRestart: () => Promise<void>;
+  /** Refaz a checagem e tenta instalar de novo, sem precisar fechar o app. */
+  retryInstall: () => Promise<void>;
   dismiss: () => void;
 }
 
-export const useUpdaterStore = create<UpdaterState>((set, get) => ({
-  phase: "idle",
-  version: null,
-  notes: null,
-  progress: 0,
-  dismissed: false,
-  update: null,
+// Trava síncrona: `set({ phase })` do zustand também é síncrono, mas o `await`
+// entre a checagem e a instalação abriria uma janela em que dois cliques rápidos
+// passariam pelo teste de fase. Este flag fecha essa janela.
+let busy = false;
 
-  checkForUpdates: async () => {
-    if (get().phase === "checking" || get().phase === "downloading") return;
-    set({ phase: "checking" });
-    try {
-      const update = await check();
-      if (update) {
-        set({ phase: "available", version: update.version, notes: update.body ?? null, update, dismissed: false });
-      } else {
-        set({ phase: "idle" });
-      }
-    } catch (e) {
-      set({ phase: "idle" });
-      pushDiagnostic({
-        level: "info",
-        title: t("update.checkFailed.title"),
-        message: t("update.checkFailed.message"),
-        detail: String(e),
-        source: t("update.source"),
-      });
-    }
-  },
+export const useUpdaterStore = create<UpdaterState>((set, get) => {
+  function fail(e: unknown) {
+    set({ phase: "error", lastFailureAt: Date.now(), cooling: true });
+    setTimeout(() => set({ cooling: false }), UPDATE_RETRY_COOLDOWN_MS + 50);
+    pushDiagnostic({
+      level: "warning",
+      title: t("update.installFailed.title"),
+      message: t("update.installFailed.message"),
+      detail: String(e),
+      source: t("update.source"),
+    });
+  }
 
-  installAndRestart: async () => {
-    const { update } = get();
-    if (!update) return;
-    set({ phase: "downloading", progress: 0 });
+  // Baixa, instala e reinicia. Quem chama já segurou `busy`.
+  async function runInstall(update: Update) {
+    set({ phase: "downloading", progress: 0, dismissed: false });
     let total = 0;
     let downloaded = 0;
     try {
@@ -76,19 +72,85 @@ export const useUpdaterStore = create<UpdaterState>((set, get) => ({
           set({ progress: 100 });
         }
       });
-      set({ phase: "ready" });
+      set({ phase: "ready", lastFailureAt: null });
       await relaunch();
     } catch (e) {
-      set({ phase: "error" });
-      pushDiagnostic({
-        level: "warning",
-        title: t("update.installFailed.title"),
-        message: t("update.installFailed.message"),
-        detail: String(e),
-        source: t("update.source"),
-      });
+      fail(e);
     }
-  },
+  }
 
-  dismiss: () => set({ dismissed: true }),
-}));
+  return {
+    phase: "idle",
+    version: null,
+    notes: null,
+    progress: 0,
+    dismissed: false,
+    update: null,
+    lastFailureAt: null,
+    cooling: false,
+
+    checkForUpdates: async () => {
+      if (busy || get().phase === "checking" || get().phase === "downloading" || get().phase === "ready") return;
+      set({ phase: "checking" });
+      try {
+        const update = await check();
+        if (update) {
+          set({ phase: "available", version: update.version, notes: update.body ?? null, update, dismissed: false });
+        } else {
+          set({ phase: "idle", update: null, version: null });
+        }
+      } catch (e) {
+        // Se já havia um update conhecido (ex.: falha anterior), mantém o botão visível.
+        set({ phase: get().update ? "error" : "idle" });
+        pushDiagnostic({
+          level: "info",
+          title: t("update.checkFailed.title"),
+          message: t("update.checkFailed.message"),
+          detail: String(e),
+          source: t("update.source"),
+        });
+      }
+    },
+
+    installAndRestart: async () => {
+      const { update, phase } = get();
+      if (!update || busy || phase === "downloading" || phase === "ready" || phase === "checking") return;
+      busy = true;
+      try {
+        await runInstall(update);
+      } finally {
+        busy = false;
+      }
+    },
+
+    retryInstall: async () => {
+      const { phase, lastFailureAt } = get();
+      if (busy || phase === "downloading" || phase === "ready" || phase === "checking") return;
+      if (lastFailureAt && Date.now() - lastFailureAt < UPDATE_RETRY_COOLDOWN_MS) return;
+      busy = true;
+      try {
+        // O objeto `Update` de uma tentativa que falhou pode estar em estado
+        // inconsistente (download pela metade), então pede um novo ao servidor.
+        set({ phase: "checking" });
+        let fresh: Update | null;
+        try {
+          fresh = await check();
+        } catch (e) {
+          fail(e);
+          return;
+        }
+        if (!fresh) {
+          // Já está na última versão (ou a release foi retirada): some o botão.
+          set({ phase: "idle", update: null, version: null, notes: null, lastFailureAt: null });
+          return;
+        }
+        set({ version: fresh.version, notes: fresh.body ?? null, update: fresh });
+        await runInstall(fresh);
+      } finally {
+        busy = false;
+      }
+    },
+
+    dismiss: () => set({ dismissed: true }),
+  };
+});

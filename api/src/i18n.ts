@@ -21,6 +21,15 @@ const SLUG_RULE_EN = 'use 3 to 32 lowercase letters, numbers or hyphens, with no
 export const EN_MESSAGES: Record<string, string> = {
   // ---- API principal ----
   'Muitas tentativas. Aguarde um minuto e tente de novo.': 'Too many attempts. Wait a minute and try again.',
+  // ---- Central de ajuda (feedback) ----
+  'Escolha o tipo da mensagem.': 'Choose the message type.',
+  'O assunto deve ter entre 3 e 120 caracteres.': 'The subject must be between 3 and 120 characters.',
+  'A descrição deve ter entre 10 e 4000 caracteres.': 'The description must be between 10 and 4000 characters.',
+  'Informe um e-mail válido para podermos responder.': 'Enter a valid email so we can reply.',
+  'Mensagem grande demais.': 'Message too large.',
+  'Mensagem enviada. Obrigado!': 'Message sent. Thank you!',
+  'O envio de mensagens está indisponível no momento.': 'Sending messages is unavailable right now.',
+  'Não foi possível enviar sua mensagem agora. Tente novamente em instantes.': "Couldn't send your message right now. Please try again in a moment.",
   'Heartbeat recebido.': 'Heartbeat received.',
   'JSON inválido.': 'Invalid JSON.',
   'name, version, serverType obrigatórios.': 'name, version, serverType are required.',
