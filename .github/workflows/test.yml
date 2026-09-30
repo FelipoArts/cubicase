@@ -22,6 +22,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      # O tauri-build (build.rs do cargo test) exige o sidecar declarado em
+      # tauri.conf.json (externalBin) — o binário fica fora do git, então o CI
+      # compila ele antes, igual ao release.yml.
+      - name: Build tsnet-node sidecar
+        working-directory: src-tauri/sidecars/tsnet-node
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ../../binaries | Out-Null
+          go build -o ../../binaries/tsnet-node-x86_64-pc-windows-msvc.exe .
+
       - name: Install frontend dependencies
         run: npm ci
 
