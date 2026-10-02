@@ -57,6 +57,15 @@ fn log_payload(clean: &str) -> &str {
     trimmed
 }
 
+/// Servidores recentes (1.19+) registram mensagens de SISTEMA — entrada/saída de
+/// jogador e a resposta de comandos como `list` — com o prefixo "System chat: ";
+/// versões mais antigas e Paper registram sem ele. Aceita os dois. É seguro:
+/// chat de jogador sempre chega como "<Nome> texto", então um jogador não
+/// consegue produzir uma linha que COMECE com "System chat: ".
+fn system_message(payload: &str) -> &str {
+    payload.strip_prefix("System chat: ").unwrap_or(payload).trim()
+}
+
 /// Nome válido de jogador (Java: 1–16 de [A-Za-z0-9_]). Aceita um "." inicial
 /// (jogadores Bedrock via Floodgate). É também o que impede injeção de comando:
 /// nada fora disso (espaço, seletor "@a", quebra de linha) chega ao stdin.
@@ -71,7 +80,7 @@ pub fn is_valid_player_name(name: &str) -> bool {
 /// não for exatamente isso (chat, outras mensagens, nome inválido).
 pub fn parse_player_event(line: &str) -> Option<(String, bool)> {
     let clean = strip_ansi(line);
-    let payload = log_payload(&clean);
+    let payload = system_message(log_payload(&clean));
     for (suffix, joined) in [(" joined the game", true), (" left the game", false)] {
         if let Some(name) = payload.strip_suffix(suffix) {
             // Chat chega como "<Nome> texto" e o modo de chat assinado do 1.19+
@@ -93,7 +102,7 @@ pub fn parse_player_event(line: &str) -> Option<(String, bool)> {
 /// "corrigir" com algo duvidoso.
 pub fn parse_list_response(line: &str) -> Option<Vec<String>> {
     let clean = strip_ansi(line);
-    let payload = log_payload(&clean);
+    let payload = system_message(log_payload(&clean));
     let rest = payload.strip_prefix("There are ")?;
     let (head, names_part) = rest.split_once("players online")?;
     let names_part = names_part.strip_prefix(':').unwrap_or(names_part).trim();
@@ -200,6 +209,40 @@ mod tests {
         );
         // Floodgate (Bedrock).
         assert_eq!(parse_player_event("[x] [Server thread/INFO]: .Bedrock joined the game"), Some((".Bedrock".into(), true)));
+    }
+
+    #[test]
+    fn prefixo_system_chat_de_servidores_recentes() {
+        // Linhas reais do log de um servidor vanilla recente.
+        assert_eq!(
+            parse_player_event("[22:07:22] [Server thread/INFO]: System chat: oCodigo joined the game"),
+            Some(("oCodigo".into(), true))
+        );
+        assert_eq!(
+            parse_player_event("[22:25:08] [Server thread/INFO]: System chat: oCodigo left the game"),
+            Some(("oCodigo".into(), false))
+        );
+        assert_eq!(
+            parse_list_response("[22:07:43] [Server thread/INFO]: System chat: There are 1 of a max of 20 players online: oCodigo"),
+            Some(vec!["oCodigo".to_string()])
+        );
+        assert_eq!(
+            parse_list_response("[22:02:34] [Server thread/INFO]: System chat: There are 0 of a max of 20 players online: "),
+            Some(vec![])
+        );
+    }
+
+    #[test]
+    fn prefixo_system_chat_nao_abre_brecha_para_chat_forjado() {
+        // Chat de jogador continua com "<Nome>" na frente, mesmo imitando o prefixo.
+        assert_eq!(parse_player_event("[x] [Server thread/INFO]: <Eve> System chat: Fulano joined the game"), None);
+        assert_eq!(parse_player_event("[x] [Server thread/INFO]: [Not Secure] <Eve> System chat: Fulano joined the game"), None);
+        assert_eq!(
+            parse_list_response("[x] [Server thread/INFO]: <Eve> System chat: There are 1 of a max of 20 players online: Fake"),
+            None
+        );
+        // O prefixo sozinho não basta: o resto ainda precisa ser exatamente o evento.
+        assert_eq!(parse_player_event("[x] [Server thread/INFO]: System chat: <Eve> Fulano joined the game"), None);
     }
 
     #[test]
