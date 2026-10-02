@@ -52,6 +52,7 @@ import { PlayersPanel } from "./PlayersPanel";
 import { ServerList } from "./ServerList";
 import { CreateServerModal } from "./CreateServerModal";
 import { ImportModpackModal } from "./ImportModpackModal";
+import { ImportPackModal } from "./ImportPackModal";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
 import { SettingsModal } from "./SettingsModal";
 import { ConfirmActionModal } from "./ConfirmActionModal";
@@ -191,6 +192,7 @@ export function HostView({
   const [isImporting, setIsImporting] = useState(false);
   const [showCrashDetail, setShowCrashDetail] = useState(false);
   const [showImportModpack, setShowImportModpack] = useState(false);
+  const [showImportPack, setShowImportPack] = useState(false);
   const [showRegenerateCode, setShowRegenerateCode] = useState(false);
   const [idleShutdownWarning, setIdleShutdownWarning] = useState<number | null>(null);
 
@@ -1147,6 +1149,7 @@ export function HostView({
             onCreate={() => onSetShowCreateServer(true)}
             onImport={handleImportServer}
             onImportModpack={() => setShowImportModpack(true)}
+            onImportPack={() => setShowImportPack(true)}
             onDelete={handleDeleteServer}
             onConfig={(path) => { onSetConfigServerDir(path); onSetShowConfigModal(true); }}
             isDeleting={isDeletingServer}
@@ -1224,6 +1227,17 @@ export function HostView({
         onImport={handleImportModpack}
         installProgress={serverInstallProgress}
         totalRamGb={totalSystemRamGb}
+      />
+
+      <ImportPackModal
+        isOpen={showImportPack}
+        onClose={() => setShowImportPack(false)}
+        existingNames={localServers.map((s) => s.name)}
+        onImported={async (name) => {
+          const servers = await listLocalServers();
+          onSetLocalServers(servers);
+          setSelectedServer(name);
+        }}
       />
 
       <DeleteConfirmModal

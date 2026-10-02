@@ -20,9 +20,10 @@ import serverLib from "./serverLib";
 import serverLog from "./serverLog";
 import meta from "./meta";
 import help from "./help";
+import pack from "./pack";
 
 // Registre aqui cada novo módulo de mensagens.
-export const MODULES = { common, settings, app, shell, hostBasics, libDiagnostics, libErrors, crash, modSyncUi, modpackUi, serverConfig, createServer, modBrowser, manage, players, hostView, hostInstall, guest, serverLib, serverLog, meta, help } as const;
+export const MODULES = { common, settings, app, shell, hostBasics, libDiagnostics, libErrors, crash, modSyncUi, modpackUi, serverConfig, createServer, modBrowser, manage, players, hostView, hostInstall, guest, serverLib, serverLog, meta, help, pack } as const;
 
 type Modules = (typeof MODULES)[keyof typeof MODULES];
 type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (k: infer I) => void ? I : never;

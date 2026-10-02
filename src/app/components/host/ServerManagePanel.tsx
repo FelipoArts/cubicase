@@ -15,6 +15,7 @@ import {
   CheckSquare,
   Square,
   PackagePlus,
+  PackageOpen,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
@@ -24,6 +25,8 @@ import { getBackupsDir } from "@/lib/server";
 import type { ServerStatus } from "@/app/store";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
+import { ExportPackModal } from "./ExportPackModal";
+import { readPending, completePending, type PackPending } from "@/lib/cubicasePack";
 import { loaderForServerType } from "@/lib/modrinth";
 import { useT, t as tn, getLocale } from "@/i18n";
 
@@ -93,6 +96,11 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   const modBrowserAvailable = modsCapable && !!loaderForServerType(serverType) && !!mcVersion;
   const [activeTab, setActiveTab] = useState<"mods" | "mundo">(modsCapable ? "mods" : "mundo");
   const [showModBrowser, setShowModBrowser] = useState(false);
+  const [showExportPack, setShowExportPack] = useState(false);
+  // Importação de um pacote leve sem internet deixa mods pendentes (ver cubicasePack.ts).
+  const [pendingPack, setPendingPack] = useState<PackPending | null>(null);
+  const [completing, setCompleting] = useState<{ done: number; total: number } | null>(null);
+  const [completeNote, setCompleteNote] = useState<string | null>(null);
 
   const [mods, setMods] = useState<ModInfo[]>([]);
   const [backups, setBackups] = useState<BackupInfo[]>([]);
@@ -111,6 +119,25 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     const timer = setTimeout(() => setError(null), 6000);
     return () => clearTimeout(timer);
   }, [error]);
+
+  useEffect(() => {
+    let cancelled = false;
+    readPending(serverDir).then((p) => { if (!cancelled) setPendingPack(p); });
+    return () => { cancelled = true; };
+  }, [serverDir]);
+
+  const handleCompletePending = async () => {
+    setCompleteNote(null);
+    setCompleting({ done: 0, total: pendingPack?.mods.length ?? 0 });
+    try {
+      const res = await completePending(serverDir, (done, total) => setCompleting({ done, total }));
+      setPendingPack(await readPending(serverDir));
+      if (res.remaining.length > 0) setCompleteNote(tn("pack.pending.stillMissing", { count: res.remaining.length }));
+      await loadMods();
+    } finally {
+      setCompleting(null);
+    }
+  };
 
   const loadMods = useCallback(async () => {
     if (!modsCapable) return;
@@ -271,6 +298,25 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
         </div>
       </div>
 
+      {pendingPack && (
+        <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-xl space-y-2.5">
+          <p className="text-sm font-bold flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {t("pack.pending.title")}
+          </p>
+          <p className="text-xs leading-relaxed">{t("pack.pending.message", { count: pendingPack.mods.length })}</p>
+          {completeNote && <p className="text-xs font-semibold">{completeNote}</p>}
+          <button
+            type="button"
+            onClick={handleCompletePending}
+            disabled={!!completing}
+            className="h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {completing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {completing ? t("pack.pending.completing", { done: completing.done, total: completing.total }) : t("pack.pending.complete")}
+          </button>
+        </div>
+      )}
+
       {activeTab === "mods" && modsCapable && (
         <div className="space-y-4">
           {serverStatus === "online" && (
@@ -419,6 +465,15 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </button>
             <button
               type="button"
+              onClick={() => setShowExportPack(true)}
+              disabled={!isServerStopped || !!pendingPack}
+              title={t("pack.export.buttonHint")}
+              className="h-10 px-5 bg-theme-muted hover:bg-theme-card border border-theme-card text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
+            >
+              <PackageOpen className="w-3.5 h-3.5" /> {t("pack.export.button")}
+            </button>
+            <button
+              type="button"
               onClick={() => setPendingAction({ kind: "reset-world" })}
               disabled={!isServerStopped}
               className="h-10 px-5 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-rose-600 dark:text-rose-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
@@ -523,6 +578,16 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             <>{rich("manage.confirm.reset.msg", { emph: <strong className="text-theme-primary">{t("manage.confirm.reset.emph")}</strong> })}</>
           )
         }
+      />
+
+      <ExportPackModal
+        isOpen={showExportPack}
+        onClose={() => setShowExportPack(false)}
+        serverDir={serverDir}
+        serverName={serverName}
+        serverType={serverType}
+        mcVersion={mcVersion}
+        isServerStopped={isServerStopped}
       />
 
       {modBrowserAvailable && mcVersion && (

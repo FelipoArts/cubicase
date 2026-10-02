@@ -30,6 +30,7 @@ mod provider_manager;
 mod job_object;
 mod panel_agent;
 mod players;
+mod pack;
 #[cfg(test)]
 mod tests;
 
@@ -1690,6 +1691,16 @@ async fn start_minecraft_server(
         "=== INICIANDO SERVIDOR MC (dir={}, porta={}, ram={}GB, jar={}, argsDir={:?}) ===",
         server_dir, local_port, ram_gb, jar_name, launch_args_dir
     ));
+
+    // Uma exportação .cubicase desta pasta em andamento exige o servidor parado
+    // até o fim (ver pack.rs) — a trava precisa estar aqui, no backend.
+    if pack::export_in_progress_for(&server_dir) {
+        return Err(tr!("pack.err.exportingBlocksStart"));
+    }
+    // Servidor importado de um pacote leve com mods ainda por baixar.
+    if pack::has_pending_mods(&server_dir) {
+        return Err(tr!("pack.err.pendingBlocksStart"));
+    }
 
     // Parar qualquer servidor que já esteja rodando
     stop_minecraft_server_internal(&app, &state).await;
@@ -6248,6 +6259,13 @@ pub fn run() {
        list_banned_ips,
        ban_ip,
        pardon_ip,
+       // Pacotes .cubicase (exportar/importar servidor)
+       pack::pack_preflight,
+       pack::pack_export,
+       pack::pack_read,
+       pack::pack_import,
+       pack::pack_cancel,
+       pack::pack_cleanup_stale,
        // Comandos de import de modpacks (CurseForge/Modrinth)
        read_modpack_manifest,
        extract_modpack_overrides,

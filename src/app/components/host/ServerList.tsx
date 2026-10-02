@@ -1,6 +1,6 @@
 "use client";
 
-import { Server, Plus, Trash2, Loader2, FolderOpen, Package } from "lucide-react";
+import { Server, Plus, Trash2, Loader2, FolderOpen, Package, PackageOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import SettingsButton from "@/app/components/SettingsButton";
 import { pushDiagnostic } from "@/app/diagnostics";
@@ -22,6 +22,7 @@ interface ServerListProps {
   onCreate: () => void;
   onImport: () => void;
   onImportModpack: () => void;
+  onImportPack: () => void;
   onDelete: (name: string, e: React.MouseEvent) => void;
   onConfig: (path: string) => void;
   isDeleting: string | null;
@@ -36,6 +37,7 @@ export function ServerList({
   onCreate,
   onImport,
   onImportModpack,
+  onImportPack,
   onDelete,
   onConfig,
   isDeleting,
@@ -65,6 +67,14 @@ export function ServerList({
             title={t("serverList.importModpack")}
           >
             <Package className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onImportPack}
+            className="p-1.5 hover:bg-theme-accent text-indigo-600 rounded-lg border border-theme-accent transition-colors cursor-pointer"
+            title={t("pack.import.button")}
+          >
+            <PackageOpen className="w-4 h-4" />
           </button>
           <button
             type="button"
