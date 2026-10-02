@@ -17,6 +17,12 @@
 //       (ex: enviar comando de console sem servidor rodando)
 //     { type: "metrics", totalRamMb, availableRamMb, cpuUsagePercent, processRamMb?, processCpuPercent?, ts }
 //       (Fase 3 — só enviada quando o agent já tem uma amostra, ver build_metrics_message)
+//     { type: "players", players: string[], ts } — nomes online (Modo Espectador Web).
+//       Só entregue a painéis com "ver console" (nomes de jogadores são tão
+//       sensíveis quanto o log); os demais continuam vendo só `playerCount` do status.
+//     { type: "player_action_result", requestId, ok, action, player, message, ts } —
+//       confirmação de kick/ban/pardon. NÃO é broadcast: vai só pras conexões do
+//       usuário que pediu (ver routeActionResult).
 //   relay -> painel (sem vir do agent):
 //     { type: "agent_connected" } | { type: "agent_disconnected" }
 //     { type: "access", isOwner, permissions } — logo ao conectar: o que ESTA
@@ -26,6 +32,8 @@
 //   painel -> relay:
 //     { type: "command", command } | { type: "stop_server" }
 //     | { type: "start_server", serverId } | { type: "restart_server", serverId }
+//     | { type: "player_action", action: "kick"|"ban"|"pardon", player, reason?, requestId }
+//     | { type: "players_refresh" }
 //   relay -> agent (o que efetivamente chega ao app desktop):
 //     as mensagens acima, RECONSTRUÍDAS depois de autorizadas (nada que o
 //     painel mande a mais passa) e com `by` (nome de quem pediu) preenchido
@@ -71,6 +79,8 @@ const LOG_HISTORY_MAX = 200;
 const RESTART_KEY = 'pending_restart';
 const RESTART_TTL_MS = 90_000;
 const MAX_PANEL_MESSAGE_CHARS = 4096;
+/** Tudo que o agent empurra e o relay guarda pra repetir a quem conecta depois — limpo quando o agent cai. */
+const AGENT_CACHE_KEYS = ['last:status', 'last:server_list', 'last:players', LOG_HISTORY_KEY, RESTART_KEY];
 
 const NO_PERMISSIONS: PanelPermissions = {
   viewConsole: false,
@@ -283,14 +293,16 @@ export class HostChannel {
         // resumo do estado atual. Reproduz aqui o último retrato conhecido,
         // guardado em ctx.storage por cacheAgentSnapshot.
         if (agentConnected) {
-          const [lastStatus, lastServerList, logHistory] = await Promise.all([
+          const [lastStatus, lastServerList, lastPlayers, logHistory] = await Promise.all([
             this.ctx.storage.get<string>('last:status'),
             this.ctx.storage.get<string>('last:server_list'),
+            this.ctx.storage.get<string>('last:players'),
             this.ctx.storage.get<string[]>(LOG_HISTORY_KEY),
           ]);
           if (lastStatus) server.send(lastStatus);
           if (lastServerList) server.send(lastServerList);
           if (perms.viewConsole) {
+            if (lastPlayers) server.send(lastPlayers);
             for (const line of logHistory ?? []) server.send(line);
           }
         }
@@ -333,7 +345,7 @@ export class HostChannel {
    * disso, log_line nunca era cacheado, só repassado ao vivo).
    */
   private async cacheAgentSnapshot(parsed: any, raw: string): Promise<void> {
-    if (parsed?.type === 'status' || parsed?.type === 'server_list') {
+    if (parsed?.type === 'status' || parsed?.type === 'server_list' || parsed?.type === 'players') {
       await this.ctx.storage.put(`last:${parsed.type}`, raw);
       return;
     }
@@ -352,8 +364,12 @@ export class HostChannel {
       if (typeof message !== 'string') return;
       let parsed: any;
       try { parsed = JSON.parse(message); } catch { return; }
+      if (parsed?.type === 'player_action_result') {
+        await this.routeActionResult(parsed);
+        return;
+      }
       await this.cacheAgentSnapshot(parsed, message);
-      await this.broadcastToPanels(parsed, { consoleOnly: parsed?.type === 'log_line' || parsed?.type === 'error' });
+      await this.broadcastToPanels(parsed, { consoleOnly: parsed?.type === 'log_line' || parsed?.type === 'error' || parsed?.type === 'players' });
       if (parsed?.type === 'status' && parsed.serverRunning === false) {
         await this.maybeCompleteRestart(ws);
       }
@@ -361,6 +377,22 @@ export class HostChannel {
     }
     if (tags.includes('panel')) {
       await this.handlePanelMessage(ws, message);
+    }
+  }
+
+  /**
+   * Confirmação de kick/ban/pardon: o relay prefixou o requestId com o userId
+   * de quem pediu (ver handlePanelMessage), então a resposta volta só pras
+   * conexões dele — outros painéis abertos não recebem (nem precisam).
+   */
+  private async routeActionResult(parsed: any): Promise<void> {
+    const raw = typeof parsed.requestId === 'string' ? parsed.requestId : '';
+    const dot = raw.indexOf('.');
+    if (dot < 1) return;
+    const userId = raw.slice(0, dot);
+    const body = JSON.stringify({ ...parsed, requestId: raw.slice(dot + 1) });
+    for (const ws of this.ctx.getWebSockets(`user:${userId}`)) {
+      try { ws.send(body); } catch { /* painel pode ter caído */ }
     }
   }
 
@@ -397,7 +429,10 @@ export class HostChannel {
       await this.beginRestart(ws, agent, forward.serverId, att.name);
       return;
     }
-    try { agent.send(JSON.stringify({ ...forward, by: att.name })); } catch { /* agente pode ter caído */ }
+    const outgoing = forward.type === 'player_action'
+      ? { ...forward, requestId: `${att.userId}.${forward.requestId}` }
+      : forward;
+    try { agent.send(JSON.stringify({ ...outgoing, by: att.name })); } catch { /* agente pode ter caído */ }
   }
 
   /**
@@ -429,7 +464,7 @@ export class HostChannel {
 
   async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     if (this.ctx.getTags(ws).includes('agent')) {
-      await this.ctx.storage.delete(['last:status', 'last:server_list', LOG_HISTORY_KEY, RESTART_KEY]);
+      await this.ctx.storage.delete(AGENT_CACHE_KEYS);
       await this.broadcastToPanels({ type: 'agent_disconnected' });
     }
     try { ws.close(); } catch { /* já fechado */ }
@@ -437,7 +472,7 @@ export class HostChannel {
 
   async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
     if (this.ctx.getTags(ws).includes('agent')) {
-      await this.ctx.storage.delete(['last:status', 'last:server_list', LOG_HISTORY_KEY, RESTART_KEY]);
+      await this.ctx.storage.delete(AGENT_CACHE_KEYS);
       await this.broadcastToPanels({ type: 'agent_disconnected' });
     }
   }

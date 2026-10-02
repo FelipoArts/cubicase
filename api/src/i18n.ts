@@ -93,6 +93,10 @@ export const EN_MESSAGES: Record<string, string> = {
   'Você não tem permissão para reiniciar o servidor.': "You don't have permission to restart the server.",
   'Servidor inválido.': 'Invalid server.',
   'Ação não suportada.': 'Unsupported action.',
+  'Nome de jogador inválido.': 'Invalid player name.',
+  'Motivo inválido.': 'Invalid reason.',
+  'Motivo muito longo (máximo 100 caracteres).': 'Reason too long (100 characters max).',
+  'Você não tem permissão para ver os jogadores.': "You don't have permission to see the players.",
 
   // ---- Painel web: membros e convites (panel-members.ts) ----
   'Sessão inválida ou expirada. Faça login novamente.': 'Invalid or expired session. Please sign in again.',

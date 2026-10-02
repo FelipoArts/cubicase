@@ -29,6 +29,7 @@ mod session_manager;
 mod provider_manager;
 mod job_object;
 mod panel_agent;
+mod players;
 #[cfg(test)]
 mod tests;
 
@@ -1620,20 +1621,12 @@ fn decide_mc_shutdown_outcome(
 }
 
 /// Detecta as mensagens padrão do servidor vanilla/Forge/Fabric/Paper que indicam
-/// entrada/saída de um jogador ("X joined the game" / "X left the game"), extraindo
-/// o nome (sempre a última palavra antes do sufixo, independente do prefixo de
-/// timestamp/thread). Mesma lógica do listener de "minecraft-log" no frontend
-/// (page.tsx) — replicada aqui para alimentar o heartbeat da ConnectionSession
-/// com a contagem real de jogadores, já que o Rust não tem RCON/consulta de estado.
+/// entrada/saída de um jogador ("X joined the game" / "X left the game") para
+/// alimentar o heartbeat da ConnectionSession e a lista de jogadores do painel
+/// web, já que o Rust não tem RCON/consulta de estado. O parsing (estrito, contra
+/// chat forjado) vive em players.rs.
 fn parse_player_event(line: &str) -> Option<(String, bool)> {
-    for (suffix, joined) in [(" joined the game", true), (" left the game", false)] {
-        if let Some(name) = line.strip_suffix(suffix) {
-            if let Some(name) = name.split_whitespace().last() {
-                return Some((name.to_string(), joined));
-            }
-        }
-    }
-    None
+    players::parse_player_event(line)
 }
 
 /// Trunca uma string em um limite de caracteres (não bytes, para não quebrar
@@ -1973,6 +1966,15 @@ async fn start_minecraft_server(
                         } else {
                             players.remove(&name);
                         }
+                    }
+                    // Resposta do comando `list` (pedido pelo painel web ao
+                    // conectar/atualizar): reconcilia a lista com o que o servidor
+                    // diz de fato, corrigindo entradas que o log não pegou (app
+                    // aberto com o servidor já no ar, mensagem customizada de
+                    // plugin). Formato duvidoso -> None -> mantém a lista atual.
+                    if let Some(names) = players::parse_list_response(&l) {
+                        let mut players = state_ref.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner());
+                        *players = names.into_iter().collect();
                     }
                 }
                 Err(_) => break,
@@ -2759,6 +2761,9 @@ async fn stop_minecraft_server_internal(
         *guard = None;
     }
     *state.minecraft_stdin.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    // Sem processo não há ninguém online — o log de "left the game" pode não
+    // chegar a tempo (ou nunca, se o processo foi morto à força).
+    state.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 /// Envia um comando de texto para o stdin do servidor Minecraft.

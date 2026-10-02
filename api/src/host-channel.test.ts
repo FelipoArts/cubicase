@@ -129,6 +129,38 @@ describe("aplicação de permissões no DO", () => {
   });
 });
 
+describe("ações de jogador no DO (Modo Espectador Web)", () => {
+  it("nega kick/ban a quem não pode rodar esses comandos, com o motivo", async () => {
+    const ticket = await mintTicket("dev-pa-negar", { userId: "p1", name: "Mod", isOwner: false, permissions: PERMISSION_PRESETS.moderator });
+    const panel = await openPanel("dev-pa-negar", ticket);
+    await panel.waitFor(() => panel.messages.some((m) => m.type === "access"));
+    panel.ws.send(JSON.stringify({ type: "player_action", action: "ban", player: "Steve", requestId: "r1" }));
+    panel.ws.send(JSON.stringify({ type: "player_action", action: "kick", player: "@a", requestId: "r2" }));
+    await panel.waitFor(() => panel.messages.filter((m) => m.type === "error").length === 2);
+    const errors = panel.messages.filter((m) => m.type === "error").map((m) => m.message);
+    expect(errors[0]).toContain("ban");
+    expect(errors[1]).toContain("inválido");
+  });
+
+  it("kick permitido só falha por falta de agent (não por permissão)", async () => {
+    const ticket = await mintTicket("dev-pa-ok", { userId: "p2", name: "Mod", isOwner: false, permissions: PERMISSION_PRESETS.moderator });
+    const panel = await openPanel("dev-pa-ok", ticket);
+    await panel.waitFor(() => panel.messages.some((m) => m.type === "access"));
+    panel.ws.send(JSON.stringify({ type: "player_action", action: "kick", player: "Steve", requestId: "r3" }));
+    await panel.waitFor(() => panel.messages.filter((m) => m.type === "agent_disconnected").length >= 2);
+    expect(panel.messages.some((m) => m.type === "error")).toBe(false);
+  });
+
+  it("players_refresh é negado sem ver o console", async () => {
+    const ticket = await mintTicket("dev-pr", { userId: "p3", name: "Cego", isOwner: false, permissions: { ...PERMISSION_PRESETS.viewer, viewConsole: false } });
+    const panel = await openPanel("dev-pr", ticket);
+    await panel.waitFor(() => panel.messages.some((m) => m.type === "access"));
+    panel.ws.send(JSON.stringify({ type: "players_refresh" }));
+    await panel.waitFor(() => panel.messages.some((m) => m.type === "error"));
+    expect(panel.messages.find((m) => m.type === "error").message).toContain("jogadores");
+  });
+});
+
 describe("remoção/alteração de membro", () => {
   it("kick derruba só as conexões do usuário alvo", async () => {
     const t1 = await mintTicket("dev-kick", { userId: "alvo", name: "Alvo", isOwner: false, permissions: PERMISSION_PRESETS.viewer });

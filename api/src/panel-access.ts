@@ -100,9 +100,38 @@ function allowlistMatches(allowlist: string[], tokens: string[]): boolean {
   });
 }
 
+/** Ações de moderação por jogador (Modo Espectador Web). Cada uma vira um comando de console equivalente. */
+export const PLAYER_ACTIONS = ['kick', 'ban', 'pardon'] as const;
+export type PlayerAction = (typeof PLAYER_ACTIONS)[number];
+export const MAX_REASON_LENGTH = 100;
+
+// Mesmo critério do agent (src-tauri/src/players.rs): 1–16 de [A-Za-z0-9_], "." inicial opcional (Bedrock/Floodgate).
+// É também o que impede injeção de comando por nome ("@a", "x stop", quebra de linha).
+const PLAYER_NAME = /^\.?[A-Za-z0-9_]{1,16}$/;
+// Sem "." de propósito: o DO usa "." pra compor `userId.requestId` (ver host-channel.ts).
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,40}$/;
+
 export type PanelMessageDecision =
-  | { ok: true; forward: { type: 'command'; command: string } | { type: 'stop_server' } | { type: 'start_server'; serverId: string } | { type: 'restart_server'; serverId: string } }
+  | {
+      ok: true;
+      forward:
+        | { type: 'command'; command: string }
+        | { type: 'stop_server' }
+        | { type: 'start_server'; serverId: string }
+        | { type: 'restart_server'; serverId: string }
+        | { type: 'player_action'; action: PlayerAction; player: string; reason?: string; requestId: string }
+        | { type: 'players_refresh' };
+    }
   | { ok: false; reason: string };
+
+/** Motivo da negação pela política de comandos, ou null se liberado. Compartilhado por "command" e "player_action". */
+function commandPolicyDenial(perms: PanelPermissions, tokens: string[]): string | null {
+  if (perms.commands.mode === 'none') return 'Você não tem permissão para rodar comandos.';
+  if (perms.commands.mode === 'allowlist' && !allowlistMatches(perms.commands.allowlist, tokens)) {
+    return `O comando "${tokens[0]}" não está na sua lista de comandos permitidos.`;
+  }
+  return null;
+}
 
 /**
  * Decide se uma mensagem do painel pode seguir para o agent, e devolve uma
@@ -129,14 +158,38 @@ export function authorizePanelMessage(perms: PanelPermissions, msg: unknown): Pa
       if (tokens[0] === 'stop' && !perms.stop) {
         return { ok: false, reason: 'Você não tem permissão para desligar o servidor.' };
       }
-      if (perms.commands.mode === 'none') {
-        return { ok: false, reason: 'Você não tem permissão para rodar comandos.' };
-      }
-      if (perms.commands.mode === 'allowlist' && !allowlistMatches(perms.commands.allowlist, tokens)) {
-        return { ok: false, reason: `O comando "${tokens[0]}" não está na sua lista de comandos permitidos.` };
-      }
+      const denial = commandPolicyDenial(perms, tokens);
+      if (denial) return { ok: false, reason: denial };
       return { ok: true, forward: { type: 'command', command } };
     }
+    case 'player_action': {
+      // Reaproveita a política de comandos: "kick Steve" só passa se o membro
+      // poderia digitar esse comando no console. Assim o botão do painel nunca
+      // dá mais poder que o console — e não há permissão nova pra migrar no banco.
+      const action = PLAYER_ACTIONS.find((a) => a === m.action);
+      if (!action) return { ok: false, reason: 'Ação não suportada.' };
+      if (typeof m.player !== 'string' || !PLAYER_NAME.test(m.player)) {
+        return { ok: false, reason: 'Nome de jogador inválido.' };
+      }
+      if (typeof m.requestId !== 'string' || !REQUEST_ID.test(m.requestId)) {
+        return { ok: false, reason: 'Mensagem inválida.' };
+      }
+      let reason: string | undefined;
+      if (action !== 'pardon' && m.reason !== undefined && m.reason !== null) {
+        if (typeof m.reason !== 'string' || CONTROL_CHARS.test(m.reason)) return { ok: false, reason: 'Motivo inválido.' };
+        const collapsed = m.reason.trim().replace(/\s+/g, ' ');
+        if (collapsed.length > MAX_REASON_LENGTH) return { ok: false, reason: 'Motivo muito longo (máximo 100 caracteres).' };
+        if (collapsed) reason = collapsed;
+      }
+      const denial = commandPolicyDenial(perms, [action, m.player.toLowerCase()]);
+      if (denial) return { ok: false, reason: denial };
+      return { ok: true, forward: { type: 'player_action', action, player: m.player, ...(reason ? { reason } : {}), requestId: m.requestId } };
+    }
+    case 'players_refresh':
+      // Mostra quem está online — mesmo critério de quem vê o console (a lista
+      // de nomes só é entregue a quem pode ver o console; ver host-channel.ts).
+      if (!perms.viewConsole) return { ok: false, reason: 'Você não tem permissão para ver os jogadores.' };
+      return { ok: true, forward: { type: 'players_refresh' } };
     case 'stop_server':
       if (!perms.stop) return { ok: false, reason: 'Você não tem permissão para desligar o servidor.' };
       return { ok: true, forward: { type: 'stop_server' } };

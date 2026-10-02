@@ -44,8 +44,9 @@
 // mesmo com o device_token válido.
 // ============================================================
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -54,9 +55,27 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::{log_to_file, send_minecraft_command, stop_minecraft_server_internal, AppState};
+use crate::{log_to_file, players, send_minecraft_command, stop_minecraft_server_internal, AppState};
 
 const PANEL_RELAY_WS_BASE: &str = "wss://cubeforge-api.cubeforge.workers.dev/panel/ws";
+
+/// Endpoint do relay. Em build de DESENVOLVIMENTO, a variável de ambiente
+/// `CUBICASE_PANEL_RELAY_WS` (ex: ws://localhost:8787/panel/ws) aponta o agent
+/// para um `wrangler dev` local — para testar o painel sem publicar o Worker.
+/// Em release (`tauri build`) a variável é ignorada: não há como redirecionar o
+/// agent (e o device_token que ele envia) para outro servidor.
+fn relay_ws_base() -> String {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(v) = std::env::var("CUBICASE_PANEL_RELAY_WS") {
+            let v = v.trim().trim_end_matches('/').to_string();
+            if v.starts_with("ws://localhost") || v.starts_with("ws://127.0.0.1") {
+                return v;
+            }
+        }
+    }
+    PANEL_RELAY_WS_BASE.to_string()
+}
 // 2s, 5s, 10s, 30s (máx) — mesma progressão descrita no plano, em vez de
 // backoff exponencial puro (que demoraria demais pra tentar de novo em
 // quedas curtas de rede, comuns num link doméstico).
@@ -310,6 +329,82 @@ fn build_metrics_message(app: &AppHandle) -> Option<String> {
     Some(value.to_string())
 }
 
+// ============================================================
+// Jogadores online (Modo "Espectador Web")
+// ============================================================
+// A lista vem de `minecraft_online_players` (alimentada pelo log, ver
+// players.rs). Duas defesas contra ela ficar errada:
+//   1. Sem processo rodando, a lista enviada é sempre vazia — mesmo que o set
+//      tenha sobrado de uma queda sem "left the game" no log.
+//   2. Reconciliação com o comando `list` (pedido ao conectar e pelo botão
+//      "Atualizar" do painel), com intervalo mínimo pra não encher o console.
+
+/// Intervalo mínimo entre dois `list` automáticos (reconexões do agent em rede
+/// instável não podem virar spam no console) e entre dois pedidos manuais.
+const LIST_REFRESH_AUTO_MIN_MS: i64 = 30_000;
+const LIST_REFRESH_MANUAL_MIN_MS: i64 = 8_000;
+/// Mesmo kick/ban/pardon no mesmo jogador dentro dessa janela é tratado como
+/// duplo-clique (ou reenvio do painel) e não é executado de novo.
+const ACTION_DEDUP_WINDOW: Duration = Duration::from_secs(3);
+
+static LAST_LIST_REQUEST_MS: AtomicI64 = AtomicI64::new(0);
+static LAST_PLAYER_ACTION: OnceLock<Mutex<Option<(String, Instant)>>> = OnceLock::new();
+
+fn last_player_action() -> &'static Mutex<Option<(String, Instant)>> {
+    LAST_PLAYER_ACTION.get_or_init(|| Mutex::new(None))
+}
+
+/// true se `key` repete a ação anterior dentro de ACTION_DEDUP_WINDOW; senão registra e devolve false.
+fn is_duplicate_action(key: &str) -> bool {
+    let mut guard = last_player_action().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((prev, at)) = guard.as_ref() {
+        if prev == key && at.elapsed() < ACTION_DEDUP_WINDOW {
+            return true;
+        }
+    }
+    *guard = Some((key.to_string(), Instant::now()));
+    false
+}
+
+fn current_player_names(app: &AppHandle) -> Vec<String> {
+    let state = app.state::<AppState>();
+    let running = state
+        .minecraft_process
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
+    if !running {
+        return Vec::new();
+    }
+    let names: Vec<String> = state
+        .minecraft_online_players
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .cloned()
+        .collect();
+    players::sorted_capped(names)
+}
+
+fn build_players_message(names: &[String]) -> String {
+    serde_json::json!({ "type": "players", "players": names, "ts": now_iso() }).to_string()
+}
+
+/// Pede um `list` ao servidor (a resposta chega pelo log e reconcilia o set —
+/// ver lib.rs). Respeita o intervalo mínimo; sem servidor rodando, não faz nada.
+async fn request_player_list_refresh(app: &AppHandle, min_interval_ms: i64) {
+    let now = chrono::Utc::now().timestamp_millis();
+    let last = LAST_LIST_REQUEST_MS.load(Ordering::Relaxed);
+    if now - last < min_interval_ms {
+        return;
+    }
+    LAST_LIST_REQUEST_MS.store(now, Ordering::Relaxed);
+    let state = app.state::<AppState>();
+    // Erro aqui (servidor parado, stdin indisponível) não importa: a lista
+    // continua sendo a derivada do log, e sem processo ela sai vazia.
+    let _ = send_minecraft_command(state, "list".to_string()).await;
+}
+
 fn build_server_list_message(app: &AppHandle) -> String {
     serde_json::json!({ "type": "server_list", "servers": scan_local_servers(app) }).to_string()
 }
@@ -403,12 +498,86 @@ async fn handle_incoming_message(app: &AppHandle, raw: &str, tx: &tokio::sync::m
             // "recusar se outro servidor já estiver rodando".
             let _ = app.emit("panel-start-server-request", server_id);
         }
+        "players_refresh" => {
+            request_player_list_refresh(app, LIST_REFRESH_MANUAL_MIN_MS).await;
+            // A resposta do `list` chega pelo log; dá um instante pra ela ser
+            // processada e manda o retrato novo sem esperar o próximo poll.
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            let _ = tx.send(build_players_message(&current_player_names(app)));
+        }
+        "player_action" => {
+            let request_id = value
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .and_then(players::sanitize_request_id);
+            let action = value.get("action").and_then(|v| v.as_str()).unwrap_or("");
+            let player = value.get("player").and_then(|v| v.as_str()).unwrap_or("");
+            let reason = value.get("reason").and_then(|v| v.as_str());
+
+            // Só ecoa de volta o que é válido — o painel renderiza como texto,
+            // mas não há motivo pra devolver lixo arbitrário.
+            let echo_player = if players::is_valid_player_name(player) { player } else { "" };
+            let reply = |ok: bool, message: String| {
+                let _ = tx.send(
+                    serde_json::json!({
+                        "type": "player_action_result",
+                        "requestId": request_id,
+                        "ok": ok,
+                        "action": action,
+                        "player": echo_player,
+                        "message": message,
+                        "ts": now_iso(),
+                    })
+                    .to_string(),
+                );
+            };
+
+            // Monta o comando só a partir de campos validados: nome estrito,
+            // motivo sem caracteres de controle. O relay já autorizou conforme
+            // as permissões, mas o agent não confia nisso pra montar stdin.
+            let command = match players::build_player_command(action, player, reason) {
+                Ok(c) => c,
+                Err(msg) => {
+                    log_to_file(app, &format!("[PANEL] player_action recusada ({}): action={:?} player={:?}", msg, action, player));
+                    reply(false, msg.to_string());
+                    return;
+                }
+            };
+
+            if is_duplicate_action(&format!("{}:{}", action, player)) {
+                reply(true, "Ação já enviada há instantes.".to_string());
+                return;
+            }
+
+            log_to_file(app, &format!("[PANEL] Ação de moderação \"{}\"{}.", command, by_suffix(&by)));
+            let echo = match &by {
+                Some(name) => format!("> {} (via painel web — {})", command, name),
+                None => format!("> {} (via painel web)", command),
+            };
+            let _ = app.emit("minecraft-log", &echo);
+            let _ = tx.send(serde_json::json!({ "type": "log_line", "line": echo, "ts": now_iso() }).to_string());
+
+            let state = app.state::<AppState>();
+            match send_minecraft_command(state, command.clone()).await {
+                Ok(()) => {
+                    reply(true, "Comando enviado ao servidor.".to_string());
+                    // O "left the game"/"lost connection" chega pelo log logo
+                    // depois — manda a lista atualizada sem esperar o poll.
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    let _ = tx.send(build_players_message(&current_player_names(app)));
+                }
+                Err(e) => {
+                    log_to_file(app, &format!("[PANEL] Ação \"{}\" falhou: {}", command, e));
+                    reply(false, e);
+                }
+            }
+        }
         _ => {}
     }
 }
 
 async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Result<(), String> {
-    let url = format!("{}/{}?role=agent", PANEL_RELAY_WS_BASE, device.id);
+    let url = format!("{}/{}?role=agent", relay_ws_base(), device.id);
     let mut request = url
         .as_str()
         .into_client_request()
@@ -441,6 +610,16 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
     if let Some(metrics) = build_metrics_message(app) {
         let _ = tx.send(metrics);
     }
+    // Lista de jogadores: retrato imediato (do log) + pedido de `list` pra
+    // corrigir o que o log não viu (app aberto com o servidor já rodando).
+    let mut last_players = current_player_names(app);
+    let _ = tx.send(build_players_message(&last_players));
+    {
+        let app_for_list = app.clone();
+        tauri::async_runtime::spawn(async move {
+            request_player_list_refresh(&app_for_list, LIST_REFRESH_AUTO_MIN_MS).await;
+        });
+    }
 
     let mut status_poll = tokio::time::interval(Duration::from_secs(STATUS_POLL_SECS));
     status_poll.tick().await; // o primeiro tick é imediato; o snapshot acima já cobriu isso
@@ -462,6 +641,13 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
                 let _ = tx.send(build_server_list_message_async(app).await);
                 if let Some(metrics) = build_metrics_message(app) {
                     let _ = tx.send(metrics);
+                }
+                // Só reenvia a lista quando mudou — o relay grava cada mensagem
+                // em storage, e a lista quase nunca muda entre dois polls.
+                let names = current_player_names(app);
+                if names != last_players {
+                    let _ = tx.send(build_players_message(&names));
+                    last_players = names;
                 }
             }
             incoming = read.next() => {

@@ -155,3 +155,70 @@ describe("convites", () => {
     expect(inviteUsable({ single_use: false, uses: 0, expires_at: past }, Date.now())).toBe(false);
   });
 });
+
+describe("player_action (Modo Espectador Web)", () => {
+  const mod = PERMISSION_PRESETS.moderator; // allowlist: say, kick, whitelist
+  const act = (over: object = {}) => ({ type: "player_action", action: "kick", player: "Steve", requestId: "r-1", ...over });
+
+  it("segue a política de comandos: kick liberado, ban não está na lista", () => {
+    expect(authorizePanelMessage(mod, act())).toEqual({
+      ok: true,
+      forward: { type: "player_action", action: "kick", player: "Steve", requestId: "r-1" },
+    });
+    const ban = authorizePanelMessage(mod, act({ action: "ban" }));
+    expect(ban.ok).toBe(false);
+    if (!ban.ok) expect(ban.reason).toContain("ban");
+  });
+  it("sem permissão de comandos nada passa; com 'all' tudo passa", () => {
+    expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, act()).ok).toBe(false);
+    expect(authorizePanelMessage(PERMISSION_PRESETS.operator, act()).ok).toBe(false);
+    for (const action of ["kick", "ban", "pardon"]) {
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action })).ok).toBe(true);
+    }
+  });
+  it("a allowlist casa sem diferenciar maiúsculas do nome", () => {
+    const p = perms({ commands: { mode: "allowlist", allowlist: ["ban"] } });
+    expect(authorizePanelMessage(p, act({ action: "ban", player: "STEVE" })).ok).toBe(true);
+  });
+  it("recusa ação desconhecida (incluindo as que parecem comando perigoso)", () => {
+    for (const action of ["op", "deop", "stop", "kick ", "KICK", "", undefined, 5]) {
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action })).ok).toBe(false);
+    }
+  });
+  it("recusa nome de jogador que poderia injetar comando", () => {
+    for (const player of ["@a", "Steve stop", "Steve\nstop", "", "x".repeat(17), "ção", " Steve", undefined, 7, "."]) {
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ player })).ok).toBe(false);
+    }
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ player: ".Bedrock" })).ok).toBe(true);
+  });
+  it("exige requestId simples (sem '.', que o relay usa como separador)", () => {
+    for (const requestId of ["", "a.b", "a b", "x".repeat(41), undefined, 3]) {
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ requestId })).ok).toBe(false);
+    }
+  });
+  it("motivo: normaliza espaços, recusa controle e excesso; pardon ignora motivo", () => {
+    const ok = authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "ban", reason: "  fazendo   grief " }));
+    expect(ok).toMatchObject({ ok: true, forward: { reason: "fazendo grief" } });
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "ban", reason: "   " }))).toEqual({
+      ok: true,
+      forward: { type: "player_action", action: "ban", player: "Steve", requestId: "r-1" },
+    });
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "ban", reason: "x\nstop" })).ok).toBe(false);
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "ban", reason: "x".repeat(101) })).ok).toBe(false);
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "ban", reason: 42 })).ok).toBe(false);
+    const pardon = authorizePanelMessage(OWNER_PERMISSIONS, act({ action: "pardon", reason: "x\nstop" }));
+    expect(pardon).toMatchObject({ ok: true, forward: { action: "pardon" } });
+    if (pardon.ok) expect("reason" in pardon.forward).toBe(false);
+  });
+  it("não repassa campos extras mandados pelo painel", () => {
+    const d = authorizePanelMessage(OWNER_PERMISSIONS, act({ command: "stop", by: "Fingindo" }));
+    expect(d).toEqual({ ok: true, forward: { type: "player_action", action: "kick", player: "Steve", requestId: "r-1" } });
+  });
+});
+
+describe("players_refresh", () => {
+  it("exige poder ver o console", () => {
+    expect(authorizePanelMessage(perms({ viewConsole: false }), { type: "players_refresh" }).ok).toBe(false);
+    expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, { type: "players_refresh" })).toEqual({ ok: true, forward: { type: "players_refresh" } });
+  });
+});

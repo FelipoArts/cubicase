@@ -91,6 +91,25 @@
     .console-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
     .console-denied { color: var(--text-muted); font-size: 13px; padding: 14px 0; }
 
+    /* ---- Jogadores online (Modo Espectador Web) ---- */
+    .panel-column { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+    .players-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .players-head h2 { margin: 0; }
+    .player-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .player-row:last-child { border-bottom: none; }
+    .player-head {
+      width: 36px; height: 36px; border-radius: 6px; flex: none;
+      image-rendering: pixelated; background: var(--bg-elevated);
+    }
+    .player-head.is-letter {
+      display: flex; align-items: center; justify-content: center; image-rendering: auto;
+      font-weight: 700; color: var(--text-secondary); border: 1px solid var(--border-strong);
+    }
+    .player-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-actions { display: flex; gap: 8px; flex: none; }
+    .player-row.is-pending { opacity: 0.55; }
+    #players-note { margin: 0; }
+
     /* ---- Aviso curto (permissão negada, acesso alterado...) ---- */
     .panel-toast {
       position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
@@ -136,6 +155,7 @@
       .panel-dashboard { padding: 20px 16px 48px; }
       .panel-stat-grid { grid-template-columns: 1fr 1fr; }
       .perm-grid { grid-template-columns: 1fr; }
+      .player-actions .btn-mini { padding: 9px 12px; }
     }
   </style>
 </head>
@@ -222,10 +242,22 @@
     </div>
 
     <div class="panel-body-grid">
-      <div class="panel-card">
-        <h2>Servidores neste computador</h2>
-        <div id="server-list"></div>
-        <p class="panel-empty-note" id="server-list-empty" hidden>Nenhum servidor encontrado neste computador ainda.</p>
+      <div class="panel-column">
+        <div class="panel-card">
+          <h2>Servidores neste computador</h2>
+          <div id="server-list"></div>
+          <p class="panel-empty-note" id="server-list-empty" hidden>Nenhum servidor encontrado neste computador ainda.</p>
+        </div>
+
+        <div class="panel-card" id="players-card">
+          <div class="players-head">
+            <h2>Jogadores online</h2>
+            <button type="button" class="btn-mini" id="btn-players-refresh" hidden>Atualizar</button>
+          </div>
+          <div id="players-list"></div>
+          <p class="panel-empty-note" id="players-note" hidden></p>
+          <p class="console-hint" id="players-updated" hidden></p>
+        </div>
       </div>
 
       <div class="panel-card">
@@ -319,8 +351,25 @@
 
     const SUPABASE_URL = "https://rtfxcyvymlxebvemgwaj.supabase.co";
     const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ggAEPrue0lgmIlXGkv4vUg_Hot7Xe0Y";
-    const API_BASE = "https://cubeforge-api.cubeforge.workers.dev";
-    const WS_BASE = "wss://cubeforge-api.cubeforge.workers.dev/panel/ws";
+    // Para testar contra um Worker local (`wrangler dev`): abrir esta página em
+    // localhost com ?relay=http://localhost:8787 (guardado na sessão pra
+    // sobreviver ao redirect do login). Só vale quando a PRÓPRIA página está em
+    // localhost e o relay também — num domínio real isto é ignorado, então um link
+    // malicioso não consegue apontar o painel para outro servidor.
+    const LOCAL_RELAY = (() => {
+      if (!["localhost", "127.0.0.1"].includes(location.hostname)) return null;
+      try {
+        const fromUrl = new URLSearchParams(location.search).get("relay");
+        if (fromUrl) sessionStorage.setItem("cubicase_panel_relay", fromUrl);
+        const raw = sessionStorage.getItem("cubicase_panel_relay");
+        if (!raw) return null;
+        const u = new URL(raw);
+        if (u.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(u.hostname)) return null;
+        return u.origin;
+      } catch { return null; }
+    })();
+    const API_BASE = LOCAL_RELAY ?? "https://cubeforge-api.cubeforge.workers.dev";
+    const WS_BASE = LOCAL_RELAY ? LOCAL_RELAY.replace(/^http/, "ws") + "/panel/ws" : "wss://cubeforge-api.cubeforge.workers.dev/panel/ws";
     const RECONNECT_STEPS_MS = [2000, 5000, 10000, 30000];
     const INVITE_KEY = "cubicase_panel_invite";
 
@@ -674,6 +723,31 @@
     let currentAccess = null;
     let lastServers = [];
 
+    // ---- Jogadores online (Modo Espectador Web) ----
+    // Cenários cobertos (cada um com um fallback visível, nunca uma tela muda):
+    //   - agent antigo / relay antigo: nenhuma mensagem "players" chega -> depois
+    //     de PLAYERS_WAIT_MS mostra só a contagem + pedido pra atualizar o Cubicase;
+    //   - sem permissão de ver o console: não recebe nomes (o relay barra) -> aviso;
+    //   - servidor parado / computador offline: aviso em vez de lista velha;
+    //   - skin indisponível (serviço fora, nome sem conta, Bedrock): cabeça com a
+    //     inicial do nome;
+    //   - ação sem resposta (agent antigo, computador travado, conexão caiu):
+    //     timeout com aviso explícito de que NÃO dá pra saber se foi aplicada.
+    const PLAYERS_WAIT_MS = 8000;
+    const PLAYER_ACTION_TIMEOUT_MS = 10000;
+    const PLAYERS_REFRESH_COOLDOWN_MS = 8000;
+    const HEAD_SOURCES = [
+      (n) => `https://mc-heads.net/avatar/${encodeURIComponent(n)}/72`,
+      (n) => `https://minotar.net/helm/${encodeURIComponent(n)}/72.png`,
+    ];
+    let agentConnected = false;
+    let playersList = [];
+    let playersReceivedAt = 0;   // 0 = nenhuma mensagem "players" desde que o computador conectou
+    let playersWaitSince = 0;
+    let playersWaitTimer = null;
+    let playersRefreshTimer = null;
+    const pendingPlayerActions = new Map(); // requestId -> { player, action, timer }
+
     function closeSocket() {
       manuallyClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -710,6 +784,9 @@
       el("server-list-empty").hidden = true;
       el("console").innerHTML = "";
       pendingStartServerId = null;
+      clearPlayerActions();
+      clearTimeout(playersRefreshTimer);
+      el("btn-players-refresh").disabled = false;
       applyAccess();
     }
 
@@ -750,16 +827,19 @@
         hint.hidden = true;
       }
       renderServerList();
+      renderPlayers();
     }
 
     // ---- Comandos (parar/reiniciar/iniciar/console) ----
 
+    /** true se a mensagem foi entregue ao socket (não garante que o computador a executou). */
     function sendToAgent(payload) {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         alert(i18n.t("Sem conexão com o computador agora. Tente de novo em alguns instantes."));
-        return;
+        return false;
       }
       socket.send(JSON.stringify(payload));
+      return true;
     }
 
     // Trocar pra outro servidor enquanto um está rodando: pede pra parar, e
@@ -813,11 +893,25 @@
       const pill = el("agent-status");
       pill.classList.toggle("is-offline", !connected);
       el("agent-status-text").textContent = connected ? i18n.t("Computador conectado") : i18n.t("Computador desconectado");
+      const wasConnected = agentConnected;
+      agentConnected = connected;
       if (!connected) {
         el("stat-server-status").textContent = "—";
         el("stat-players").textContent = "—";
         el("stat-resources").textContent = "—";
         lastServerRunning = false;
+        playersList = [];
+        playersReceivedAt = 0;
+        clearPlayerActions({ warn: true });
+        renderPlayers();
+      } else if (!wasConnected) {
+        // Começa a contar a espera pela primeira lista; passado o prazo sem
+        // nenhuma mensagem "players", renderPlayers cai no modo de contagem.
+        playersReceivedAt = 0;
+        playersWaitSince = Date.now();
+        clearTimeout(playersWaitTimer);
+        playersWaitTimer = setTimeout(renderPlayers, PLAYERS_WAIT_MS + 100);
+        renderPlayers();
       }
     }
 
@@ -917,6 +1011,191 @@
       }
     }
 
+    // ---- Jogadores online: renderização e ações ----
+
+    let playerCountFromStatus = 0;
+
+    /** Espelha o que o relay valida: a política de comandos do membro (só decide o botão; quem barra é o servidor). */
+    function canModerate(action, player) {
+      const p = currentAccess?.permissions;
+      if (!p) return false;
+      if (p.commands.mode === "all") return true;
+      if (p.commands.mode !== "allowlist") return false;
+      const tokens = [action, player.toLowerCase()];
+      return p.commands.allowlist.some((entry) => {
+        const et = entry.split(" ");
+        return et.length <= tokens.length && et.every((t, i) => t === tokens[i]);
+      });
+    }
+
+    /** Cabeça 2D do jogador; qualquer falha de imagem cai na próxima fonte e, por fim, numa inicial. */
+    function createPlayerHead(name) {
+      const letter = () => {
+        const d = document.createElement("div");
+        d.className = "player-head is-letter";
+        d.textContent = (name.replace(/^\./, "")[0] || "?").toUpperCase();
+        return d;
+      };
+      // Nomes Bedrock (prefixo ".") não existem nesses serviços de skin.
+      if (name.startsWith(".")) return letter();
+      const img = document.createElement("img");
+      img.className = "player-head";
+      img.alt = "";
+      img.width = 36;
+      img.height = 36;
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      let source = 0;
+      img.addEventListener("error", () => {
+        source++;
+        if (source < HEAD_SOURCES.length) img.src = HEAD_SOURCES[source](name);
+        else img.replaceWith(letter());
+      });
+      img.src = HEAD_SOURCES[0](name);
+      return img;
+    }
+
+    function renderPlayers() {
+      const box = el("players-list");
+      const note = el("players-note");
+      const updated = el("players-updated");
+      const refresh = el("btn-players-refresh");
+      box.innerHTML = "";
+      note.hidden = true;
+      updated.hidden = true;
+      const showNote = (text) => { note.textContent = text; note.hidden = false; };
+
+      if (!currentAccess) { refresh.hidden = true; return; }
+      const canSee = !!currentAccess.permissions?.viewConsole;
+      refresh.hidden = !canSee || !agentConnected || !lastServerRunning;
+
+      if (!canSee) { showNote(i18n.t("Você não tem permissão para ver quem está online.")); return; }
+      if (!agentConnected) { showNote(i18n.t("Computador desconectado.")); return; }
+      if (!lastServerRunning) { showNote(i18n.t("O servidor está parado.")); return; }
+
+      if (!playersReceivedAt) {
+        if (Date.now() - playersWaitSince < PLAYERS_WAIT_MS) { showNote(i18n.t("Carregando jogadores…")); return; }
+        // Nenhuma lista chegou: Cubicase (ou relay) sem suporte a esta função.
+        showNote(playerCountFromStatus > 0
+          ? i18n.t("{count} jogador(es) online. Para ver os nomes e moderar por aqui, atualize o Cubicase no computador.", { count: playerCountFromStatus })
+          : i18n.t("Não foi possível obter a lista de jogadores. Se o Cubicase no computador estiver desatualizado, atualize-o."));
+        return;
+      }
+
+      if (playersList.length === 0) showNote(i18n.t("Ninguém online agora."));
+      for (const name of playersList) {
+        const pending = [...pendingPlayerActions.values()].some((p) => p.player === name);
+        const row = document.createElement("div");
+        row.className = "player-row" + (pending ? " is-pending" : "");
+        row.appendChild(createPlayerHead(name));
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "player-name";
+        // O i18n traduz textos exatos: um jogador chamado "Parar" viraria "Stop".
+        // O caractere de largura zero impede o casamento sem alterar o que se vê.
+        nameEl.textContent = name + "​";
+        nameEl.title = name;
+        row.appendChild(nameEl);
+
+        const actions = document.createElement("div");
+        actions.className = "player-actions";
+        for (const [action, label, danger] of [["kick", i18n.t("Expulsar"), false], ["ban", i18n.t("Banir"), true]]) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn-mini" + (danger ? " btn-mini-danger" : "");
+          btn.dataset.action = action;
+          btn.dataset.player = name;
+          btn.textContent = label;
+          if (pending) {
+            btn.disabled = true;
+          } else if (!canModerate(action, name)) {
+            btn.disabled = true;
+            btn.title = i18n.t("Você não tem permissão para isso");
+          }
+          actions.appendChild(btn);
+        }
+        row.appendChild(actions);
+        box.appendChild(row);
+      }
+      if (playersList.length) {
+        updated.textContent = i18n.t("Atualizado às {time}", { time: new Date(playersReceivedAt).toLocaleTimeString(i18n.locale()) });
+        updated.hidden = false;
+      }
+    }
+
+    function newRequestId() {
+      const raw = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.random()}`).replace(/[^A-Za-z0-9]/g, "");
+      return raw.slice(0, 24) || String(Date.now());
+    }
+
+    /** Libera os botões travados. `warn`: a conexão caiu antes da confirmação — não dá pra saber se a ação foi aplicada. */
+    function clearPlayerActions({ warn = false } = {}) {
+      const hadPending = pendingPlayerActions.size > 0;
+      for (const p of pendingPlayerActions.values()) clearTimeout(p.timer);
+      pendingPlayerActions.clear();
+      if (hadPending) renderPlayers(); // destrava os botões
+      if (warn && hadPending) {
+        showToast(i18n.t("A conexão caiu antes da confirmação. Confira na lista se a ação foi aplicada."), true);
+      }
+    }
+
+    function startPlayerAction(action, player, reason) {
+      const requestId = newRequestId();
+      const payload = { type: "player_action", action, player, requestId };
+      if (reason) payload.reason = reason;
+      if (!sendToAgent(payload)) return;
+      const timer = setTimeout(() => {
+        pendingPlayerActions.delete(requestId);
+        renderPlayers();
+        showToast(i18n.t("O computador não confirmou a ação. Não dá pra saber se foi aplicada — confira a lista e o console, e veja se o Cubicase está aberto e atualizado."), true);
+      }, PLAYER_ACTION_TIMEOUT_MS);
+      pendingPlayerActions.set(requestId, { player, action, timer });
+      renderPlayers();
+    }
+
+    function onPlayerActionResult(msg) {
+      const pending = pendingPlayerActions.get(msg.requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingPlayerActions.delete(msg.requestId);
+      }
+      renderPlayers();
+      const player = typeof msg.player === "string" ? msg.player : "";
+      if (!msg.ok) { showToast(i18n.t(msg.message || "Não foi possível executar a ação."), true); return; }
+      // "Enviado", não "feito": a confirmação real é o jogador sair da lista
+      // (o servidor pode recusar, ex: jogador já banido) — o console mostra o resultado.
+      if (msg.action === "kick") showToast(i18n.t("Pedido de expulsão de {player} enviado ao servidor.", { player }));
+      else if (msg.action === "ban") showToast(i18n.t("Pedido de banimento de {player} enviado. Para desfazer, use o comando \"pardon {player}\" no console.", { player }));
+      else if (msg.action === "pardon") showToast(i18n.t("Pedido para perdoar {player} enviado ao servidor.", { player }));
+      else showToast(i18n.t(msg.message || "Comando enviado ao servidor."));
+    }
+
+    el("players-list").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-action]");
+      if (!btn || btn.disabled) return;
+      const { action, player } = btn.dataset;
+      if ([...pendingPlayerActions.values()].some((p) => p.player === player)) return;
+
+      if (action === "kick") {
+        if (!confirm(i18n.t("Expulsar {player} do servidor?", { player }))) return;
+        startPlayerAction("kick", player);
+      } else if (action === "ban") {
+        const answer = prompt(i18n.t("Banir {player}? Escreva um motivo (opcional) e confirme.", { player }), "");
+        if (answer === null) return; // cancelou
+        const reason = answer.trim().replace(/\s+/g, " ");
+        if (reason.length > 100) { showToast(i18n.t("Motivo muito longo (máximo 100 caracteres)."), true); return; }
+        startPlayerAction("ban", player, reason);
+      }
+    });
+
+    el("btn-players-refresh").addEventListener("click", () => {
+      const btn = el("btn-players-refresh");
+      if (!sendToAgent({ type: "players_refresh" })) return;
+      btn.disabled = true;
+      clearTimeout(playersRefreshTimer);
+      playersRefreshTimer = setTimeout(() => { btn.disabled = false; }, PLAYERS_REFRESH_COOLDOWN_MS);
+    });
+
     function handleMessage(raw) {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
@@ -936,7 +1215,9 @@
         el("stat-players").textContent = `${msg.playerCount ?? 0}/${msg.maxPlayers ?? 20}`;
         el("stat-server-name").textContent = msg.serverName || "—";
         lastServerRunning = !!msg.serverRunning;
+        playerCountFromStatus = Number(msg.playerCount) || 0;
         if (!lastServerRunning) el("stat-resources").textContent = "—";
+        renderPlayers();
         if (!msg.serverRunning && pendingStartServerId) {
           const serverId = pendingStartServerId;
           pendingStartServerId = null;
@@ -961,9 +1242,24 @@
         return;
       }
 
+      if (msg.type === "players") {
+        playersList = Array.isArray(msg.players) ? msg.players.filter((n) => typeof n === "string" && n).slice(0, 200) : [];
+        playersReceivedAt = Date.now();
+        renderPlayers();
+        return;
+      }
+
+      if (msg.type === "player_action_result") {
+        onPlayerActionResult(msg);
+        return;
+      }
+
       if (msg.type === "error") {
-        // Também vira aviso solto: quem não pode ver o console não veria
-        // o motivo de uma ação negada só na linha do console.
+        // Uma ação de jogador negada pelo relay (sem permissão, relay antigo
+        // que não conhece "player_action") vem como "error" sem requestId:
+        // destrava os botões em vez de esperar o timeout; o aviso abaixo
+        // já explica o motivo.
+        if (pendingPlayerActions.size) clearPlayerActions();
         const shown = i18n.t(msg.message);
         appendConsoleLine(`⚠ ${shown}`, { isError: true });
         showToast(shown, true);
