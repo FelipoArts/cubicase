@@ -29,6 +29,11 @@
 //       conexão pode fazer (a UI usa só pra esconder/desabilitar botões; quem
 //       de fato barra é este DO, a cada mensagem — ver handlePanelMessage)
 //     { type: "error", message } — ação negada por falta de permissão
+//   keepalive (agent -> relay): a string pura "ping". O relay responde "pong"
+//     via setWebSocketAutoResponse, SEM acordar o Durable Object (sem duração
+//     cobrada e sem tocar em storage) — por isso o agent usa isso como sinal de
+//     vida em vez de reenviar `status` à toa. Um relay antigo (sem auto-resposta)
+//     só ignora o "ping": não é JSON, cai no `catch` de webSocketMessage.
 //   painel -> relay:
 //     { type: "command", command } | { type: "stop_server" }
 //     | { type: "start_server", serverId } | { type: "restart_server", serverId }
@@ -80,6 +85,38 @@ const RESTART_KEY = 'pending_restart';
 const RESTART_TTL_MS = 90_000;
 const MAX_PANEL_MESSAGE_CHARS = 4096;
 /** Tudo que o agent empurra e o relay guarda pra repetir a quem conecta depois — limpo quando o agent cai. */
+/**
+ * Duas mensagens JSON do agent são "a mesma" se só o carimbo `ts` difere.
+ * Qualquer coisa que não seja JSON válido nunca é considerada igual.
+ */
+export function sameIgnoringTs(a: string, b: string): boolean {
+  try {
+    const pa = JSON.parse(a);
+    const pb = JSON.parse(b);
+    delete pa.ts;
+    delete pb.ts;
+    return JSON.stringify(pa) === JSON.stringify(pb);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Linhas de console chegam em rajada (um servidor de mods imprime milhares ao iniciar).
+ * Gravar o histórico a cada linha = uma gravação por linha; agrupar e gravar a cada
+ * poucos segundos corta isso em ordens de grandeza. O custo é, no pior caso (DO
+ * reiniciado por deploy), perder as últimas linhas ainda não gravadas do HISTÓRICO
+ * de quem conectar depois — o console ao vivo nunca passa por aqui.
+ */
+const LOG_FLUSH_DELAY_MS = 2000;
+const LOG_FLUSH_MAX_BUFFERED = 100;
+
+/** Histórico gravado + linhas ainda em memória, limitado às últimas `max`. */
+export function mergeLogHistory(stored: string[], buffered: string[], max: number): string[] {
+  const all = stored.length === 0 ? buffered : buffered.length === 0 ? stored : [...stored, ...buffered];
+  return all.length > max ? all.slice(all.length - max) : all;
+}
+
 const AGENT_CACHE_KEYS = ['last:status', 'last:server_list', 'last:players', LOG_HISTORY_KEY, RESTART_KEY];
 
 const NO_PERMISSIONS: PanelPermissions = {
@@ -114,10 +151,16 @@ interface PendingRestart {
 export class HostChannel {
   private ctx: DurableObjectState;
   private env: Env;
+  /** Linhas de log recebidas e ainda não gravadas (ver LOG_FLUSH_DELAY_MS). Em memória de propósito. */
+  private logBuffer: string[] = [];
+  private logFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
     this.env = env;
+    // Keepalive barato: o agent manda "ping" de tempos em tempos e o runtime responde "pong"
+    // sem acordar este objeto (ver comentário de protocolo no topo).
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -303,7 +346,7 @@ export class HostChannel {
           if (lastServerList) server.send(lastServerList);
           if (perms.viewConsole) {
             if (lastPlayers) server.send(lastPlayers);
-            for (const line of logHistory ?? []) server.send(line);
+            for (const line of mergeLogHistory(logHistory ?? [], this.logBuffer, LOG_HISTORY_MAX)) server.send(line);
           }
         }
       } catch { /* conexão pode já ter caído antes deste send */ }
@@ -346,15 +389,46 @@ export class HostChannel {
    */
   private async cacheAgentSnapshot(parsed: any, raw: string): Promise<void> {
     if (parsed?.type === 'status' || parsed?.type === 'server_list' || parsed?.type === 'players') {
-      await this.ctx.storage.put(`last:${parsed.type}`, raw);
+      // O agent reenvia status/lista periodicamente e quase sempre nada mudou (só o `ts`):
+      // ler custa bem menos que gravar, e cada gravação conta na cota do Durable Object.
+      const key = `last:${parsed.type}`;
+      const previous = await this.ctx.storage.get<string>(key);
+      if (previous !== undefined && sameIgnoringTs(previous, raw)) return;
+      await this.ctx.storage.put(key, raw);
       return;
     }
     if (parsed?.type === 'log_line') {
-      const history = (await this.ctx.storage.get<string[]>(LOG_HISTORY_KEY)) ?? [];
-      history.push(raw);
-      if (history.length > LOG_HISTORY_MAX) history.splice(0, history.length - LOG_HISTORY_MAX);
-      await this.ctx.storage.put(LOG_HISTORY_KEY, history);
+      this.logBuffer.push(raw);
+      if (this.logBuffer.length >= LOG_FLUSH_MAX_BUFFERED) {
+        await this.flushLogBuffer();
+      } else if (!this.logFlushTimer) {
+        // Enquanto este timer estiver pendente o runtime não hiberna o objeto, então o lote
+        // sempre é gravado (ou descartado, se o agent cair) em ~2s.
+        this.logFlushTimer = setTimeout(() => { void this.flushLogBuffer(); }, LOG_FLUSH_DELAY_MS);
+      }
     }
+  }
+
+  private async flushLogBuffer(): Promise<void> {
+    if (this.logFlushTimer) {
+      clearTimeout(this.logFlushTimer);
+      this.logFlushTimer = null;
+    }
+    if (this.logBuffer.length === 0) return;
+    const batch = this.logBuffer;
+    this.logBuffer = [];
+    const stored = (await this.ctx.storage.get<string[]>(LOG_HISTORY_KEY)) ?? [];
+    await this.ctx.storage.put(LOG_HISTORY_KEY, mergeLogHistory(stored, batch, LOG_HISTORY_MAX));
+  }
+
+  /** Agent caiu: o histórico some junto com o resto do cache, inclusive o que ainda estava no lote. */
+  private async clearAgentCache(): Promise<void> {
+    if (this.logFlushTimer) {
+      clearTimeout(this.logFlushTimer);
+      this.logFlushTimer = null;
+    }
+    this.logBuffer = [];
+    await this.ctx.storage.delete(AGENT_CACHE_KEYS);
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -464,7 +538,7 @@ export class HostChannel {
 
   async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     if (this.ctx.getTags(ws).includes('agent')) {
-      await this.ctx.storage.delete(AGENT_CACHE_KEYS);
+      await this.clearAgentCache();
       await this.broadcastToPanels({ type: 'agent_disconnected' });
     }
     try { ws.close(); } catch { /* já fechado */ }
@@ -472,7 +546,7 @@ export class HostChannel {
 
   async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
     if (this.ctx.getTags(ws).includes('agent')) {
-      await this.ctx.storage.delete(AGENT_CACHE_KEYS);
+      await this.clearAgentCache();
       await this.broadcastToPanels({ type: 'agent_disconnected' });
     }
   }

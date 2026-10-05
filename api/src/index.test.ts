@@ -343,3 +343,22 @@ describe("endereço de conexão personalizado (connect-name)", () => {
     expect(body.data.server.connectName ?? null).toBeNull();
   });
 });
+
+describe("proxy CurseForge", () => {
+  it("bloqueia endpoints fora do allowlist", async () => {
+    const res = await SELF.fetch(`${BASE}/api/v1/curseforge/v1/games`);
+    expect(res.status).toBe(404);
+  });
+
+  it("libera busca e listagem de arquivos, mas responde 503 sem a API key configurada", async () => {
+    for (const path of ["/v1/mods/search?gameId=432&classId=6", "/v1/mods/306612/files?gameVersion=1.20.1", "/v1/categories?gameId=432&classId=6"]) {
+      const res = await SELF.fetch(`${BASE}/api/v1/curseforge${path}`);
+      expect(res.status).toBe(503);
+    }
+  });
+
+  it("não aceita POST na busca", async () => {
+    const res = await SELF.fetch(`${BASE}/api/v1/curseforge/v1/mods/search`, { method: "POST", body: "{}" });
+    expect(res.status).toBe(404);
+  });
+});

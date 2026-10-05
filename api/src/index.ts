@@ -708,6 +708,9 @@ async function handleLegacyDiscover(shortCode: string, env: Env, cors: Record<st
 //  - POST /v1/mods         → resolve {modIds:[...]} em slug (link manual
 //                             quando o autor desabilitou distribuição 3rd-party)
 //  - GET  /v1/mods/{modId}/files/{fileId}/download-url → fallback pontual
+//  - GET  /v1/mods/search  → busca de mods/plugins (navegador de mods)
+//  - GET  /v1/mods/{modId}/files → versões de um mod (filtro por MC/loader)
+//  - GET  /v1/categories → ids das categorias (filtro por categoria na busca)
 //
 // Não é um proxy genérico de propósito — qualquer outro path da CurseForge
 // retorna 404. CORS segue igual ao resto do Worker (cliente é um app
@@ -723,10 +726,11 @@ const CURSEFORGE_BASE = 'https://api.curseforge.com';
 function isCurseForgePathAllowed(method: string, subpath: string): boolean {
   if (method === 'POST' && (subpath === '/v1/mods/files' || subpath === '/v1/mods')) return true;
   if (method === 'GET' && /^\/v1\/mods\/\d+\/files\/\d+\/download-url$/.test(subpath)) return true;
+  if (method === 'GET' && (subpath === '/v1/mods/search' || subpath === '/v1/categories' || /^\/v1\/mods\/\d+\/files$/.test(subpath))) return true;
   return false;
 }
 
-async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, cors: Record<string, string>): Promise<Response> {
+async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, search: string, cors: Record<string, string>): Promise<Response> {
   const method = req.method;
   if (!isCurseForgePathAllowed(method, subpath)) {
     return json(fail(ResponseCodes.NOT_FOUND, 'Endpoint CurseForge não permitido.'), 404, cors);
@@ -737,7 +741,7 @@ async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, co
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${CURSEFORGE_BASE}${subpath}`, {
+    upstream = await fetch(`${CURSEFORGE_BASE}${subpath}${method === 'GET' ? search : ''}`, {
       method,
       headers: { 'x-api-key': env.CURSEFORGE_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: method === 'GET' ? undefined : await req.text(),
@@ -747,7 +751,33 @@ async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, co
   }
 
   const bodyText = await upstream.text();
-  return new Response(bodyText, { status: upstream.status, headers: { 'Content-Type': 'application/json', ...cors } });
+  const outText = upstream.ok && subpath === '/v1/mods/search' ? slimCurseForgeSearch(bodyText) : bodyText;
+  return new Response(outText, { status: upstream.status, headers: { 'Content-Type': 'application/json', ...cors } });
+}
+
+// A busca da CurseForge devolve o objeto Mod inteiro (latestFiles, categorias,
+// screenshots...): 120-550 KB por página de 20, quando o app só mostra nome,
+// resumo, ícone, downloads, autor e link. Cortamos aqui para a página chegar
+// no cliente em ~10 KB. Se o corpo não for o JSON esperado, repassa como veio.
+function slimCurseForgeSearch(bodyText: string): string {
+  try {
+    const body = JSON.parse(bodyText) as { data: Record<string, any>[]; pagination?: unknown };
+    return JSON.stringify({
+      data: body.data.map((m) => ({
+        id: m.id,
+        slug: m.slug,
+        name: m.name,
+        summary: m.summary,
+        downloadCount: m.downloadCount,
+        logo: m.logo ? { thumbnailUrl: m.logo.thumbnailUrl, url: m.logo.url } : null,
+        authors: (m.authors ?? []).slice(0, 1).map((a: { name: string }) => ({ name: a.name })),
+        links: { websiteUrl: m.links?.websiteUrl },
+      })),
+      pagination: body.pagination,
+    });
+  } catch {
+    return bodyText;
+  }
 }
 
 // ============================================================
@@ -1455,7 +1485,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
 
       // Proxy CurseForge: /api/v1/curseforge/{subpath}
       const mcf = p.match(/^\/api\/v1\/curseforge(\/.*)$/);
-      if (mcf) return await handleCurseForgeProxy(req, env, mcf[1], cors);
+      if (mcf) return await handleCurseForgeProxy(req, env, mcf[1], new URL(req.url).search, cors);
 
       // POST /api/v1/donations/checkout-session — botão "Pagar uma Coquinha"
       if (m === 'POST' && p === '/api/v1/donations/checkout-session') return await handleCreateDonationCheckout(env, cors);

@@ -10,6 +10,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import { PERMISSION_PRESETS } from "./panel-access";
+import { sameIgnoringTs, mergeLogHistory } from "./durable-objects/host-channel";
 
 const BASE = "https://example.com";
 
@@ -196,5 +197,47 @@ describe("rotas de acesso compartilhado exigem login", () => {
       // 401 (sem sessão) ou 503 (sem service role neste ambiente de teste) — nunca 200.
       expect([401, 503]).toContain(resp.status);
     }
+  });
+});
+
+describe("sameIgnoringTs", () => {
+  it("considera igual quando só o ts muda", () => {
+    expect(sameIgnoringTs('{"type":"status","playerCount":1,"ts":"a"}', '{"type":"status","playerCount":1,"ts":"b"}')).toBe(true);
+  });
+  it("detecta mudança real e nunca iguala JSON inválido", () => {
+    expect(sameIgnoringTs('{"playerCount":1,"ts":"a"}', '{"playerCount":2,"ts":"a"}')).toBe(false);
+    expect(sameIgnoringTs("x", "x")).toBe(false);
+  });
+});
+
+describe("keepalive por ping/pong", () => {
+  it("responde 'pong' ao 'ping' sem tratar como mensagem do painel", async () => {
+    const ticket = await mintTicket("dev-ping", { userId: "u9", name: "Dono", isOwner: true });
+    // Conexão aberta à mão (não via openPanel, que faz JSON.parse de toda mensagem): o "pong" é texto puro.
+    const resp = await SELF.fetch(`${BASE}/panel/ws/dev-ping?role=panel&ticket=${ticket}`, { headers: { Upgrade: "websocket" } });
+    expect(resp.status).toBe(101);
+    const ws = resp.webSocket!;
+    ws.accept();
+    const raw: string[] = [];
+    ws.addEventListener("message", (e) => { raw.push(String(e.data)); });
+    for (let i = 0; i < 50 && !raw.some((m) => m.includes('"access"')); i++) await new Promise((r) => setTimeout(r, 20));
+
+    ws.send("ping");
+    for (let i = 0; i < 50 && !raw.includes("pong"); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(raw).toContain("pong");
+    // O ping nunca chegou ao tratamento de mensagens do painel (não gerou erro algum).
+    expect(raw.some((m) => m.includes('"type":"error"'))).toBe(false);
+  });
+});
+
+describe("mergeLogHistory", () => {
+  it("junta o gravado com o que ainda está em memória, mantendo as últimas N linhas", () => {
+    expect(mergeLogHistory(["a", "b"], ["c"], 10)).toEqual(["a", "b", "c"]);
+    expect(mergeLogHistory(["a", "b", "c"], ["d", "e"], 3)).toEqual(["c", "d", "e"]);
+  });
+  it("não altera quando um dos lados está vazio e respeita o limite", () => {
+    expect(mergeLogHistory([], ["x"], 5)).toEqual(["x"]);
+    expect(mergeLogHistory(["x"], [], 5)).toEqual(["x"]);
+    expect(mergeLogHistory(["1", "2", "3", "4"], [], 2)).toEqual(["3", "4"]);
   });
 });
