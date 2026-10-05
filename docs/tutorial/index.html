@@ -108,7 +108,7 @@
   <h3>Como as peças se encaixam</h3>
   <ol class="tut-steps">
     <li><strong>O host cria um servidor</strong> (versão do Minecraft, tipo, memória) e clica em iniciar.</li>
-    <li><strong>O Cubicase liga a rede mesh</strong> e gera um <strong>código de convite</strong> no formato <code>CF-XXXX</code>.</li>
+    <li><strong>O Cubicase conecta o servidor aos seus amigos</strong> automaticamente e gera um <strong>código de convite</strong> no formato <code>CF-XXXX</code>.</li>
     <li><strong>O host manda o código</strong> (ou um link) para os amigos.</li>
     <li><strong>O convidado cola o código</strong> na aba <span class="ui">Convidado</span>, clica em <span class="ui">Preparar e Jogar</span> e o Cubicase cuida do resto: mods, versão e conexão.</li>
   </ol>
@@ -135,7 +135,7 @@
   <h3>Requisitos</h3>
   <ul>
     <li>Windows 10 ou 11, 64 bits.</li>
-    <li>Conexão com a internet (para baixar o servidor, o Java e conectar a rede mesh).</li>
+    <li>Conexão com a internet (para baixar o servidor, o Java e conectar com seus amigos).</li>
     <li>RAM suficiente para o servidor: o mínimo aceito pelo app é 2 GB para o servidor, mas <strong>recomenda-se 3 GB ou mais</strong>, sempre deixando pelo menos 2 GB livres para o Windows.</li>
     <li>Para <em>jogar</em>, você também precisa do Minecraft Java Edition instalado.</li>
   </ul>
@@ -194,8 +194,8 @@
   <ul>
     <li><strong>Lista <span class="ui">Servidores Locais</span> (barra lateral):</strong> todos os servidores que você criou ou importou. Aqui ficam os botões para criar, importar servidor e importar modpack.</li>
     <li><strong>Painel do servidor selecionado:</strong> nome, status (Online, Iniciando, Parando, Crash, Offline), código de convite, botões de iniciar/parar e uso de RAM/CPU.</li>
-    <li><strong>Rede do Servidor:</strong> estado da rede mesh, código para compartilhar e parâmetros locais (pasta e porta).</li>
-    <li><strong>Console:</strong> duas abas, <span class="ui">Minecraft Console</span> e <span class="ui">Rede Mesh</span>, com os logs ao vivo.</li>
+    <li><strong>Convide seus amigos:</strong> o código para compartilhar e o estado da conexão (os detalhes técnicos ficam recolhidos).</li>
+    <li><strong>Console:</strong> duas abas, <span class="ui">Minecraft Console</span> e <span class="ui">Conexão</span>, com os logs ao vivo.</li>
     <li><strong>Gerenciamento:</strong> jogadores, mods/plugins, mundo e backups.</li>
   </ul>
 
@@ -300,13 +300,12 @@
   <h3>Ligando</h3>
   <ol class="tut-steps">
     <li>Selecione o servidor na lista <span class="ui">Servidores Locais</span>. Só um servidor pode rodar por vez: pare o atual antes de trocar.</li>
-    <li>Clique em <span class="ui">Iniciar Servidor</span>. O status passa por <em>Iniciando</em> até ficar <em>Online</em>.</li>
-    <li>Para seus amigos entrarem, a <strong>rede mesh</strong> também precisa estar ativa: use <span class="ui">Iniciar Rede Mesh</span> na seção <span class="ui">Rede do Servidor</span>. Se você iniciar a rede com um servidor selecionado, o Cubicase também liga o servidor de Minecraft automaticamente assim que a conexão estiver pronta.</li>
-    <li>Quando a rede estiver ativa, aparece <span class="ui">Rede Mesh Ativa</span> com o código para compartilhar.</li>
-  </ol>
+    <li>Clique em <span class="ui">Iniciar Servidor</span>. O botão mostra <em>Iniciando…</em> enquanto o Minecraft sobe, e o Cubicase já conecta seus amigos automaticamente — não há mais nada para ligar.</li>
+    <li>Quando tudo estiver pronto, o status muda para <em>Online para amigos</em> e o código de convite fica ativo para compartilhar. Quem entrou como <em>convidado</em> em outro servidor precisa sair de lá antes: o Cubicase pergunta e desconecta por você.</li>
+ </ol>
   <div class="tut-callout is-warn">
-    <strong>Servidor online sem rede mesh</strong>
-    <p>Se o Minecraft estiver rodando mas a rede estiver desligada, o app mostra um aviso "Rede mesh desativada" com o botão <span class="ui">Iniciar Rede Mesh</span>. Nesse estado só quem está na mesma rede local (LAN) consegue entrar.</p>
+    <strong>Servidor online só neste computador</strong>
+    <p>Se a conexão com os amigos falhar ou cair, o servidor <strong>continua rodando</strong> e o app mostra <em>Online só neste PC</em>, com um aviso e o botão <span class="ui">Tentar de novo</span>. O Cubicase também tenta reconectar sozinho, algumas vezes. Nesse estado só quem está neste computador consegue entrar. Você também pode iniciar assim de propósito com <span class="ui">Só neste computador</span> (útil para testar mods) e depois clicar em <span class="ui">Abrir para amigos</span>.</p>
   </div>
 
   <h3>Na primeira vez</h3>
@@ -329,7 +328,7 @@
   <h3>Desligando</h3>
   <ul>
     <li>Clique em <span class="ui">Parar Servidor</span> e espere chegar a <em>Offline</em>. O Cubicase envia o comando de parada para o Minecraft salvar tudo direito.</li>
-    <li><span class="ui">Parar Rede Mesh</span> desliga apenas a rede: o servidor pode continuar rodando localmente.</li>
+    <li>Parar o servidor também encerra a conexão com os amigos, nesta ordem: primeiro o Minecraft salva o mundo, depois a conexão é desligada.</li>
     <li>Pelo console você também pode usar <code>stop</code>.</li>
   </ul>
   <div class="tut-callout is-danger">
@@ -391,7 +390,7 @@
   <h3>As duas abas</h3>
   <ul>
     <li><span class="ui">Minecraft Console</span>: toda a saída do servidor (jogadores entrando, avisos, erros). Só mostra algo depois que você inicia o servidor.</li>
-    <li><span class="ui">Rede Mesh</span>: logs da conexão privada. Útil para diagnosticar quando ninguém consegue conectar.</li>
+    <li><span class="ui">Conexão</span>: logs da conexão com os amigos. Útil para diagnosticar quando ninguém consegue conectar.</li>
   </ul>
   <p>O botão <span class="ui">Limpar</span> apaga o que está na tela (não apaga arquivos de log do servidor).</p>
 
@@ -462,25 +461,43 @@
   <p>Em servidores com mod loader o painel se chama <strong>Mods</strong> e usa a pasta <code>mods</code>. Em servidores Paper ele se chama <strong>Plugins</strong> e usa a pasta <code>plugins</code>. Servidores Vanilla não usam nenhum dos dois.</p>
 
   <h3>Buscar e instalar online</h3>
+  <p>Ao <strong>criar</strong> um servidor com mods ou plugins, essa janela abre sozinha: é a hora ideal para instalar mods de geração de mundo ou de terreno, que precisam estar no servidor <em>antes</em> da primeira partida. Você pode fechar e voltar depois.</p>
   <ol class="tut-steps">
-    <li>Clique em <span class="ui">Buscar Mods Online</span> (ou <span class="ui">Buscar Plugins Online</span>). A busca usa o catálogo do <strong>Modrinth</strong>.</li>
-    <li>Digite o nome (ex.: <code>Sodium</code>, <code>WorldEdit</code>). Os resultados mostram só o que é compatível com este servidor.</li>
-    <li>Abra o item, escolha a <strong>Versão</strong> (o app filtra pela versão do Minecraft e pelo loader) e clique em <span class="ui">Instalar</span>.</li>
-    <li>Se o item precisa de outros mods (dependências), o app avisa em <em>Dependências não detectadas</em>, com caixas para instalá-las juntas. Se você já instalou manualmente, é só desmarcar.</li>
+    <li>Clique em <span class="ui">Buscar Mods Online</span> (ou <span class="ui">Buscar Plugins Online</span>). A busca reúne o <strong>Modrinth</strong> e o <strong>CurseForge</strong> numa lista só: cada item mostra em qual dos dois ele está.</li>
+    <li>A janela já abre com os mais populares. Use <span class="ui">Categoria</span> e <span class="ui">Ordem</span> para explorar, ou digite um nome (ex.: <code>Sodium</code>, <code>WorldEdit</code>). Só aparece o que é compatível com este servidor.</li>
+    <li>Para instalar direto, clique em <span class="ui">Instalar</span> na própria linha: o app escolhe a versão mais recente compatível e instala também as dependências obrigatórias. A janela continua aberta, então dá para instalar vários em sequência.</li>
+    <li>Para escolher a versão ou ver as dependências antes, abra o item. Em <em>Dependências não detectadas</em> há caixas para instalá-las juntas; se você já instalou manualmente, é só desmarcar.</li>
     <li><strong>Reinicie o servidor</strong>: mudanças em mods e plugins só valem depois disso.</li>
   </ol>
   <div class="tut-callout">
     <strong>Se a busca não aparece</strong>
-    <p>A busca precisa que o app detecte a versão do Minecraft do servidor (em servidores importados isso pode falhar). Se a Modrinth estiver inacessível, você vê "Sem conexão com a Modrinth" e um botão para tentar de novo. Os mods já instalados continuam gerenciáveis.</p>
+    <p>A busca precisa que o app detecte a versão do Minecraft do servidor (em servidores importados isso pode falhar). Se uma das fontes estiver inacessível, a busca segue com a outra e avisa; só se as duas falharem você vê "Sem conexão" e um botão para tentar de novo. Os mods já instalados continuam gerenciáveis.</p>
   </div>
+  <div class="tut-callout is-tip">
+    <strong>Mods que o autor não libera para download</strong>
+    <p>Alguns autores bloqueiam o download por aplicativos de terceiros no CurseForge. O Cubicase tenta pegar o <strong>mesmo arquivo</strong> no Modrinth (confere pelo hash, então é idêntico). Se também não existir lá, o botão de instalar fica desabilitado e a página do mod abre para você baixar à mão.</p>
+  </div>
+
+  <h3>Modpacks prontos</h3>
+  <p>Na aba <span class="ui">Modpacks</span> da mesma janela você instala um modpack inteiro <strong>no servidor que já existe</strong>. A lista mostra só os compatíveis com a versão do Minecraft e o loader do servidor. Antes de mexer em qualquer coisa, o app baixa tudo e mostra um resumo: quantos mods são novos, quantos já estão presentes e quantos existem em <strong>outra versão</strong>.</p>
+  <ul>
+    <li><strong>Manter as versões do servidor</strong> (recomendado): o que já funciona não é alterado.</li>
+    <li><strong>Usar as versões do pacote:</strong> os arquivos antigos vão para a pasta <code>mods-backup</code>, sem serem apagados.</li>
+  </ul>
+  <p>Mods repetidos entre dois modpacks não são duplicados, mesmo que o nome do arquivo seja diferente: o app identifica cada mod pelo id que ele declara por dentro. Os arquivos de configuração do pacote nunca sobrescrevem os seus. Juntar modpacks não garante que funcionem juntos.</p>
 
   <h3>Gerenciar o que já está instalado</h3>
   <ul>
+    <li><strong>Buscar:</strong> o campo acima da lista filtra enquanto você digita, pelo nome do arquivo ou pelo id do mod. Selecionar todos e excluir em lote valem só para o que a busca está mostrando.</li>
+    <li><strong>Duplicado:</strong> um selo avisa quando o mesmo mod aparece em dois arquivos ativos (versões diferentes, por exemplo), o que pode impedir o servidor de iniciar. Remova um dos dois.</li>
     <li><strong>Desabilitar / Habilitar:</strong> desliga um mod sem apagá-lo (bom para testar qual mod dá problema).</li>
     <li><strong>Excluir:</strong> remove o arquivo, com confirmação. Dá para selecionar vários (<span class="ui">Selecionar todos</span>) e usar <span class="ui">Excluir selecionados</span>.</li>
     <li><span class="ui">Abrir Pasta de Mods</span>: abre a pasta no Explorer, para copiar arquivos <code>.jar</code> baixados de outros sites.</li>
     <li><span class="ui">Atualizar lista</span>: relê a pasta.</li>
   </ul>
+
+  <h3>Mods pendentes</h3>
+  <p>Se um modpack tem mods que não puderam ser baixados em nenhuma fonte, o painel mostra um aviso <strong>"N mods precisam ser baixados manualmente"</strong>, com o nome de cada um, o modpack de origem e o botão <span class="ui">Abrir página</span>. Baixe o arquivo e coloque na pasta de mods: quando o app o encontra, o mod sai da lista sozinho. Ao iniciar o servidor com pendências, o app pergunta se você quer continuar assim.</p>
 
   <h3>Instalação manual</h3>
   <p>Copie o arquivo <code>.jar</code> para a pasta do painel e clique em <span class="ui">Atualizar lista</span>. Confira que o mod é da <strong>mesma versão do Minecraft e do mesmo loader</strong> do servidor.</p>
@@ -642,8 +659,9 @@
 
   <div class="tut-callout is-warn">
     <strong>Mods que precisam de download manual</strong>
-    <p>Alguns autores desativam a distribuição por terceiros. Nesse caso o app lista os mods que <strong>não puderam ser baixados</strong> automaticamente. Baixe-os você mesmo e coloque na pasta <code>mods</code> do servidor depois de importar (use <span class="ui">Abrir Pasta de Mods</span> → <span class="ui">Atualizar lista</span>).</p>
+    <p>Alguns autores desativam a distribuição por terceiros. O app primeiro tenta achar o mesmo arquivo no Modrinth; o que não existir lá fica numa lista de <strong>mods pendentes</strong> do servidor, com um botão para abrir a página de cada um. Baixe-os e coloque na pasta <code>mods</code> (use <span class="ui">Abrir Pasta de Mods</span>): eles saem da lista sozinhos.</p>
   </div>
+  <p>Já tem um servidor e quer <em>somar</em> um modpack a ele? Use a aba <span class="ui">Modpacks</span> de <a href="#mods-plugins">Mods e plugins</a>.</p>
   <p>Depois de importado, seus amigos entram normalmente. O <span class="ui">Preparar e Jogar</span> deles instala os mesmos mods na máquina de cada um (veja <a href="#preparar-jogar">Preparar e jogar</a>).</p>
 </article>
 
@@ -771,8 +789,9 @@
         <tr><td>Servidor encerrando</td><td>O host está parando o servidor.</td><td>Aguarde ou fale com ele.</td></tr>
         <tr><td>Servidor com erro</td><td>O servidor caiu (crash).</td><td>Avise o host.</td></tr>
         <tr><td>Servidor desligado / Offline</td><td>O servidor não está rodando, ou o host está sem o Cubicase aberto.</td><td>Peça para o host ligar.</td></tr>
-        <tr><td>Rodando sem rede mesh</td><td>O Minecraft está de pé, mas o host não ligou a rede mesh. Só entra quem está na mesma LAN.</td><td>Peça ao host para clicar em <em>Iniciar Rede Mesh</em>.</td></tr>
+        <tr><td>Rodando só no PC do host</td><td>O Minecraft está de pé, mas a conexão do host com os amigos falhou, caiu ou foi desativada. Só entra quem está no PC do host.</td><td>Peça ao host para clicar em <em>Tentar de novo</em> ou <em>Abrir para amigos</em>.</td></tr>
         <tr><td>Em espera</td><td>Servidor sob demanda dormindo (recurso do Plus).</td><td>Use <span class="ui">Acordar servidor</span>.</td></tr>
+        <tr><td>Servidor desligado (espera pausada)</td><td>O host parou o servidor manualmente, então o modo sob demanda está pausado e ele não acorda.</td><td>Peça ao host para clicar em <em>Voltar à espera</em> ou iniciar o servidor.</td></tr>
         <tr><td>Não confirmado / Status desatualizado</td><td>O app não conseguiu confirmar o status recentemente com o sistema central.</td><td>Clique em <span class="ui">Atualizar status</span> e verifique sua internet.</td></tr>
       </tbody>
     </table>
@@ -865,6 +884,8 @@
     <p>O modo de espera precisa que o Java do servidor já esteja instalado. Se aparecer "Java ainda não instalado para este servidor", inicie o servidor manualmente uma vez.</p>
   </div>
   <p>Com o modo ativo, o painel do servidor mostra o aviso <em>“Desligando por inatividade em N s”</em> pouco antes de desligar, com o botão <span class="ui">Manter ligado</span> para cancelar.</p>
+  <h3>Parei o servidor e ele não acorda mais</h3>
+  <p>Isso é de propósito. Quando você clica em <span class="ui">Parar Servidor</span> com o modo sob demanda ligado, a espera fica <strong>pausada</strong>: o cartão mostra <em>Espera pausada</em> e um aviso, e seus amigos não conseguem acordar o servidor (assim ninguém o liga no meio de uma troca de mods ou de um backup). Para reativar, clique em <span class="ui">Voltar à espera</span> no aviso, ou em <span class="ui">Iniciar Servidor</span>. Já o desligamento por inatividade, ou um <code>stop</code> digitado no console, <strong>não</strong> pausam: o servidor volta sozinho à espera. Se você fechar e abrir o Cubicase, a espera também volta ao normal.</p>
 </article>
 
 <article class="tut-article" id="painel-web" data-title="Painel web" data-group="Configurações e conta">
@@ -899,8 +920,8 @@
     <table class="tut-table">
       <thead><tr><th>Opção</th><th>O que acontece</th></tr></thead>
       <tbody>
-        <tr><td>Manter em segundo plano</td><td>A janela some, mas o servidor e a rede mesh continuam rodando. Ideal para deixar seus amigos jogando.</td></tr>
-        <tr><td>Fechar tudo</td><td>Encerra o servidor, a rede mesh e o app.</td></tr>
+        <tr><td>Manter em segundo plano</td><td>A janela some, mas o servidor e a conexão com os amigos continuam rodando. Ideal para deixar seus amigos jogando.</td></tr>
+        <tr><td>Fechar tudo</td><td>Encerra o servidor, a conexão com os amigos e o app.</td></tr>
       </tbody>
     </table>
   </div>
@@ -994,17 +1015,17 @@
   <h3>Do lado do host</h3>
   <ol class="tut-steps">
     <li>O servidor está <strong>Online</strong>? (Se estiver em <em>Iniciando</em>, espere.)</li>
-    <li>A <strong>rede mesh</strong> está ativa, com <span class="ui">Rede Mesh Ativa</span>? Se o aviso "Rede mesh desativada" estiver aparecendo, clique em <span class="ui">Iniciar Rede Mesh</span>.</li>
+    <li>O status é <em>Online para amigos</em>? Se aparecer <em>Online só neste PC</em> com um aviso, clique em <span class="ui">Tentar de novo</span> (ou <span class="ui">Abrir para amigos</span>).</li>
     <li>O Cubicase está <strong>aberto</strong> e o PC <strong>não está dormindo</strong>?</li>
     <li>Você <strong>não gerou um código novo</strong> recentemente? Se sim, passe o novo código.</li>
     <li>Está usando o app como <em>convidado</em> de outro servidor no momento? Isso ocupa a rede (veja <a href="#conectar-manual">Conexão manual e túnel</a>).</li>
-    <li>Olhe a aba <span class="ui">Rede Mesh</span> do console por erros.</li>
+    <li>Olhe a aba <span class="ui">Conexão</span> do console por erros.</li>
   </ol>
 
   <h3>Do lado do convidado</h3>
   <ol class="tut-steps">
     <li>O código está correto? "Servidor não encontrado" indica erro no código ou código antigo.</li>
-    <li>O status no cartão está <em>Online</em>? Se for <em>Rodando sem rede mesh</em> ou <em>Offline</em>, o problema é do host.</li>
+    <li>O status no cartão está <em>Online</em>? Se for <em>Rodando só no PC do host</em> ou <em>Offline</em>, o problema é do host.</li>
     <li>Usou <span class="ui">Preparar e Jogar</span> (ou <span class="ui">Conectar</span>) e esperou "Conectado"?</li>
     <li>Sua versão/mods bate com a do servidor? Rode <span class="ui">Preparar e Jogar</span> de novo para reinstalar o que falta.</li>
     <li>O servidor usa <em>whitelist</em>? Peça ao host para adicionar seu nick exato.</li>
@@ -1067,7 +1088,7 @@
   <p>Copie a pasta do servidor (ou o backup) para o novo computador e use <a href="#importar-servidor">Importar Servidor Existente</a>.</p>
 
   <h3>Onde ficam os arquivos do servidor?</h3>
-  <p>Em <span class="ui">Rede do Servidor → Parâmetros locais → Diretório do Servidor</span> aparece o caminho, com o botão <span class="ui">Escolher diretório</span>.</p>
+  <p>Em <span class="ui">Parâmetros locais → Diretório do Servidor</span> aparece o caminho, com o botão <span class="ui">Escolher diretório</span>.</p>
 
   <h3>Como mudo o idioma do app?</h3>
   <p>Em <span class="ui">Configurações → Idioma</span>.</p>

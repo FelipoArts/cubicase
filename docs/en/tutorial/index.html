@@ -108,7 +108,7 @@
   <h3>How the pieces fit together</h3>
   <ol class="tut-steps">
     <li><strong>The host creates a server</strong> (Minecraft version, type, memory) and starts it.</li>
-    <li><strong>Cubicase turns on the mesh network</strong> and generates an <strong>invite code</strong> in the format <code>CF-XXXX</code>.</li>
+    <li><strong>Cubicase connects the server to your friends</strong> automatically and generates an <strong>invite code</strong> in the format <code>CF-XXXX</code>.</li>
     <li><strong>The host sends the code</strong> (or a link) to friends.</li>
     <li><strong>The guest pastes the code</strong> in the <span class="ui">Guest</span> tab, clicks <span class="ui">Prepare and Play</span>, and Cubicase takes care of the rest: mods, version and connection.</li>
   </ol>
@@ -135,7 +135,7 @@
   <h3>Requirements</h3>
   <ul>
     <li>Windows 10 or 11, 64-bit.</li>
-    <li>An internet connection (to download the server and Java, and to connect the mesh network).</li>
+    <li>An internet connection (to download the server and Java, and to connect with your friends).</li>
     <li>Enough RAM for the server: the app accepts a minimum of 2 GB for the server, but <strong>3 GB or more is recommended</strong>, always leaving at least 2 GB free for Windows.</li>
     <li>To <em>play</em>, you also need Minecraft Java Edition installed.</li>
   </ul>
@@ -194,8 +194,8 @@
   <ul>
     <li><strong><span class="ui">Local Servers</span> list (sidebar):</strong> all the servers you created or imported. It holds the buttons to create a server, import a server and import a modpack.</li>
     <li><strong>Selected server panel:</strong> name, status (Online, Starting, Stopping, Crash, Offline), invite code, start/stop buttons and RAM/CPU usage.</li>
-    <li><strong>Server Network:</strong> mesh network status, the code to share and local settings (folder and port).</li>
-    <li><strong>Console:</strong> two tabs, <span class="ui">Minecraft Console</span> and <span class="ui">Mesh Network</span>, with live logs.</li>
+    <li><strong>Invite your friends:</strong> the code to share and the connection status (technical details are collapsed).</li>
+    <li><strong>Console:</strong> two tabs, <span class="ui">Minecraft Console</span> and <span class="ui">Connection</span>, with live logs.</li>
     <li><strong>Management:</strong> players, mods/plugins, world and backups.</li>
   </ul>
 
@@ -300,13 +300,12 @@
   <h3>Turning on</h3>
   <ol class="tut-steps">
     <li>Select the server in the <span class="ui">Local Servers</span> list. Only one server can run at a time: stop the current one before switching.</li>
-    <li>Click <span class="ui">Start Server</span>. The status goes through <em>Starting</em> until it becomes <em>Online</em>.</li>
-    <li>For your friends to join, the <strong>mesh network</strong> must also be active: use <span class="ui">Start Mesh Network</span> in the <span class="ui">Server Network</span> section. If you start the network with a server selected, Cubicase also starts the Minecraft server automatically as soon as the connection is ready.</li>
-    <li>When the network is active, <span class="ui">Mesh Network Active</span> appears with the code to share.</li>
-  </ol>
+    <li>Click <span class="ui">Start Server</span>. The button shows <em>Starting…</em> while Minecraft boots, and Cubicase connects your friends automatically — there is nothing else to turn on.</li>
+    <li>When everything is ready, the status changes to <em>Online for friends</em> and the invite code is live to share. If you are connected as a <em>guest</em> on another server, you have to leave it first: Cubicase asks and disconnects for you.</li>
+ </ol>
   <div class="tut-callout is-warn">
-    <strong>Server online without the mesh network</strong>
-    <p>If Minecraft is running but the network is off, the app shows a "Mesh network disabled" notice with the <span class="ui">Start Mesh Network</span> button. In that state only people on the same local network (LAN) can join.</p>
+    <strong>Server online on this computer only</strong>
+    <p>If the connection with your friends fails or drops, the server <strong>keeps running</strong> and the app shows <em>Online on this PC only</em>, with a notice and a <span class="ui">Try again</span> button. Cubicase also tries to reconnect on its own a few times. In that state only people on this computer can join. You can also start this way on purpose with <span class="ui">This computer only</span> (handy for testing mods) and then click <span class="ui">Open to friends</span>.</p>
   </div>
 
   <h3>The first time</h3>
@@ -329,7 +328,7 @@
   <h3>Turning off</h3>
   <ul>
     <li>Click <span class="ui">Stop Server</span> and wait until it reaches <em>Offline</em>. Cubicase sends the stop command to Minecraft so everything is saved properly.</li>
-    <li><span class="ui">Stop Mesh Network</span> turns off the network only: the server can keep running locally.</li>
+    <li>Stopping the server also ends the connection with your friends, in this order: Minecraft saves the world first, then the connection is turned off.</li>
     <li>From the console you can also use <code>stop</code>.</li>
   </ul>
   <div class="tut-callout is-danger">
@@ -391,7 +390,7 @@
   <h3>The two tabs</h3>
   <ul>
     <li><span class="ui">Minecraft Console</span>: all of the server's output (players joining, warnings, errors). It only shows something after you start the server.</li>
-    <li><span class="ui">Mesh Network</span>: private connection logs. Useful for diagnosing when nobody can connect.</li>
+    <li><span class="ui">Connection</span>: logs of the connection with your friends. Useful for diagnosing when nobody can connect.</li>
   </ul>
   <p>The <span class="ui">Clear</span> button wipes what's on screen (it doesn't delete the server's log files).</p>
 
@@ -462,25 +461,43 @@
   <p>On servers with a mod loader the panel is called <strong>Mods</strong> and uses the <code>mods</code> folder. On Paper servers it is called <strong>Plugins</strong> and uses the <code>plugins</code> folder. Vanilla servers use neither.</p>
 
   <h3>Search and install online</h3>
+  <p>When you <strong>create</strong> a server with mods or plugins, this window opens by itself: it is the ideal moment to install world-generation or terrain mods, which must be on the server <em>before</em> its first start. You can close it and come back later.</p>
   <ol class="tut-steps">
-    <li>Click <span class="ui">Browse Mods Online</span> (or <span class="ui">Browse Plugins Online</span>). The search uses the <strong>Modrinth</strong> catalog.</li>
-    <li>Type the name (e.g. <code>Sodium</code>, <code>WorldEdit</code>). Results only show what is compatible with this server.</li>
-    <li>Open the item, choose the <strong>Version</strong> (the app filters by Minecraft version and loader) and click <span class="ui">Install</span>.</li>
-    <li>If the item needs other mods (dependencies), the app warns you under <em>Dependencies not detected</em>, with checkboxes to install them together. If you already installed them manually, just uncheck them.</li>
+    <li>Click <span class="ui">Browse Mods Online</span> (or <span class="ui">Browse Plugins Online</span>). The search combines <strong>Modrinth</strong> and <strong>CurseForge</strong> in a single list: each item shows which of the two it is on.</li>
+    <li>The window opens with the most popular items already listed. Use <span class="ui">Category</span> and <span class="ui">Sort</span> to explore, or type a name (e.g. <code>Sodium</code>, <code>WorldEdit</code>). Only what is compatible with this server shows up.</li>
+    <li>To install right away, click <span class="ui">Install</span> on the row itself: the app picks the latest compatible version and also installs the required dependencies. The window stays open, so you can install several in a row.</li>
+    <li>To choose the version or review dependencies first, open the item. Under <em>Dependencies not detected</em> there are checkboxes to install them together; if you already installed them manually, just uncheck them.</li>
     <li><strong>Restart the server</strong>: changes to mods and plugins only apply after that.</li>
   </ol>
   <div class="tut-callout">
     <strong>If the search doesn't show up</strong>
-    <p>The search needs the app to detect the server's Minecraft version (on imported servers this can fail). If Modrinth is unreachable, you see "No connection to Modrinth" and a button to try again. Mods already installed can still be managed.</p>
+    <p>The search needs the app to detect the server's Minecraft version (on imported servers this can fail). If one source is unreachable, the search carries on with the other and tells you; only if both fail do you see "No connection" and a button to try again. Mods already installed can still be managed.</p>
   </div>
+  <div class="tut-callout is-tip">
+    <strong>Mods whose author blocks downloads</strong>
+    <p>Some authors block downloads from third-party apps on CurseForge. Cubicase tries to fetch the <strong>same file</strong> from Modrinth (verified by hash, so it is identical). If it isn't there either, the install button is disabled and the mod's page opens so you can download it by hand.</p>
+  </div>
+
+  <h3>Ready-made modpacks</h3>
+  <p>On the <span class="ui">Modpacks</span> tab of the same window you install a whole modpack <strong>onto the server you already have</strong>. The list only shows the ones compatible with the server's Minecraft version and loader. Before touching anything, the app downloads everything and shows a summary: how many mods are new, how many are already present and how many exist in <strong>another version</strong>.</p>
+  <ul>
+    <li><strong>Keep the server's versions</strong> (recommended): what already works is left untouched.</li>
+    <li><strong>Use the pack's versions:</strong> the old files go to the <code>mods-backup</code> folder, they are not deleted.</li>
+  </ul>
+  <p>Mods repeated between two modpacks are not duplicated, even if the file name differs: the app identifies each mod by the id it declares inside. The pack's configuration files never overwrite yours. Combining modpacks doesn't guarantee they work together.</p>
 
   <h3>Managing what's already installed</h3>
   <ul>
+    <li><strong>Search:</strong> the field above the list filters as you type, by file name or mod id. Select all and bulk delete only apply to what the search is showing.</li>
+    <li><strong>Duplicate:</strong> a badge warns when the same mod shows up in two active files (different versions, for example), which can stop the server from starting. Remove one of them.</li>
     <li><strong>Disable / Enable:</strong> turns a mod off without deleting it (good for testing which mod causes trouble).</li>
     <li><strong>Delete:</strong> removes the file, with confirmation. You can select several (<span class="ui">Select all</span>) and use <span class="ui">Delete selected mods</span>.</li>
     <li><span class="ui">Open Mods Folder</span>: opens the folder in Explorer, so you can copy <code>.jar</code> files downloaded from other sites.</li>
     <li><span class="ui">Refresh list</span>: rereads the folder.</li>
   </ul>
+
+  <h3>Pending mods</h3>
+  <p>If a modpack has mods that couldn't be downloaded from any source, the panel shows a notice <strong>"N mods must be downloaded manually"</strong>, with each mod's name, the modpack it came from and an <span class="ui">Open page</span> button. Download the file and put it in the mods folder: once the app finds it, the mod leaves the list by itself. When you start the server with pending items, the app asks whether you want to go ahead.</p>
 
   <h3>Manual installation</h3>
   <p>Copy the <code>.jar</code> file into the panel's folder and click <span class="ui">Refresh list</span>. Make sure the mod is for the <strong>same Minecraft version and the same loader</strong> as the server.</p>
@@ -642,8 +659,9 @@
 
   <div class="tut-callout is-warn">
     <strong>Mods that need a manual download</strong>
-    <p>Some authors disable third-party distribution. In that case the app lists the mods that <strong>couldn't be downloaded</strong> automatically. Download them yourself and put them in the server's <code>mods</code> folder after importing (use <span class="ui">Open Mods Folder</span> → <span class="ui">Refresh list</span>).</p>
+    <p>Some authors disable third-party distribution. The app first tries to find the same file on Modrinth; whatever isn't there goes on the server's <strong>pending mods</strong> list, with a button to open each one's page. Download them and put them in the <code>mods</code> folder (use <span class="ui">Open Mods Folder</span>): they leave the list by themselves.</p>
   </div>
+  <p>Already have a server and want to <em>add</em> a modpack to it? Use the <span class="ui">Modpacks</span> tab in <a href="#mods-plugins">Mods and plugins</a>.</p>
   <p>Once imported, your friends join as usual. Their <span class="ui">Prepare and Play</span> installs the same mods on each person's machine (see <a href="#preparar-jogar">Prepare and play</a>).</p>
 </article>
 
@@ -771,8 +789,9 @@
         <tr><td>Server shutting down</td><td>The host is stopping the server.</td><td>Wait or talk to them.</td></tr>
         <tr><td>Server error</td><td>The server went down (crash).</td><td>Let the host know.</td></tr>
         <tr><td>Server stopped / Offline</td><td>The server isn't running, or the host doesn't have Cubicase open.</td><td>Ask the host to turn it on.</td></tr>
-        <tr><td>Running without mesh network</td><td>Minecraft is up, but the host didn't turn on the mesh network. Only people on the same LAN can join.</td><td>Ask the host to click <em>Start Mesh Network</em>.</td></tr>
+        <tr><td>Running on the host's PC only</td><td>Minecraft is up, but the host's connection with friends failed, dropped or was turned off. Only people on the host's PC can join.</td><td>Ask the host to click <em>Try again</em> or <em>Open to friends</em>.</td></tr>
         <tr><td>Standby</td><td>An on-demand server that is asleep (a Plus feature).</td><td>Use <span class="ui">Wake server</span>.</td></tr>
+        <tr><td>Server off (standby paused)</td><td>The host stopped the server manually, so on-demand mode is paused and it won't wake up.</td><td>Ask the host to click <em>Back to standby</em> or start the server.</td></tr>
         <tr><td>Unconfirmed / Status out of date</td><td>The app couldn't confirm the status recently with the central system.</td><td>Click <span class="ui">Refresh status</span> and check your internet.</td></tr>
       </tbody>
     </table>
@@ -865,6 +884,8 @@
     <p>Standby mode needs the server's Java to be installed already. If "Java isn't installed for this server yet" appears, start the server manually once.</p>
   </div>
   <p>With the mode on, the server panel shows the notice <em>“Shutting down for inactivity in N s”</em> shortly before shutting down, with the <span class="ui">Keep running</span> button to cancel.</p>
+  <h3>I stopped the server and it no longer wakes up</h3>
+  <p>That is on purpose. When you click <span class="ui">Stop Server</span> with the on-demand mode on, standby is <strong>paused</strong>: the card shows <em>Standby paused</em> and a notice, and your friends can't wake the server (so nobody turns it on in the middle of a mod change or a backup). To turn it back on, click <span class="ui">Back to standby</span> in the notice, or <span class="ui">Start Server</span>. Shutting down for inactivity, or a <code>stop</code> typed in the console, does <strong>not</strong> pause it: the server goes back to standby on its own. If you close and reopen Cubicase, standby also goes back to normal.</p>
 </article>
 
 <article class="tut-article" id="painel-web" data-title="Web panel" data-group="Settings and account">
@@ -899,8 +920,8 @@
     <table class="tut-table">
       <thead><tr><th>Option</th><th>What happens</th></tr></thead>
       <tbody>
-        <tr><td>Keep running in the background</td><td>The window disappears, but the server and the mesh network keep running. Ideal for leaving your friends playing.</td></tr>
-        <tr><td>Close everything</td><td>Stops the server, the mesh network and the app.</td></tr>
+        <tr><td>Keep running in the background</td><td>The window disappears, but the server and the connection with your friends keep running. Ideal for leaving your friends playing.</td></tr>
+        <tr><td>Close everything</td><td>Stops the server, the connection with your friends and the app.</td></tr>
       </tbody>
     </table>
   </div>
@@ -994,17 +1015,17 @@
   <h3>On the host's side</h3>
   <ol class="tut-steps">
     <li>Is the server <strong>Online</strong>? (If it's <em>Starting</em>, wait.)</li>
-    <li>Is the <strong>mesh network</strong> active, showing <span class="ui">Mesh Network Active</span>? If the "Mesh network disabled" notice is showing, click <span class="ui">Start Mesh Network</span>.</li>
+    <li>Is the status <em>Online for friends</em>? If it shows <em>Online on this PC only</em> with a notice, click <span class="ui">Try again</span> (or <span class="ui">Open to friends</span>).</li>
     <li>Is Cubicase <strong>open</strong> and the PC <strong>not asleep</strong>?</li>
     <li>Did you <strong>not generate a new code</strong> recently? If you did, hand out the new code.</li>
     <li>Are you currently using the app as a <em>guest</em> of another server? That occupies the network (see <a href="#conectar-manual">Manual connection and tunnel</a>).</li>
-    <li>Look at the <span class="ui">Mesh Network</span> tab of the console for errors.</li>
+    <li>Look at the <span class="ui">Connection</span> tab of the console for errors.</li>
   </ol>
 
   <h3>On the guest's side</h3>
   <ol class="tut-steps">
     <li>Is the code correct? "Server not found" points to a wrong or old code.</li>
-    <li>Is the status on the card <em>Online</em>? If it's <em>Running without mesh network</em> or <em>Offline</em>, the problem is on the host's side.</li>
+    <li>Is the status on the card <em>Online</em>? If it's <em>Running on the host's PC only</em> or <em>Offline</em>, the problem is on the host's side.</li>
     <li>Did you use <span class="ui">Prepare and Play</span> (or <span class="ui">Connect</span>) and wait for "Connected"?</li>
     <li>Do your version/mods match the server's? Run <span class="ui">Prepare and Play</span> again to reinstall what's missing.</li>
     <li>Does the server use a <em>whitelist</em>? Ask the host to add your exact nickname.</li>
@@ -1067,7 +1088,7 @@
   <p>Copy the server folder (or the backup) to the new computer and use <a href="#importar-servidor">Import Existing Server</a>.</p>
 
   <h3>Where are the server files?</h3>
-  <p>In <span class="ui">Server Network → Local settings → Server Directory</span> the path is shown, with the <span class="ui">Choose directory</span> button.</p>
+  <p>In <span class="ui">Local settings → Server Directory</span> the path is shown, with the <span class="ui">Choose directory</span> button.</p>
 
   <h3>How do I change the app language?</h3>
   <p>In <span class="ui">Settings → Language</span>.</p>
