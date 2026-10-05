@@ -12,14 +12,15 @@ import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import { useAppStore, type ServerStatus } from "@/app/store";
-import { join } from "@tauri-apps/api/path";
-import { readTextFile, remove } from "@tauri-apps/plugin-fs";
-import { installJRE, isJREInstalled, getJREPath, type DownloadProgress } from "@/lib/jre";
+import { remove } from "@tauri-apps/plugin-fs";
+import { getJREPath } from "@/lib/jre";
 import {
   getJavaVersion,
+  startServerOrchestrated,
   type ServerInfo,
   type ServerInstallProgress,
 } from "@/lib/server";
+import { IDLE_HOSTING_STATUS, isGuestActiveError, isHostingActive, type HostingStatus } from "@/lib/hosting";
 import { useTheme } from "next-themes";
 import { AppSettingsPanel, type SettingsCategory } from "@/app/components/AppSettingsPanel";
 import { CloseAppModal } from "@/app/components/CloseAppModal";
@@ -109,8 +110,10 @@ export default function Home() {
   // que um netStatus "online" era, na verdade, a conexão do Convidado.
   const [netMode, setNetMode] = useState<"host" | "guest" | null>(null);
   const [netIp, setNetIp] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  // Status único da hospedagem (servidor + rede), publicado pelo backend
+  // ("hosting-status", ver src-tauri/src/hosting.rs). A UI do host deriva tudo
+  // daqui — não há mais estado local de "iniciando rede".
+  const [hosting, setHosting] = useState<HostingStatus>(IDLE_HOSTING_STATUS);
   // logs (console de rede) vem do store (useAppStore) — ver comentário onde é
   // desestruturado, acima. Não é mais um useState local com leitura/escrita
   // manual do localStorage (ver histórico do arquivo): esse localStorage
@@ -180,7 +183,6 @@ export default function Home() {
   const serverConfigPortRef = useRef(25565);
   const netStatusRef = useRef<"offline" | "connecting" | "online">("offline");
   const serverStatusRef = useRef<ServerStatus>("offline");
-  const pendingMcStartRef = useRef(false);
   // Nomes de servidores para os quais já tentamos a auto-correção de "JRE incompatível"
   // nesta sessão — evita loop (reinstalar → crashar de novo → reinstalar → ...) se a
   // causa real do crash for outra coisa que só parece o mesmo sintoma.
@@ -295,50 +297,31 @@ export default function Home() {
   // automático a cada 60s enquanto a sessão estiver Online/Degraded — ver
   // start_network_node em lib.rs).
 
-  // Inicia o processo Java para um servidor: resolve (e instala se preciso) a JRE
-  // correta para a versão do MC, lê a RAM configurada em cubicase-meta.json, e invoca
-  // start_minecraft_server. Compartilhada entre o auto-start pós-conexão da rede mesh
-  // e a auto-correção de "JRE incompatível" (que reinstala a JRE e chama de novo).
-  const startMinecraftForServer = async (serverInfo: ServerInfo) => {
+  // Espera a sessão de hospedagem anterior terminar no backend. Depois de um
+  // crash o supervisor ainda leva alguns segundos para derrubar a rede e fechar
+  // a sessão — iniciar nesse intervalo seria ignorado como "mesmo servidor, já
+  // rodando".
+  const waitForHostingSettled = async (timeoutMs = 15000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const s = await invoke<HostingStatus>("get_hosting_status");
+      if (!isHostingActive(s.phase)) return;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  };
+
+  // Sobe de novo a hospedagem de um servidor (usado pela auto-correção de "JRE
+  // incompatível", que reinstala a JRE e tenta outra vez). Passa pelo MESMO
+  // caminho do botão Iniciar: startServerOrchestrated → start_hosting.
+  const restartHostingForServer = async (serverInfo: ServerInfo) => {
     setServerStatus("starting");
     useAppStore.getState().setRunningServer(serverInfo.name);
     useAppStore.getState().setMcLogs(serverInfo.name, prev => [...prev, t("app.mc.preparing", { name: serverInfo.name })]);
 
     try {
-      const version = serverInfo.version || "1.20.1";
-      const javaVer = getJavaVersion(version);
-
-      const installed = await isJREInstalled(javaVer);
-      if (!installed) {
-        useAppStore.getState().setMcLogs(serverInfo.name, prev => [...prev, t("app.mc.jreMissing", { java: javaVer })]);
-        await installJRE(javaVer, (p) => {
-          setServerInstallProgress({ status: t("app.mc.installingJre", { java: javaVer, status: p.status }), percent: p.percent });
-        });
-        setServerInstallProgress(null);
-      }
-      const jrePath = await getJREPath(javaVer);
-      const javaPath = `${jrePath}\\bin\\java.exe`;
-
-      let ram = 4;
-      try {
-        const metaPath = await join(serverInfo.path, 'cubicase-meta.json');
-        const metaContent = await readTextFile(metaPath);
-        const meta = JSON.parse(metaContent) as { ramGb?: number };
-        if (typeof meta.ramGb === 'number' && meta.ramGb >= 2) ram = meta.ramGb;
-      } catch (e) {
-        console.warn('Could not read RAM from meta file, using default 4GB:', e);
-      }
-
-      await invoke("start_minecraft_server", {
-        serverDir: serverInfo.path,
-        javaPath,
-        ramGb: ram,
-        // A porta do Java precisa ser a real (server-port do server.properties),
-        // não a "Porta Local de Convidado" global (essa é só para quando este
-        // app entra como convidado em outro servidor) — ver mesmo ajuste em HostView.
-        localPort: serverConfigPortRef.current,
-        serverJarName: serverInfo.serverJar || null,
-        launchArgsDir: serverInfo.launchArgsDir || null,
+      await waitForHostingSettled();
+      await startServerOrchestrated(serverInfo, {
+        onInstallProgress: (p) => setServerInstallProgress(p),
       });
     } catch (err: any) {
       console.error(err);
@@ -356,6 +339,7 @@ export default function Home() {
     let unlistenMcDiagnostic: (() => void) | null = null;
     let unlistenNetDiagnostic: (() => void) | null = null;
     let unlistenResourceSample: (() => void) | null = null;
+    let unlistenHosting: (() => void) | null = null;
     // Sem isso, um cleanup que dispara NO MEIO do registro dos 7 listeners
     // abaixo (entre dois `await listen(...)`) deixa órfão qualquer listener
     // cujo registro só resolve DEPOIS do cleanup já ter rodado — ele nunca é
@@ -374,7 +358,6 @@ export default function Home() {
 
         if (event.payload.status === "online") {
           setNetIp(event.payload.ip);
-          setIsStarting(false);
 
           const currentSelectedServer = selectedServerRef.current;
           const currentLocalServers = localServersRef.current;
@@ -383,15 +366,6 @@ export default function Home() {
             const serverInfo = currentLocalServers.find(s => s.name === currentSelectedServer);
             if (serverInfo && serverInfo.shortCode) {
               registerServerWithCentral(serverInfo);
-
-              if (pendingMcStartRef.current && currentSelectedServer) {
-                pendingMcStartRef.current = false;
-                setTimeout(() => {
-                  const serverInfo2 = localServersRef.current.find(s => s.name === currentSelectedServer);
-                  if (!serverInfo2) return;
-                  startMinecraftForServer(serverInfo2);
-                }, 500);
-              }
             } else {
               const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
               let code = "";
@@ -405,8 +379,6 @@ export default function Home() {
           setNetStatus("offline");
           setNetMode(null);
           setNetIp(null);
-          setIsStarting(false);
-          pendingMcStartRef.current = false;
           // Rede mesh caiu de verdade (evento vindo do sidecar) — só aqui (ou em
           // desconexão manual/falha de conexão) é correto limpar a conexão do
           // Convidado. Nunca em um simples reload de página.
@@ -499,7 +471,7 @@ export default function Home() {
                   useAppStore.getState().setMcLogs(serverInfo.name, prev => [...prev, t("app.autofix.log", { java: javaVer })]);
                   const jrePath = await getJREPath(javaVer);
                   await remove(jrePath, { recursive: true }).catch(() => {});
-                  await startMinecraftForServer(serverInfo);
+                  await restartHostingForServer(serverInfo);
                 } catch (err) {
                   console.error("[AutoFix JRE] Falha ao corrigir automaticamente:", err);
                 }
@@ -517,6 +489,24 @@ export default function Home() {
         }
       );
       if (cancelled) unNetDiagnostic(); else unlistenNetDiagnostic = unNetDiagnostic;
+
+      // Status único da hospedagem (servidor + rede) — ver src-tauri/src/hosting.rs.
+      const unHosting = await listen<HostingStatus>("hosting-status", (event) => {
+        setHosting(event.payload);
+        // Falha ao subir o Minecraft (pacote com mods pendentes, exportação em
+        // andamento, porta ocupada...): o backend já derrubou tudo — a causa
+        // precisa chegar ao usuário, e o "starting" otimista da UI deve voltar.
+        if (event.payload.error) {
+          pushDiagnostic({
+            level: "error",
+            source: t("diag.source.server"),
+            title: t("host.err.startServer"),
+            message: event.payload.error,
+          });
+          useAppStore.getState().setServerStatus("offline");
+        }
+      });
+      if (cancelled) unHosting(); else unlistenHosting = unHosting;
 
       const unMcStatus = await listen<string>("minecraft-status-changed", (event) => {
         const status = event.payload as ServerStatus;
@@ -636,6 +626,13 @@ export default function Home() {
       // Restaurar estado real APÓS os listeners estarem registrados.
       // Se chamássemos antes, os listeners sobrescreveriam o estado.
       try {
+        // Hospedagem em andamento antes do reload (o backend segue rodando).
+        try {
+          setHosting(await invoke<HostingStatus>("get_hosting_status"));
+        } catch (err) {
+          console.warn("[Restore] Erro ao ler o status da hospedagem:", err);
+        }
+
         const status = await invoke<{ minecraftStatus: string; netStatus: string; netMode: "host" | "guest" | null; ip: string | null }>("get_system_status");
         console.log("[Restore] Estado do sistema após recarga:", status);
 
@@ -678,6 +675,7 @@ export default function Home() {
       unlistenMcDiagnostic?.();
       unlistenNetDiagnostic?.();
       unlistenResourceSample?.();
+      unlistenHosting?.();
     };
     // `minecraftPort` NÃO é usado em nenhum lugar deste efeito (nenhum dos 7
     // listeners nem o restore de estado lê essa variável) — era uma
@@ -784,7 +782,11 @@ export default function Home() {
           });
         } catch (err) {
           console.error("[panel] Falha ao iniciar servidor remotamente:", err);
-          pushDiagnostic({ level: "error", source: t("diag.source.panel"), title: t("app.panel.failed.title"), message: String(err) });
+          // Remoto não pode perguntar "sair do modo Convidado?" a quem não está
+          // na frente do PC — recusa com a explicação em vez de derrubar a
+          // conexão de convidado por conta própria.
+          const message = isGuestActiveError(err) ? t("host.guestActive.remote") : String(err);
+          pushDiagnostic({ level: "error", source: t("diag.source.panel"), title: t("app.panel.failed.title"), message });
           useAppStore.getState().setServerStatus("offline");
         }
       });
@@ -1054,8 +1056,7 @@ export default function Home() {
             netStatus={netStatus}
             netMode={netMode}
             netIp={netIp}
-            isStarting={isStarting}
-            downloadProgress={downloadProgress}
+            hosting={hosting}
             logs={logs}
             mcLogs={mcLogs}
             localServers={localServers}
@@ -1070,11 +1071,6 @@ export default function Home() {
             serverConfigPort={serverConfigPort}
             shortCode={shortCode}
             resourceSample={resourceSample}
-            onSetNetStatus={setNetStatus}
-            onSetNetMode={setNetMode}
-            onSetNetIp={setNetIp}
-            onSetIsStarting={setIsStarting}
-            onSetDownloadProgress={setDownloadProgress}
             onSetLogs={setLogs}
             onSetMcLogs={onSetMcLogsForSelected}
             onSetLocalServers={setLocalServers}
@@ -1087,8 +1083,6 @@ export default function Home() {
             onSetDeleteConfirmServer={setDeleteConfirmServer}
             onSetTotalSystemRamGb={setTotalSystemRamGb}
             onSetServerConfigPort={setServerConfigPort}
-            onSetShortCode={setShortCode}
-            onRegisterServer={registerServerWithCentral}
             onOpenSubscribe={() => {
               setAppSettingsCategory("assinatura");
               setShowAppSettings(true);

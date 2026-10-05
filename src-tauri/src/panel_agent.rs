@@ -44,7 +44,7 @@
 // mesmo com o device_token válido.
 // ============================================================
 
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use futures_util::{SinkExt, StreamExt};
@@ -86,6 +86,13 @@ const NO_DEVICE_RETRY_SECS: u64 = 5;
 // extra depois de mover scan_local_servers (I/O de disco síncrono) pra
 // spawn_blocking — ver build_server_list_message_async.
 const STATUS_POLL_SECS: u64 = 5;
+
+/// Sinal de vida: a string "ping" (o relay responde "pong" sem acordar o Durable
+/// Object nem gravar nada). Antes TODO poll (5s) mandava status + lista +
+/// métricas e o relay gravava cada um em storage: dezenas de milhares de
+/// gravações por dia com o servidor parado. Agora só vai o que muda, e o ping
+/// cobre a detecção de conexão morta (a escrita falha) e proxies ociosos.
+const KEEPALIVE_PING_SECS: u64 = 45;
 
 // ============================================================
 // Por que log_line NÃO usa AppHandle::listen("minecraft-log", ...)
@@ -267,11 +274,32 @@ fn scan_local_servers(app: &AppHandle) -> Vec<LocalServerSummary> {
         }
     }
 
-    log_to_file(
-        app,
-        &format!("[PANEL] server_list: {} servidor(es) encontrado(s).", servers.len()),
-    );
+    // Roda a cada poll (5s): só registra quando a contagem muda, senão o log
+    // ganhava ~17 mil linhas idênticas por dia.
+    if LAST_LOGGED_SERVER_COUNT.swap(servers.len(), Ordering::Relaxed) != servers.len() {
+        log_to_file(
+            app,
+            &format!("[PANEL] server_list: {} servidor(es) encontrado(s).", servers.len()),
+        );
+    }
     servers
+}
+
+/// Última contagem de servidores registrada no log (usize::MAX = ainda nenhuma).
+static LAST_LOGGED_SERVER_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+/// Duas mensagens do agent são "a mesma" se só o carimbo `ts` difere — é o que
+/// permite não reenviar (e o relay não regravar em storage) algo que não mudou.
+pub(crate) fn same_ignoring_ts(a: &str, b: &str) -> bool {
+    let strip = |s: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(s).ok()?;
+        v.as_object_mut()?.remove("ts");
+        Some(v)
+    };
+    match (strip(a), strip(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
 }
 
 fn build_status_message(app: &AppHandle) -> String {
@@ -604,11 +632,15 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
     // por que isso não é um AppHandle::listen.
     *log_sink().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx.clone());
 
-    // Snapshot inicial assim que conecta, sem esperar o primeiro poll.
-    let _ = tx.send(build_status_message(app));
-    let _ = tx.send(build_server_list_message_async(app).await);
-    if let Some(metrics) = build_metrics_message(app) {
-        let _ = tx.send(metrics);
+    // Snapshot inicial assim que conecta, sem esperar o primeiro poll. O que for
+    // enviado aqui vira a base de comparação do poll (só reenvia se mudar).
+    let mut last_status = build_status_message(app);
+    let mut last_list = build_server_list_message_async(app).await;
+    let mut last_metrics = build_metrics_message(app);
+    let _ = tx.send(last_status.clone());
+    let _ = tx.send(last_list.clone());
+    if let Some(metrics) = &last_metrics {
+        let _ = tx.send(metrics.clone());
     }
     // Lista de jogadores: retrato imediato (do log) + pedido de `list` pra
     // corrigir o que o log não viu (app aberto com o servidor já rodando).
@@ -623,6 +655,8 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
 
     let mut status_poll = tokio::time::interval(Duration::from_secs(STATUS_POLL_SECS));
     status_poll.tick().await; // o primeiro tick é imediato; o snapshot acima já cobriu isso
+    let mut keepalive = tokio::time::interval(Duration::from_secs(KEEPALIVE_PING_SECS));
+    keepalive.tick().await; // idem
 
     let result = loop {
         tokio::select! {
@@ -637,10 +671,23 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
                 }
             }
             _ = status_poll.tick() => {
-                let _ = tx.send(build_status_message(app));
-                let _ = tx.send(build_server_list_message_async(app).await);
+                // Só envia o que mudou (comparando sem o `ts`). O sinal de vida é o ping (abaixo).
+                let status = build_status_message(app);
+                if !same_ignoring_ts(&status, &last_status) {
+                    let _ = tx.send(status.clone());
+                    last_status = status;
+                }
+                let list = build_server_list_message_async(app).await;
+                if !same_ignoring_ts(&list, &last_list) {
+                    let _ = tx.send(list.clone());
+                    last_list = list;
+                }
+                // Métricas só existem com servidor rodando; a amostra muda a cada ~15s, não a cada 5s.
                 if let Some(metrics) = build_metrics_message(app) {
-                    let _ = tx.send(metrics);
+                    if last_metrics.as_deref().map_or(true, |prev| !same_ignoring_ts(&metrics, prev)) {
+                        let _ = tx.send(metrics.clone());
+                        last_metrics = Some(metrics);
+                    }
                 }
                 // Só reenvia a lista quando mudou — o relay grava cada mensagem
                 // em storage, e a lista quase nunca muda entre dois polls.
@@ -650,9 +697,15 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
                     last_players = names;
                 }
             }
+            _ = keepalive.tick() => {
+                // Passa pelo mesmo canal das demais mensagens para não haver duas escritas concorrentes no WebSocket.
+                let _ = tx.send("ping".to_string());
+            }
             incoming = read.next() => {
                 match incoming {
                     Some(Ok(Message::Close(_))) | None => break Ok(()),
+                    // Resposta do relay ao nosso "ping" (ver KEEPALIVE_PING_SECS): não é comando.
+                    Some(Ok(Message::Text(txt))) if txt.as_str() == "pong" => {}
                     Some(Ok(Message::Text(txt))) => {
                         // Roda em background em vez de dar await aqui dentro:
                         // "stop_server" pode levar até 15s (stop_minecraft_server_internal

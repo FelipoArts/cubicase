@@ -8,7 +8,7 @@ import { useT } from "@/i18n";
 // ============================================================
 // ConsolePanel
 // ============================================================
-// Console com abas para logs do Minecraft e da Rede Mesh.
+// Console com abas para logs do Minecraft e da conexão com os amigos.
 // Inclui input de comandos para o servidor Minecraft.
 // Auto-scroll ao final sempre que logs mudam ou aba troca.
 // ============================================================

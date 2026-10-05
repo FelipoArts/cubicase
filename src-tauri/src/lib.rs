@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::fs::File;
 use std::io::{Write, BufRead, BufReader};
@@ -31,6 +31,8 @@ mod job_object;
 mod panel_agent;
 mod players;
 mod pack;
+mod hosting;
+mod mod_identity;
 #[cfg(test)]
 mod tests;
 
@@ -226,12 +228,37 @@ struct AppState {
     // padrão de sinalização por flag já usado neste arquivo, sem precisar
     // guardar um JoinHandle em lugar nenhum).
     wake_loop_generation: AtomicU64,
-    // Minutos consecutivos sem jogadores, contados pelo loop de heartbeat
-    // "online" — só incrementa enquanto wake_on_demand está armado.
-    idle_ticks: AtomicU32,
+
     // "Manter ligado" pedido pelo frontend — consumido (setado de volta a
     // false) no próximo tick do loop de heartbeat "online".
     idle_shutdown_reset_requested: AtomicBool,
+
+    // IP virtual do nó de rede atual enquanto a malha está de fato online (o
+    // sidecar já reportou o IP). Diferente de `sidecar_process.is_some()`, que é
+    // verdadeiro desde o spawn, ANTES de a malha conectar — o orquestrador de
+    // hospedagem (ver hosting.rs) precisa dessa distinção para saber se os
+    // amigos já conseguem entrar. Setado onde "network-status: online" é
+    // emitido; limpo no Terminated do sidecar e em stop_network_node_internal.
+    network_ip: Mutex<Option<String>>,
+
+    // Estado da hospedagem unificada (servidor + rede) — ver hosting.rs.
+    hosting: Mutex<hosting::HostingRuntime>,
+
+    // Serializa as operações de ciclo de vida da hospedagem (iniciar, parar,
+    // derrubar após crash): sem isso, um teardown lento (crash) podia terminar
+    // DEPOIS de o usuário já ter parado e iniciado de novo, e encerrar a sessão
+    // nova. Async porque é mantido durante awaits; ver hosting.rs.
+    hosting_lifecycle: tokio::sync::Mutex<()>,
+
+    // Número do sidecar de rede atual (incrementa a cada spawn). Os eventos de
+    // um sidecar ANTIGO que chegam depois de um novo já ter subido (reinício do
+    // túnel) precisam ser reconhecidos como obsoletos e não mexer no estado.
+    sidecar_generation: AtomicU64,
+
+    // O usuário parou o servidor à mão com o wake-on-demand armado: a espera fica
+    // PAUSADA (ninguém consegue acordá-lo) até ele iniciar de novo ou clicar em
+    // "Voltar à espera". Vai no snapshot da hospedagem para a UI deixar claro.
+    wake_paused: AtomicBool,
 }
 
 /// Retrato de RAM/CPU do sistema (e do processo do servidor) em um instante,
@@ -347,8 +374,9 @@ async fn start_network_node_impl(
     // este guard, start_network_node simplesmente encerrava o nó anterior
     // (linha abaixo) sem avisar, e a aba Host continuava mostrando "Parar
     // Rede Mesh" como se sua própria rede ainda estivesse de pé.
-    if let Some(active_mode) = state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-        if active_mode != mode {
+    let active_now = state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if network_role_conflict(active_now.as_deref(), &mode) {
+        if let Some(active_mode) = active_now {
             let role_name = |m: &str| if m == "host" { tr!("net.role.host") } else { tr!("net.role.guest") };
             let msg = tr!(
                 "net.roleConflict",
@@ -407,6 +435,11 @@ async fn start_network_node_impl(
                 is_error: false,
             });
 
+            // Um stop dentro dos ~1,4 s de "autenticação" simulada desliga o mock:
+            // não anunciar IP de uma rede que já foi parada.
+            if *app_clone.state::<AppState>().is_mock_active.lock().unwrap_or_else(|e| e.into_inner()) {
+                *app_clone.state::<AppState>().network_ip.lock().unwrap_or_else(|e| e.into_inner()) = Some(fake_ip.clone());
+            }
             let _ = app_clone.emit("network-status", NetworkStatusPayload {
                 status: "online".to_string(),
                 ip: Some(fake_ip),
@@ -451,6 +484,7 @@ async fn start_network_node_impl(
 
     // Guardar o processo filho no estado global
     *state.sidecar_process.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+    let my_sidecar_gen = state.sidecar_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     {
         // Escutar eventos do sidecar
@@ -476,6 +510,11 @@ async fn start_network_node_impl(
                                     if status_str == "online" {
                                         let ip_str = status_val.get("ip").and_then(|v| v.as_str()).map(|s| s.to_string());
                                         log_to_file(&app_clone, &format!("Rede mesh online! IP virtual: {:?}", ip_str));
+                                        // Só o sidecar ATUAL publica o IP (um antigo, já substituído, não).
+                                        let state_now = app_clone.state::<AppState>();
+                                        if state_now.sidecar_generation.load(Ordering::SeqCst) == my_sidecar_gen {
+                                            *state_now.network_ip.lock().unwrap_or_else(|e| e.into_inner()) = ip_str.clone();
+                                        }
                                         let _ = app_clone.emit("network-status", NetworkStatusPayload {
                                             status: "online".to_string(),
                                             ip: ip_str.clone(),
@@ -504,41 +543,9 @@ async fn start_network_node_impl(
                                                         .minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).len() as u32;
                                                     let _ = sm.send_heartbeat(player_count).await;
 
-                                                    // Wake-on-demand: auto-shutdown por inatividade. Só ativa
-                                                    // quando o recurso está armado (wake_on_demand = Some) —
-                                                    // hospedagem comum, sem isso ligado, fica exatamente igual.
-                                                    let wake_cfg = app_for_hb.state::<AppState>()
-                                                        .wake_on_demand.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                                                    if let Some(cfg) = wake_cfg {
-                                                        let state_now = app_for_hb.state::<AppState>();
-                                                        if state_now.idle_shutdown_reset_requested.swap(false, Ordering::SeqCst) {
-                                                            state_now.idle_ticks.store(0, Ordering::SeqCst);
-                                                        }
-                                                        if player_count > 0 {
-                                                            state_now.idle_ticks.store(0, Ordering::SeqCst);
-                                                        } else {
-                                                            let ticks = state_now.idle_ticks.fetch_add(1, Ordering::SeqCst) + 1;
-                                                            drop(state_now);
-                                                            if ticks + 1 == cfg.idle_timeout_minutes {
-                                                                let _ = app_for_hb.emit("idle-shutdown-warning", serde_json::json!({ "secondsRemaining": 60 }));
-                                                            }
-                                                            if ticks >= cfg.idle_timeout_minutes {
-                                                                log_to_file(&app_for_hb, "[WakeOnDemand] Desligando por inatividade, voltando ao modo de espera.");
-                                                                let state_ref = app_for_hb.state::<AppState>();
-                                                                stop_minecraft_server_internal(&app_for_hb, &state_ref).await;
-                                                                let _ = stop_network_node_internal(&app_for_hb, &state_ref).await;
-                                                                state_ref.idle_ticks.store(0, Ordering::SeqCst);
-                                                                let still_armed = state_ref.wake_on_demand.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                                                                drop(state_ref);
-                                                                if let Some(cfg2) = still_armed {
-                                                                    let new_gen = app_for_hb.state::<AppState>()
-                                                                        .wake_loop_generation.fetch_add(1, Ordering::SeqCst) + 1;
-                                                                    spawn_sleeping_loop(app_for_hb.clone(), cfg2, new_gen);
-                                                                }
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
+                                                    // O auto-shutdown por inatividade do wake-on-demand mora no
+                                                    // supervisor da hospedagem (hosting.rs) — funciona mesmo com a
+                                                    // rede fora do ar, e para tudo na ordem certa.
                                                 }
                                             });
                                         }
@@ -644,9 +651,16 @@ async fn start_network_node_impl(
                     CommandEvent::Terminated(payload) => {
                         log_to_file(&app_clone, &format!("[Sidecar-Terminated] Código: {:?}", payload.code));
                         let app_state = app_clone.state::<AppState>();
-                        // Limpar o handle guardado no estado global — sem isso, get_system_status
-                        // continua reportando a rede como "online" para sempre após o sidecar morrer.
-                        *app_state.sidecar_process.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                        // Este Terminated é de um sidecar que JÁ foi substituído por outro
+                        // (reinício do túnel)? Então o estado global agora pertence ao novo:
+                        // limpar handle/IP ou emitir "offline" derrubaria uma rede boa.
+                        let is_current = app_state.sidecar_generation.load(Ordering::SeqCst) == my_sidecar_gen;
+                        if is_current {
+                            // Limpar o handle guardado no estado global — sem isso, get_system_status
+                            // continua reportando a rede como "online" para sempre após o sidecar morrer.
+                            *app_state.sidecar_process.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                            *app_state.network_ip.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                        }
                         // Diferenciar "usuário pediu para desconectar" (network_stop_requested)
                         // de "o sidecar morreu sozinho" (crash real) para não marcar uma
                         // desconexão manual como erro na Central de Diagnósticos.
@@ -663,6 +677,10 @@ async fn start_network_node_impl(
                         // Causa específica já reportada via "network-diagnostic" enquanto o
                         // sidecar ainda rodava (ver parsing do stdout acima)? Se sim, evitar
                         // duplicar um segundo aviso genérico sobre o mesmo evento.
+                        if !is_current {
+                            log_to_file(&app_clone, "[Sidecar-Terminated] Sidecar antigo (já substituído) — estado atual preservado.");
+                            continue;
+                        }
                         let known_cause = app_state.network_last_error.lock().unwrap_or_else(|e| e.into_inner()).take();
                         let _ = app_clone.emit("network-status", NetworkStatusPayload {
                             status: "offline".to_string(),
@@ -726,11 +744,34 @@ async fn start_network_node_with_retry(
         };
         if result.is_ok() { break; }
         log_to_file(&app, &format!("[start_network_node] Tentativa {}/{} falhou: {:?}", attempt, NETWORK_MAX_ATTEMPTS, result));
+        // Conflito de papel não se resolve tentando de novo (e o nó ativo é de
+        // OUTRO papel, legítimo) — falha imediata, sem retry e sem limpeza.
+        let active_now = app.state::<AppState>().active_network_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if network_role_conflict(active_now.as_deref(), &mode) {
+            return result;
+        }
         if attempt < NETWORK_MAX_ATTEMPTS {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
+    if result.is_err() {
+        // Todas as tentativas falharam: start_network_node_impl grava
+        // active_network_mode (e a ConnectionSession) ANTES dos passos que podem
+        // falhar/estourar o timeout — sem esta limpeza o estado ficava preso em
+        // "host" e entrar como convidado dava "conflito de papel" sem nada rodando.
+        // Idempotente: também revoga a sessão órfã na API e mata um sidecar
+        // eventualmente já iniciado por uma tentativa cancelada por timeout.
+        let state = app.state::<AppState>();
+        let _ = stop_network_node_internal(&app, &state).await;
+    }
     result
+}
+
+/// `true` quando já existe um nó de rede ativo de um papel DIFERENTE do pedido
+/// (host × guest) — nesse caso a troca é recusada e o nó ativo não pode ser
+/// tocado. Sem nó ativo, ou com o mesmo papel, não há conflito.
+fn network_role_conflict(active_mode: Option<&str>, requested: &str) -> bool {
+    matches!(active_mode, Some(active) if active != requested)
 }
 
 #[tauri::command]
@@ -806,6 +847,7 @@ async fn stop_network_node_internal(
 ) -> Result<(), String> {
     log_to_file(app, "=== PARANDO NÓ DE REDE ===");
     *state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *state.network_ip.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
     // 1. Tratar limpeza do provedor simulado Mock
     // IMPORTANTE: O MutexGuard não é `Send` e não pode ser mantido vivo
@@ -2815,47 +2857,9 @@ async fn get_system_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // Verificar se o servidor Minecraft ainda está rodando
-    // Usamos try_lock() para não travar se a monitor thread estiver com o lock
-    let mc_status = {
-        // Processo vivo != servidor pronto: o Fabric (e instaladores em geral)
-        // ficam minutos rodando sem abrir a porta na primeira execução (baixando
-        // o server + instalando o loader). "online" só é reportado quando
-        // `minecraft_was_online` foi de fato marcada (stdout "Done (" ou conexão
-        // TCP bem-sucedida) — senão reportamos "starting" mesmo com o processo vivo.
-        enum ProcState { Alive, NoProcess, CrashExit }
-        let proc_state = match state.minecraft_process.try_lock() {
-            Ok(mut guard) => {
-                if let Some(ref mut child) = *guard {
-                    match child.try_wait() {
-                        Ok(None) => ProcState::Alive,
-                        Ok(Some(status)) => if status.success() { ProcState::NoProcess } else { ProcState::CrashExit },
-                        Err(_) => ProcState::NoProcess,
-                    }
-                } else {
-                    ProcState::NoProcess
-                }
-            }
-            Err(_) => {
-                // Lock está ocupado pela thread de monitoramento (ela só segura o
-                // lock durante child.wait()), então o processo Minecraft ainda está vivo.
-                log_to_file(&app, "[get_system_status] Lock minecraft_process ocupado (processo vivo).");
-                ProcState::Alive
-            }
-        };
-
-        match proc_state {
-            ProcState::NoProcess => "offline",
-            ProcState::CrashExit => "crashed",
-            ProcState::Alive => {
-                if state.minecraft_was_online.load(Ordering::SeqCst) {
-                    "online"
-                } else {
-                    "starting"
-                }
-            }
-        }
-    };
+    // Verificar se o servidor Minecraft ainda está rodando (regra compartilhada
+    // com o orquestrador de hospedagem — ver hosting::mc_state_from_app).
+    let mc_status = hosting::mc_state_from_app(&state).as_str();
 
     // Verificar se o sidecar de rede ainda está rodando
     let net_status = {
@@ -3801,7 +3805,11 @@ struct CurseForgeManifestFile {
 
 #[derive(Serialize, Clone)]
 struct ModrinthManifestFile {
+    /// Só o nome do arquivo (já sanitizado).
     path: String,
+    /// Pasta relativa à raiz do servidor onde o arquivo vive ("mods", "config",
+    /// "resourcepacks"...), sanitizada. Vazia se o manifest não trouxer pasta.
+    dir: String,
     url: String,
     sha1: Option<String>,
     file_size: Option<u64>,
@@ -3906,6 +3914,20 @@ fn zip_has_prefix(archive: &mut zip::ZipArchive<File>, prefix: &str) -> bool {
 /// "..\\..\\..\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x.jar"
 /// (o JS só removia segmentos separados por "/", não por "\\") permitia escrever
 /// fora da pasta do servidor via `download_server_jar`.
+/// Pasta (sem o nome do arquivo) de um `path` do `modrinth.index.json`, com os
+/// mesmos descartes de segmentos perigosos que `safe_mod_filename`. É isso que
+/// separa `mods/x.jar` de `resourcepacks/y.zip` — sem a pasta, tudo caía em mods/.
+fn safe_manifest_dir(raw: &str) -> String {
+    let segments: Vec<&str> = raw
+        .split(['/', '\\'])
+        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(':'))
+        .collect();
+    match segments.split_last() {
+        Some((_, dirs)) => dirs.join("/"),
+        None => String::new(),
+    }
+}
+
 fn safe_mod_filename(raw: &str) -> String {
     raw.split(['/', '\\'])
         .filter(|s| !s.is_empty() && *s != "." && *s != "..")
@@ -4000,6 +4022,7 @@ async fn read_modpack_manifest(zip_path: String) -> Result<ModpackManifestSummar
                 let url = f.downloads.first().cloned()?;
                 Some(ModrinthManifestFile {
                     path: safe_mod_filename(&f.path),
+                    dir: safe_manifest_dir(&f.path),
                     url,
                     sha1: f.hashes.and_then(|h| h.sha1),
                     file_size: f.file_size,
@@ -4039,7 +4062,8 @@ async fn read_modpack_manifest(zip_path: String) -> Result<ModpackManifestSummar
 /// próprio aqui (diferente de `restore_world_backup`, que precisa preservar um
 /// mundo já existente enquanto restaura).
 #[tauri::command]
-async fn extract_modpack_overrides(zip_path: String, dest_dir: String, overrides_folder: String) -> Result<u32, String> {
+async fn extract_modpack_overrides(zip_path: String, dest_dir: String, overrides_folder: String, skip_existing: Option<bool>) -> Result<u32, String> {
+    let skip_existing = skip_existing.unwrap_or(false);
     let file = File::open(&zip_path).map_err(|e| tr!("err.openFile", error = e))?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| tr!("err.invalidArchive", error = e))?;
@@ -4068,6 +4092,11 @@ async fn extract_modpack_overrides(zip_path: String, dest_dir: String, overrides
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
         } else {
+            // Em servidor que já existe (modpack instalado por cima) nunca sobrescreve
+            // configs/server.properties que o host já ajustou.
+            if skip_existing && out_path.exists() {
+                continue;
+            }
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -5582,7 +5611,6 @@ struct WakeOnDemandConfig {
     server_dir: String,
     java_path: String,
     ram_gb: u32,
-    local_port: u16,
     server_jar_name: Option<String>,
     launch_args_dir: Option<String>,
     idle_timeout_minutes: u32,
@@ -5592,6 +5620,27 @@ struct WakeOnDemandConfig {
     description: String,
     forge_version: Option<String>,
     mod_loader_version: Option<String>,
+}
+
+impl WakeOnDemandConfig {
+    /// O despertar usa o MESMO orquestrador do botão "Iniciar" (hosting.rs) — a
+    /// porta é lida do server.properties lá, na hora de subir.
+    fn to_hosting_config(&self) -> hosting::HostingConfig {
+        hosting::HostingConfig {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            server_type: self.server_type.clone(),
+            description: self.description.clone(),
+            forge_version: self.forge_version.clone(),
+            mod_loader_version: self.mod_loader_version.clone(),
+            short_code: self.short_code.clone(),
+            server_dir: self.server_dir.clone(),
+            java_path: self.java_path.clone(),
+            ram_gb: self.ram_gb,
+            server_jar_name: self.server_jar_name.clone(),
+            launch_args_dir: self.launch_args_dir.clone(),
+        }
+    }
 }
 
 /// Heartbeat direta (fora da fila de retry — ver execute_heartbeat) contra
@@ -5618,72 +5667,15 @@ async fn send_sleep_heartbeat(short_code: &str, status: &str) -> Result<serde_js
     Ok(body.get("data").cloned().unwrap_or_else(|| serde_json::json!({})))
 }
 
-/// Sobe a rede e o Minecraft de verdade a partir do modo de espera. As duas
-/// coisas são independentes hoje (nenhuma espera a outra ficar pronta) e o
-/// boot do Java costuma ser mais lento que o handshake do Tailscale, então
-/// rodar em paralelo (tokio::join!) em vez de em série evita somar os dois
-/// tempos à toa. sync_register_server vai primeiro porque a criação da
-/// ConnectionSession no Worker dá 404 sem o servidor já registrado.
-async fn wake_from_sleep(app: tauri::AppHandle, cfg: Arc<WakeOnDemandConfig>) {
+/// Sobe o servidor de verdade a partir do modo de espera, pelo MESMO
+/// orquestrador do botão "Iniciar" (hosting::begin_hosting): Minecraft e rede
+/// em paralelo, rede com retry/backoff sem derrubar o Minecraft, supervisão e
+/// parada na ordem certa. `Err` (Java sumiu, convidado de outro servidor, pasta
+/// removida…) NÃO é engolido: o loop de espera registra e segue tentando.
+async fn wake_from_sleep(app: tauri::AppHandle, cfg: Arc<WakeOnDemandConfig>) -> Result<(), String> {
     log_to_file(&app, &format!("[WakeOnDemand] Acordando servidor {}...", cfg.short_code));
-
-    let telemetry = app.state::<Arc<Mutex<SyncTelemetry>>>();
-    if let Err(e) = sync_register_server(
-        app.clone(),
-        app.state::<AppState>(),
-        telemetry,
-        cfg.name.clone(),
-        cfg.version.clone(),
-        cfg.server_type.clone(),
-        cfg.description.clone(),
-        Some(cfg.short_code.clone()),
-        None,
-        cfg.forge_version.clone(),
-        cfg.mod_loader_version.clone(),
-        Some(cfg.server_dir.clone()),
-    ).await {
-        log_to_file(&app, &format!("[WakeOnDemand] Falha ao registrar servidor ao acordar: {}", e));
-    }
-
-    // `spawn` (não só criar a future): ela é lazy, então sem rodar numa task
-    // própria agora, só começaria a executar quando alguém desse `.await`
-    // nela — o que só aconteceria depois de todo o retry de rede abaixo,
-    // atrasando o Minecraft à toa em vez de subir os dois de verdade em
-    // paralelo. `app`/`cfg` são movidos pra dentro do bloco (em vez de só
-    // `app.state::<AppState>()` direto no spawn) porque `State<'_, AppState>`
-    // pega emprestado de `app` — precisa de um `app` com dono dentro da
-    // própria task pra satisfazer o `'static` exigido por `spawn`.
-    let app_for_mc = app.clone();
-    let cfg_for_mc = cfg.clone();
-    let mc_handle = tauri::async_runtime::spawn(async move {
-        start_minecraft_server(
-            app_for_mc.clone(),
-            app_for_mc.state::<AppState>(),
-            cfg_for_mc.server_dir.clone(),
-            cfg_for_mc.java_path.clone(),
-            cfg_for_mc.ram_gb,
-            cfg_for_mc.local_port,
-            cfg_for_mc.server_jar_name.clone(),
-            cfg_for_mc.launch_args_dir.clone(),
-        ).await
-    });
-
-    // Rede: usa o mesmo helper de timeout+retry do comando start_network_node
-    // (ver comentário completo em start_network_node_with_retry) — antes essa
-    // proteção só existia aqui; agora é compartilhada com o clique normal de
-    // "Hospedar"/"Entrar".
-    let net_res = start_network_node_with_retry(app.clone(), "host".to_string(), cfg.short_code.clone(), None, cfg.local_port).await;
-
-    match mc_handle.await {
-        Ok(Err(e)) => log_to_file(&app, &format!("[WakeOnDemand] Falha ao iniciar servidor: {}", e)),
-        Err(join_err) => log_to_file(&app, &format!("[WakeOnDemand] start_minecraft_server PANICOU: {:?}", join_err)),
-        Ok(Ok(())) => {}
-    }
-    if let Err(e) = net_res {
-        log_to_file(&app, &format!("[WakeOnDemand] Falha ao iniciar rede após {} tentativas: {}", NETWORK_MAX_ATTEMPTS, e));
-    }
+    hosting::begin_hosting(app, cfg.to_hosting_config(), false, false).await
 }
-
 /// Task solta que manda a heartbeat de espera em loop até: (a) receber
 /// wakeRequested:true, ou (b) `generation` não bater mais com
 /// `wake_loop_generation` (foi desarmado, ou um novo ciclo de espera/wake
@@ -5721,10 +5713,16 @@ fn spawn_sleeping_loop(app: tauri::AppHandle, cfg: Arc<WakeOnDemandConfig>, gene
                         // log nenhum, exatamente o sintoma reportado em produção
                         // (só um F5 no app, que roda tudo num contexto novo,
                         // "destravava"). Assim, pelo menos o panic fica registrado.
-                        if let Err(join_err) = tauri::async_runtime::spawn(wake_from_sleep(app.clone(), cfg.clone())).await {
-                            log_to_file(&app, &format!("[WakeOnDemand] wake_from_sleep PANICOU: {:?}", join_err));
+                        match tauri::async_runtime::spawn(wake_from_sleep(app.clone(), cfg.clone())).await {
+                            // Dali em diante quem cuida é o supervisor da hospedagem.
+                            Ok(Ok(())) => return,
+                            // Falhou ao acordar (Java removido, este PC está como
+                            // Convidado de outro servidor…): continua em espera e
+                            // tenta de novo no próximo pedido, em vez de ficar
+                            // preso em "sleeping" sem ninguém tentando nada.
+                            Ok(Err(e)) => log_to_file(&app, &format!("[WakeOnDemand] Falha ao acordar: {}", e)),
+                            Err(join_err) => log_to_file(&app, &format!("[WakeOnDemand] wake_from_sleep PANICOU: {:?}", join_err)),
                         }
-                        return; // dali em diante quem cuida é o loop de heartbeat "online" já existente
                     }
                 }
                 Err(e) => {
@@ -5746,6 +5744,8 @@ async fn arm_wake_on_demand(
     short_code: String,
     java_path: String,
     ram_gb: u32,
+    // Mantido só para não quebrar o contrato do comando: a porta é lida do
+    // server.properties pelo orquestrador na hora de subir.
     local_port: u16,
     server_jar_name: Option<String>,
     launch_args_dir: Option<String>,
@@ -5757,18 +5757,20 @@ async fn arm_wake_on_demand(
     forge_version: Option<String>,
     mod_loader_version: Option<String>,
 ) -> Result<(), String> {
+    let _ = local_port;
     if !std::path::Path::new(&java_path).exists() {
         return Err(tr!("err.wakeNoJava"));
     }
 
     disarm_wake_on_demand(app.clone()).await?;
+    // Armar de novo é uma escolha explícita de ter a espera ligada.
+    hosting::clear_wake_paused(&app);
 
     let cfg = Arc::new(WakeOnDemandConfig {
         short_code: short_code.clone(),
         server_dir,
         java_path,
         ram_gb,
-        local_port,
         server_jar_name,
         launch_args_dir,
         idle_timeout_minutes,
@@ -5783,11 +5785,17 @@ async fn arm_wake_on_demand(
     let generation = {
         let state = app.state::<AppState>();
         *state.wake_on_demand.lock().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
-        state.idle_ticks.store(0, Ordering::SeqCst);
         state.wake_loop_generation.fetch_add(1, Ordering::SeqCst) + 1
     };
 
     log_to_file(&app, &format!("[WakeOnDemand] Armado para {} (timeout: {}min)", short_code, idle_timeout_minutes));
+
+    // Armar com o servidor JÁ rodando (ligado à mão): não anunciar "sleeping" à
+    // API (apagaria o status real) nem abrir o loop de espera — quando a sessão
+    // terminar, o orquestrador volta para a espera sozinho (hosting.rs).
+    if hosting::session_active(&app) {
+        return Ok(());
+    }
 
     // Heartbeat imediata — o convidado não precisa esperar o primeiro tick pra ver "sleeping".
     if let Err(e) = send_sleep_heartbeat(&short_code, "sleeping").await {
@@ -5808,7 +5816,8 @@ async fn disarm_wake_on_demand(app: tauri::AppHandle) -> Result<(), String> {
         let state = app.state::<AppState>();
         state.wake_loop_generation.fetch_add(1, Ordering::SeqCst); // invalida qualquer loop de espera rodando
         let old = state.wake_on_demand.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let hosting = state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let hosting = state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            || hosting::session_active(&app);
         (old, hosting)
     };
 
@@ -5822,6 +5831,8 @@ async fn disarm_wake_on_demand(app: tauri::AppHandle) -> Result<(), String> {
             }
         }
     }
+    // Sem wake-on-demand não há espera a pausar: limpa a marca e avisa a UI.
+    hosting::clear_wake_paused(&app);
     Ok(())
 }
 
@@ -6266,9 +6277,17 @@ pub fn run() {
        pack::pack_import,
        pack::pack_cancel,
        pack::pack_cleanup_stale,
+       hosting::start_hosting,
+       hosting::stop_hosting,
+       hosting::retry_hosting_network,
+       hosting::get_hosting_status,
+       hosting::resume_wake_standby,
        // Comandos de import de modpacks (CurseForge/Modrinth)
        read_modpack_manifest,
        extract_modpack_overrides,
+       mod_identity::read_mod_identities,
+       mod_identity::read_jar_identity,
+       mod_identity::install_staged_mod,
        // Comandos de sincronização com API Central
        sync_register_server,
        sync_update_server,

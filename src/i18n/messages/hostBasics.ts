@@ -13,7 +13,7 @@ export default defineMessages({
     "confirm.wait": "Aguarde...",
 
     "console.tab.minecraft": "Minecraft Console",
-    "console.tab.network": "Rede Mesh",
+    "console.tab.network": "Conexão",
     "console.clear": "Limpar",
     "console.emptyMc": "Console do Minecraft inativo. Inicie o servidor Minecraft para monitorar.",
     "console.emptyNet": "Nenhum log de rede gerado. Inicie o túnel para monitorar.",
@@ -47,7 +47,7 @@ export default defineMessages({
     "confirm.wait": "Please wait...",
 
     "console.tab.minecraft": "Minecraft Console",
-    "console.tab.network": "Mesh Network",
+    "console.tab.network": "Connection",
     "console.clear": "Clear",
     "console.emptyMc": "Minecraft console inactive. Start the Minecraft server to monitor it.",
     "console.emptyNet": "No network logs generated. Start the tunnel to monitor it.",

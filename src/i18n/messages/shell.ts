@@ -4,13 +4,13 @@ import { defineMessages } from "./define";
 export default defineMessages({
   "pt-BR": {
     "close.title": "Fechar o Cubicase",
-    "close.desc": "O que você quer fazer? Se o servidor Minecraft ou a rede mesh estiverem ativos, eles continuam rodando a menos que você escolha fechar tudo.",
+    "close.desc": "O que você quer fazer? Se o servidor Minecraft estiver ativo (e conectado aos seus amigos), ele continua rodando a menos que você escolha fechar tudo.",
     "close.minimize": "Manter em segundo plano",
     "close.minimizing": "Minimizando...",
-    "close.minimizeDesc": "Servidor e rede mesh continuam rodando",
+    "close.minimizeDesc": "Servidor e conexão com os amigos continuam rodando",
     "close.quit": "Fechar tudo",
     "close.quitting": "Fechando...",
-    "close.quitDesc": "Encerra o servidor, a rede mesh e o app",
+    "close.quitDesc": "Encerra o servidor, a conexão com os amigos e o app",
     "common.cancel": "Cancelar",
 
     "update.available": "Nova versão disponível{version}.",
@@ -39,13 +39,13 @@ export default defineMessages({
   },
   en: {
     "close.title": "Close Cubicase",
-    "close.desc": "What do you want to do? If the Minecraft server or the mesh network are active, they keep running unless you choose to close everything.",
+    "close.desc": "What do you want to do? If the Minecraft server is active (and connected to your friends), it keeps running unless you choose to close everything.",
     "close.minimize": "Keep running in the background",
     "close.minimizing": "Minimizing...",
-    "close.minimizeDesc": "Server and mesh network keep running",
+    "close.minimizeDesc": "Server and the connection with friends keep running",
     "close.quit": "Close everything",
     "close.quitting": "Closing...",
-    "close.quitDesc": "Stops the server, the mesh network and the app",
+    "close.quitDesc": "Stops the server, the connection with friends and the app",
     "common.cancel": "Cancel",
 
     "update.available": "New version available{version}.",

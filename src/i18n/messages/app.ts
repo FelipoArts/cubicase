@@ -25,7 +25,7 @@ export default defineMessages({
     "diag.clearHistory": "Limpar histórico",
     "diag.empty": "Nenhum evento registrado ainda.",
 
-    "app.net.meshFailure": "Falha na rede mesh",
+    "app.net.meshFailure": "Falha na conexão de rede",
     "app.autofix.title": "Corrigindo automaticamente",
     "app.autofix.message": "Reinstalando a JRE {java} (provável instalação corrompida) e tentando iniciar \"{name}\" novamente...",
     "app.autofix.log": "[Cubicase] Detectada JRE {java} incompatível/corrompida — reinstalando automaticamente...",
@@ -60,9 +60,9 @@ export default defineMessages({
 
     "app.guest.connecting": "[INFO] Conectando ao código {code}...",
     "app.guest.found": "[INFO] Servidor encontrado: {name} ({version})",
-    "app.guest.notFoundLog": "[ERR] Não foi possível encontrar esse servidor online. Confira o código ou peça para o host verificar se a rede mesh dele está ativa.",
+    "app.guest.notFoundLog": "[ERR] Não foi possível encontrar esse servidor online. Confira o código ou peça para o host verificar se o servidor dele está aberto para os amigos.",
     "app.guest.notFound.title": "Servidor não encontrado",
-    "app.guest.notFound.message": "A API Central não retornou um endereço de rede para esse código — o host provavelmente não está com a rede mesh online agora.",
+    "app.guest.notFound.message": "A API Central não retornou um endereço de rede para esse código — o host provavelmente não está com o servidor aberto para os amigos agora.",
     "app.guest.tunnel": "[INFO] ✅ Túnel estabelecido! Conecte-se em {address}",
     "app.guest.defaultEntryName": "Servidor CubeForge",
     "app.guest.addedToList": "[INFO] ✅ Servidor adicionado automaticamente à sua lista de Multiplayer do Minecraft.",
@@ -93,7 +93,7 @@ export default defineMessages({
     "diag.clearHistory": "Clear history",
     "diag.empty": "No events recorded yet.",
 
-    "app.net.meshFailure": "Mesh network failure",
+    "app.net.meshFailure": "Network connection failure",
     "app.autofix.title": "Fixing automatically",
     "app.autofix.message": "Reinstalling JRE {java} (likely a corrupted installation) and trying to start \"{name}\" again...",
     "app.autofix.log": "[Cubicase] Detected an incompatible/corrupted JRE {java} — reinstalling automatically...",
@@ -128,9 +128,9 @@ export default defineMessages({
 
     "app.guest.connecting": "[INFO] Connecting to code {code}...",
     "app.guest.found": "[INFO] Server found: {name} ({version})",
-    "app.guest.notFoundLog": "[ERR] Couldn't find that server online. Check the code or ask the host to make sure their mesh network is active.",
+    "app.guest.notFoundLog": "[ERR] Couldn't find that server online. Check the code or ask the host to make sure their server is open to friends.",
     "app.guest.notFound.title": "Server not found",
-    "app.guest.notFound.message": "The Central API didn't return a network address for this code — the host probably doesn't have their mesh network online right now.",
+    "app.guest.notFound.message": "The Central API didn't return a network address for this code — the host probably doesn't have their server open to friends right now.",
     "app.guest.tunnel": "[INFO] ✅ Tunnel established! Connect at {address}",
     "app.guest.defaultEntryName": "CubeForge Server",
     "app.guest.addedToList": "[INFO] ✅ Server automatically added to your Minecraft Multiplayer list.",

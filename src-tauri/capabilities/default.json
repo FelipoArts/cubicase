@@ -95,6 +95,13 @@
       ]
     },
     {
+      "identifier": "fs:allow-rename",
+      "allow": [
+        { "path": "$DOCUMENT/CubicaseServers/**/*", "recursive": true },
+        { "path": "$DOCUMENT/CubicaseBackups/**/*", "recursive": true }
+      ]
+    },
+    {
       "identifier": "fs:allow-size",
       "allow": [
         { "path": "**", "recursive": true }

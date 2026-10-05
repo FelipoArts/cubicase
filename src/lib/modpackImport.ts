@@ -3,7 +3,8 @@ import { join, documentDir } from "@tauri-apps/api/path";
 import { exists, readTextFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
 import { installForgeServer, installFabricServer, type ServerInstallProgress } from "@/lib/server";
-import { readModInstallRegistry, writeModInstallRegistry } from "@/lib/modrinth";
+import { readModInstallRegistry, writeModInstallRegistry, lookupModrinthByHashes } from "@/lib/modrinth";
+import { addPendingMods } from "@/lib/pendingMods";
 import { t } from "@/i18n";
 
 // ============================================================
@@ -21,23 +22,19 @@ import { t } from "@/i18n";
 
 const CUBEFORGE_WORKER_BASE = "https://cubeforge-api.cubeforge.workers.dev";
 
-/**
- * O acesso à API da CurseForge para terceiros exige preencher um formulário e
- * passar por aprovação manual deles — ainda não temos uma key aprovada. Até lá,
- * modpacks .zip da CurseForge são recusados com uma mensagem clara em vez de
- * tentar resolver via proxy (que falharia com um erro HTTP genérico e confuso).
- * Trocar para `true` assim que a key for aprovada e configurada no Worker.
- */
-const CURSEFORGE_IMPORT_ENABLED = false;
-
 const CURSEFORGE_BATCH_SIZE = 50;
 /** HashAlgo.Sha1 na API da CurseForge. */
 const CURSEFORGE_SHA1_ALGO = 1;
 
 export type ModpackLoader = "forge" | "neoforge" | "fabric";
 
+/** Pastas do pack que só fazem sentido no cliente — um servidor não usa, então nem baixa. */
+const CLIENT_ONLY_DIRS = new Set(["resourcepacks", "shaderpacks", "screenshots"]);
+
 export interface ModpackModEntry {
   filename: string;
+  /** Pasta do servidor onde o arquivo vive ("mods", "config"...). Sempre "mods" nos packs da CurseForge. */
+  dir: string;
   url: string;
   sha1: string | null;
   source: "curseforge" | "modrinth";
@@ -50,6 +47,9 @@ export interface UnresolvedModpackMod {
   projectId: number;
   fileId: number;
   slug: string | null;
+  /** Nome do mod e do arquivo esperado (da API da CurseForge), quando disponíveis. */
+  name: string | null;
+  fileName: string | null;
 }
 
 export interface ParsedModpack {
@@ -60,7 +60,10 @@ export interface ParsedModpack {
   loader: ModpackLoader;
   loaderVersion: string;
   mods: ModpackModEntry[];
+  /** Bloqueados na CurseForge E ausentes na Modrinth: o host precisa baixar à mão. */
   unresolvedMods: UnresolvedModpackMod[];
+  /** Quantos mods bloqueados na CurseForge foram obtidos na Modrinth (mesmo arquivo, conferido pelo hash). */
+  recoveredViaModrinth: number;
   overridesFolders: string[];
   zipPath: string;
 }
@@ -73,7 +76,7 @@ interface RawManifestSummary {
   loader: string;
   loader_version: string;
   curseforge_files: { project_id: number; file_id: number; required: boolean }[];
-  modrinth_files: { path: string; url: string; sha1: string | null; file_size: number | null }[];
+  modrinth_files: { path: string; dir: string; url: string; sha1: string | null; file_size: number | null }[];
   overrides_folders: string[];
 }
 
@@ -94,6 +97,7 @@ interface CurseForgeFileResponseEntry {
 interface CurseForgeModResponseEntry {
   id: number;
   slug: string;
+  name?: string;
 }
 
 async function curseForgeProxyFetch<T>(path: string, body: unknown): Promise<T> {
@@ -119,8 +123,8 @@ async function curseForgeProxyFetch<T>(path: string, body: unknown): Promise<T> 
  */
 async function resolveCurseForgeFiles(
   files: CurseForgeFileRef[]
-): Promise<{ resolved: ModpackModEntry[]; unresolved: UnresolvedModpackMod[] }> {
-  if (files.length === 0) return { resolved: [], unresolved: [] };
+): Promise<{ resolved: ModpackModEntry[]; unresolved: UnresolvedModpackMod[]; recovered: number }> {
+  if (files.length === 0) return { resolved: [], unresolved: [], recovered: 0 };
 
   const byFileId = new Map<number, CurseForgeFileRef>();
   for (const f of files) byFileId.set(f.file_id, f);
@@ -136,7 +140,7 @@ async function resolveCurseForgeFiles(
 
   const resolved: ModpackModEntry[] = [];
   const unresolvedProjectIds = new Set<number>();
-  const unresolvedRefs: { projectId: number; fileId: number }[] = [];
+  const unresolvedRefs: { projectId: number; fileId: number; fileName: string | null; sha1: string | null }[] = [];
 
   for (const [fileId, ref] of byFileId) {
     const match = resolvedFiles.find((f) => f.id === fileId);
@@ -144,6 +148,7 @@ async function resolveCurseForgeFiles(
       const sha1 = match.hashes?.find((h) => h.algo === CURSEFORGE_SHA1_ALGO)?.value ?? null;
       resolved.push({
         filename: match.fileName,
+        dir: "mods",
         url: match.downloadUrl,
         sha1,
         source: "curseforge",
@@ -151,30 +156,60 @@ async function resolveCurseForgeFiles(
         fileOrVersionId: fileId,
       });
     } else {
-      unresolvedProjectIds.add(ref.project_id);
-      unresolvedRefs.push({ projectId: ref.project_id, fileId });
+      // Bloqueado para terceiros: o hash vem nos metadados mesmo sem URL de download.
+      unresolvedRefs.push({
+        projectId: ref.project_id,
+        fileId,
+        fileName: match?.fileName ?? null,
+        sha1: match?.hashes?.find((h) => h.algo === CURSEFORGE_SHA1_ALGO)?.value ?? null,
+      });
     }
   }
 
-  if (unresolvedProjectIds.size === 0) return { resolved, unresolved: [] };
+  // Segunda chance: o MESMO arquivo (hash igual) costuma estar liberado na Modrinth.
+  const onModrinth = await lookupModrinthByHashes(unresolvedRefs.flatMap((r) => (r.sha1 ? [r.sha1] : [])));
+  const stillBlocked: typeof unresolvedRefs = [];
+  let recovered = 0;
+  for (const r of unresolvedRefs) {
+    const hit = r.sha1 ? onModrinth.get(r.sha1.toLowerCase()) : undefined;
+    if (hit) {
+      resolved.push({
+        filename: hit.filename,
+        dir: "mods",
+        url: hit.url,
+        sha1: r.sha1,
+        source: "modrinth",
+        projectId: hit.projectId,
+        fileOrVersionId: hit.versionId,
+      });
+      recovered++;
+    } else {
+      stillBlocked.push(r);
+      unresolvedProjectIds.add(r.projectId);
+    }
+  }
 
-  let slugs = new Map<number, string>();
+  if (stillBlocked.length === 0) return { resolved, unresolved: [], recovered };
+
+  let infos = new Map<number, CurseForgeModResponseEntry>();
   try {
     const modData = await curseForgeProxyFetch<CurseForgeModResponseEntry[]>("/v1/mods", {
       modIds: Array.from(unresolvedProjectIds),
     });
-    slugs = new Map(modData.map((m) => [m.id, m.slug]));
+    infos = new Map(modData.map((m) => [m.id, m]));
   } catch {
     // Sem o slug ainda mostramos o aviso de "baixe manualmente" — só sem o link direto.
   }
 
-  const unresolved: UnresolvedModpackMod[] = unresolvedRefs.map((r) => ({
+  const unresolved: UnresolvedModpackMod[] = stillBlocked.map((r) => ({
     projectId: r.projectId,
     fileId: r.fileId,
-    slug: slugs.get(r.projectId) ?? null,
+    slug: infos.get(r.projectId)?.slug ?? null,
+    name: infos.get(r.projectId)?.name ?? null,
+    fileName: r.fileName,
   }));
 
-  return { resolved, unresolved };
+  return { resolved, unresolved, recovered };
 }
 
 /**
@@ -186,12 +221,16 @@ export async function parseModpack(zipPath: string): Promise<ParsedModpack> {
   const loader = raw.loader as ModpackLoader;
 
   if (raw.format === "modrinth") {
-    const mods: ModpackModEntry[] = raw.modrinth_files.map((f) => ({
-      filename: f.path.split("/").pop() || f.path,
-      url: f.url,
-      sha1: f.sha1,
-      source: "modrinth",
-    }));
+    const mods: ModpackModEntry[] = raw.modrinth_files
+      .map((f) => ({
+        filename: f.path.split("/").pop() || f.path,
+        // Antes tudo ia para mods/ — resource packs (.zip) incluídos. Agora respeita a pasta do pack.
+        dir: f.dir || "mods",
+        url: f.url,
+        sha1: f.sha1,
+        source: "modrinth" as const,
+      }))
+      .filter((f) => !CLIENT_ONLY_DIRS.has(f.dir.split("/")[0].toLowerCase()));
     return {
       format: "modrinth",
       packName: raw.pack_name,
@@ -201,18 +240,13 @@ export async function parseModpack(zipPath: string): Promise<ParsedModpack> {
       loaderVersion: raw.loader_version,
       mods,
       unresolvedMods: [],
+      recoveredViaModrinth: 0,
       overridesFolders: raw.overrides_folders,
       zipPath,
     };
   }
 
-  if (!CURSEFORGE_IMPORT_ENABLED) {
-    throw new Error(
-      t("modpack.curseforgeUnavailable")
-    );
-  }
-
-  const { resolved, unresolved } = await resolveCurseForgeFiles(raw.curseforge_files);
+  const { resolved, unresolved, recovered } = await resolveCurseForgeFiles(raw.curseforge_files);
   return {
     format: "curseforge",
     packName: raw.pack_name,
@@ -222,6 +256,7 @@ export async function parseModpack(zipPath: string): Promise<ParsedModpack> {
     loaderVersion: raw.loader_version,
     mods: resolved,
     unresolvedMods: unresolved,
+    recoveredViaModrinth: recovered,
     overridesFolders: raw.overrides_folders,
     zipPath,
   };
@@ -285,16 +320,21 @@ export async function installModpack(
         status: `Baixando ${mod.filename} (${i + 1}/${total})...`,
         percent: 40 + Math.round((i / Math.max(total, 1)) * 45),
       });
-      const destPath = await join(serverPath, "mods", mod.filename);
+      const destPath = await join(serverPath, mod.dir, mod.filename);
       await invoke("download_server_jar", { url: mod.url, destPath, expectedSha1: mod.sha1, expectedSha256: null });
-      registry[mod.filename] = {
-        source: mod.source,
-        installedViaModpack: parsed.packName,
-        projectId: mod.projectId,
-        fileOrVersionId: mod.fileOrVersionId,
-      };
+      // O registro de proveniência é só dos mods (mods/); configs e afins não entram.
+      if (mod.dir === "mods") {
+        registry[mod.filename] = {
+          source: mod.source,
+          installedViaModpack: parsed.packName,
+          projectId: mod.projectId,
+          fileOrVersionId: mod.fileOrVersionId,
+        };
+      }
     }
     await writeModInstallRegistry(serverPath, registry);
+    // O que ficou bloqueado em todas as fontes vira pendência persistente do servidor.
+    await addPendingMods(serverPath, parsed.packName, parsed.unresolvedMods).catch(() => {});
 
     if (parsed.overridesFolders.length > 0) {
       onProgress({ status: "Extraindo arquivos adicionais do modpack...", percent: 88 });

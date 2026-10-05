@@ -34,7 +34,7 @@ export interface ModrinthSearchHit {
   author: string;
   icon_url: string | null;
   downloads: number;
-  project_type: "mod" | "plugin" | "resourcepack" | "shader" | "datapack";
+  project_type: "mod" | "plugin" | "modpack" | "resourcepack" | "shader" | "datapack";
 }
 
 interface ModrinthSearchResponse {
@@ -64,7 +64,34 @@ export interface ModrinthVersion {
   loaders: string[];
   dependencies: ModrinthDependency[];
   files: ModrinthVersionFile[];
+  /**
+   * Só para versões vindas da CurseForge (ver curseforge.ts): página do projeto
+   * para download manual, usada quando o autor desabilitou a distribuição por
+   * terceiros (arquivo sem URL de download).
+   */
+  manualDownloadUrl?: string;
 }
+
+/** Ordenação e categoria do navegador de mods — comuns às duas fontes. */
+export type ModSort = "popular" | "updated" | "newest";
+export type ModCategory = "optimization" | "technology" | "adventure" | "magic" | "worldgen" | "utility";
+export const MOD_CATEGORIES: ModCategory[] = ["optimization", "technology", "adventure", "magic", "worldgen", "utility"];
+
+/** O que o navegador busca: mods/plugins avulsos ou modpacks prontos. */
+export type ContentKind = "mod" | "modpack";
+
+export interface ModSearchOptions {
+  /** Padrão "mod". Modpacks só existem para loaders de mod (não para plugins). */
+  kind?: ContentKind;
+  mcVersion: string;
+  serverType: string;
+  offset?: number;
+  sort?: ModSort;
+  /** Só faz sentido para mods (plugins têm categorias próprias, não mapeadas). */
+  category?: ModCategory;
+}
+
+const MODRINTH_SORT_INDEX: Record<ModSort, string> = { popular: "downloads", updated: "updated", newest: "newest" };
 
 export interface ModrinthLoaderInfo {
   projectType: "mod" | "plugin";
@@ -114,6 +141,46 @@ export async function checkModrinthReachable(): Promise<boolean> {
   }
 }
 
+export interface ModrinthHashMatch {
+  url: string;
+  filename: string;
+  projectId: string;
+  versionId: string;
+}
+
+const HASH_LOOKUP_BATCH = 200;
+
+/**
+ * Procura na Modrinth arquivos pelo SHA-1. Hash igual = arquivo idêntico, então
+ * serve para obter na Modrinth um mod que a CurseForge bloqueia para terceiros.
+ * Nunca lança: qualquer falha (sem rede, resposta estranha) só significa "nenhum
+ * encontrado" e o chamador segue com o que tem. Chaves do mapa em minúsculas.
+ */
+export async function lookupModrinthByHashes(sha1s: string[]): Promise<Map<string, ModrinthHashMatch>> {
+  const found = new Map<string, ModrinthHashMatch>();
+  const unique = [...new Set(sha1s.map((h) => h.toLowerCase()))];
+  for (let i = 0; i < unique.length; i += HASH_LOOKUP_BATCH) {
+    try {
+      const res = await fetch(`${MODRINTH_API}/version_files`, {
+        method: "POST",
+        headers: { "User-Agent": MODRINTH_USER_AGENT, "Content-Type": "application/json" },
+        body: JSON.stringify({ hashes: unique.slice(i, i + HASH_LOOKUP_BATCH), algorithm: "sha1" }),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as Record<string, ModrinthVersion>;
+      for (const [hash, version] of Object.entries(data)) {
+        const file = version.files.find((f) => f.hashes.sha1?.toLowerCase() === hash.toLowerCase());
+        if (file?.url) {
+          found.set(hash.toLowerCase(), { url: file.url, filename: file.filename, projectId: version.project_id, versionId: version.id });
+        }
+      }
+    } catch {
+      // segue com o que já foi encontrado
+    }
+  }
+  return found;
+}
+
 const searchCache: Map<string, { hits: ModrinthSearchHit[]; totalHits: number; fetchedAt: number }> = new Map();
 
 /**
@@ -124,24 +191,36 @@ const searchCache: Map<string, { hits: ModrinthSearchHit[]; totalHits: number; f
  */
 export async function searchModrinthProjects(
   query: string,
-  opts: { mcVersion: string; serverType: string; offset?: number }
+  opts: ModSearchOptions
 ): Promise<{ hits: ModrinthSearchHit[]; totalHits: number }> {
   const loaderInfo = loaderForServerType(opts.serverType);
   if (!loaderInfo) return { hits: [], totalHits: 0 };
 
   const offset = opts.offset ?? 0;
-  const cacheKey = `${query}|${opts.mcVersion}|${opts.serverType}|${offset}`;
+  const sort = opts.sort ?? "popular";
+  const kind = opts.kind ?? "mod";
+  if (kind === "modpack" && loaderInfo.projectType !== "mod") return { hits: [], totalHits: 0 };
+  // Categorias de modpack são outras (kitchen-sink, quests...) — não mapeadas.
+  const category = loaderInfo.projectType === "mod" && kind === "mod" ? opts.category : undefined;
+  const cacheKey = `${kind}|${query}|${opts.mcVersion}|${opts.serverType}|${offset}|${sort}|${category ?? ""}`;
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < MODRINTH_CACHE_TTL) {
     return { hits: cached.hits, totalHits: cached.totalHits };
   }
 
-  const facets = JSON.stringify([
-    [`project_type:${loaderInfo.projectType}`],
+  const facetGroups = [
+    [`project_type:${kind === "modpack" ? "modpack" : loaderInfo.projectType}`],
     [`versions:${opts.mcVersion}`],
     [`categories:${loaderInfo.loader}`],
-  ]);
-  const url = `${MODRINTH_API}/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&limit=20&offset=${offset}`;
+  ];
+  // Sem isso a lista de populares vira um mar de mods só de cliente (Sodium,
+  // minimapas, shaders...) que não servem em servidor. Grupo = OR.
+  // Vale também para modpacks: os que são só de cliente (server_side:unsupported) ficam de fora.
+  if (loaderInfo.projectType === "mod") facetGroups.push(["server_side:required", "server_side:optional"]);
+  if (category) facetGroups.push([`categories:${category}`]);
+  const facets = JSON.stringify(facetGroups);
+  const index = query.trim() ? "relevance" : MODRINTH_SORT_INDEX[sort];
+  const url = `${MODRINTH_API}/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${index}&limit=20&offset=${offset}`;
   const res = await modrinthFetch(url);
   const data = (await res.json()) as ModrinthSearchResponse;
   searchCache.set(cacheKey, { hits: data.hits, totalHits: data.total_hits, fetchedAt: Date.now() });
@@ -197,6 +276,8 @@ export async function getModrinthProjectTitle(projectId: string): Promise<string
 // dependência "já instalado?" e para uma futura verificação de atualização.
 
 export interface ModInstallRecord {
+  /** Ausente em registros antigos — sempre foram da Modrinth. */
+  source?: "modrinth" | "curseforge";
   projectId: string;
   versionId: string;
   projectTitle: string;
@@ -249,21 +330,30 @@ export interface MissingDependency {
  */
 export async function resolveRequiredDependencies(
   version: ModrinthVersion,
-  serverDir: string
+  serverDir: string,
+  opts: { source?: "modrinth" | "curseforge"; getTitle?: (projectId: string) => Promise<string> } = {}
 ): Promise<MissingDependency[]> {
+  const source = opts.source ?? "modrinth";
+  const getTitle = opts.getTitle ?? getModrinthProjectTitle;
   const required = version.dependencies.filter(
     (d): d is ModrinthDependency & { project_id: string } => d.dependency_type === "required" && !!d.project_id
   );
   if (required.length === 0) return [];
 
   const registry = await readModInstallRegistry(serverDir);
-  const installedProjectIds = new Set(Object.values(registry).map((r) => r.projectId));
+  // Ids da Modrinth (strings) e da CurseForge (numéricos) vivem no mesmo
+  // registro — só vale comparar dentro da mesma origem.
+  const installedProjectIds = new Set(
+    Object.values(registry)
+      .filter((r) => (r.source ?? "modrinth") === source)
+      .map((r) => String(r.projectId))
+  );
   const missing = required.filter((d) => !installedProjectIds.has(d.project_id));
 
   return Promise.all(
     missing.map(async (d) => ({
       projectId: d.project_id,
-      title: await getModrinthProjectTitle(d.project_id),
+      title: await getTitle(d.project_id),
     }))
   );
 }
@@ -289,7 +379,7 @@ export async function installModrinthFile(
   const file = version.files.find((f) => f.primary) ?? version.files[0];
   if (!file) throw new Error(t("modrinth.noFile"));
 
-  onProgress({ status: `Baixando ${file.filename}...`, percent: 20 });
+  onProgress({ status: t("modrinth.downloading", { file: file.filename }), percent: 20 });
   const destPath = await join(serverDir, itemsFolder, file.filename);
   await invoke("download_server_jar", {
     url: file.url,
@@ -301,6 +391,7 @@ export async function installModrinthFile(
 
   const registry = await readModInstallRegistry(serverDir);
   registry[file.filename] = {
+    source: "modrinth",
     projectId: version.project_id,
     versionId: version.id,
     projectTitle,
@@ -310,5 +401,5 @@ export async function installModrinthFile(
       .map((d) => d.project_id as string),
   };
   await writeModInstallRegistry(serverDir, registry);
-  onProgress({ status: "Mod instalado.", percent: 100 });
+  onProgress({ status: t("modrinth.installedDone"), percent: 100 });
 }

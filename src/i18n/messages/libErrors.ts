@@ -19,8 +19,8 @@ export default defineMessages({
     "client.fabricInstalled": "Fabric já instalado.",
     "client.alreadyInstalled": "{label} já instalado.",
 
+    "curseforge.downloadRestricted": "O autor de \"{name}\" não permite o download por aplicativos de terceiros — baixe o arquivo manualmente pelo site da CurseForge.",
     "modpack.curseforgeHttp": "Falha ao consultar a CurseForge (HTTP {status}). O serviço de import pode estar temporariamente indisponível.",
-    "modpack.curseforgeUnavailable": "Import de modpacks da CurseForge ainda não está disponível (aguardando aprovação de acesso à API deles). Por enquanto, use um pacote .mrpack do Modrinth.",
     "modpack.nameExists": "Já existe um servidor com o nome \"{name}\".",
     "modpack.motd": "Servidor Cubicase [{pack}] - {name}",
 
@@ -31,6 +31,8 @@ export default defineMessages({
 
     "modrinth.noFile": "Esta versão não possui nenhum arquivo para download.",
     "modrinth.downloadDone": "Download concluído.",
+    "modrinth.downloading": "Baixando {file}...",
+    "modrinth.installedDone": "Mod instalado.",
 
     "invite.slugHint": "3 a 32 letras minúsculas, números ou hífen, sem hífen nas pontas.",
   },
@@ -50,8 +52,8 @@ export default defineMessages({
     "client.fabricInstalled": "Fabric already installed.",
     "client.alreadyInstalled": "{label} already installed.",
 
+    "curseforge.downloadRestricted": "The author of \"{name}\" doesn't allow downloads from third-party apps — download the file manually from the CurseForge website.",
     "modpack.curseforgeHttp": "Failed to query CurseForge (HTTP {status}). The import service may be temporarily unavailable.",
-    "modpack.curseforgeUnavailable": "Importing CurseForge modpacks isn't available yet (waiting for their API access approval). For now, use a Modrinth .mrpack package.",
     "modpack.nameExists": "A server named \"{name}\" already exists.",
     "modpack.motd": "Cubicase Server [{pack}] - {name}",
 
@@ -62,6 +64,8 @@ export default defineMessages({
 
     "modrinth.noFile": "This version has no downloadable file.",
     "modrinth.downloadDone": "Download complete.",
+    "modrinth.downloading": "Downloading {file}...",
+    "modrinth.installedDone": "Mod installed.",
 
     "invite.slugHint": "3 to 32 lowercase letters, numbers or hyphens, with no hyphen at the ends.",
   },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Blocks,
   Globe2,
@@ -16,6 +16,8 @@ import {
   Square,
   PackagePlus,
   PackageOpen,
+  Search,
+  X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
@@ -25,9 +27,14 @@ import { getBackupsDir } from "@/lib/server";
 import type { ServerStatus } from "@/app/store";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
+import { Checkbox } from "@/app/components/Checkbox";
+import { Switch } from "@/app/components/Switch";
 import { ExportPackModal } from "./ExportPackModal";
 import { readPending, completePending, type PackPending } from "@/lib/cubicasePack";
 import { loaderForServerType } from "@/lib/modrinth";
+import { readModIdentities, findDuplicates, type ModIdentity } from "@/lib/modIdentity";
+import { reconcilePendingMods, dismissPendingMods, pendingModPageUrl, type PendingMod } from "@/lib/pendingMods";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useT, t as tn, getLocale } from "@/i18n";
 
 // ============================================================
@@ -57,6 +64,9 @@ interface ServerManagePanelProps {
   serverType: string;
   serverStatus: ServerStatus;
   mcVersion: string | null;
+  /** Abre o navegador de mods logo ao montar (servidor recém-criado). */
+  autoOpenModBrowser?: boolean;
+  onAutoOpenHandled?: () => void;
 }
 
 type PendingAction =
@@ -65,6 +75,19 @@ type PendingAction =
   | { kind: "delete-backup"; fileName: string }
   | { kind: "restore-backup"; fileName: string }
   | { kind: "reset-world" };
+
+/** Minúsculas e sem acento, para "acao" achar "Ação". */
+const normalizeSearch = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Todas as palavras digitadas precisam aparecer no nome do arquivo ou no id interno do mod. */
+function filterMods(mods: ModInfo[], idByFile: Map<string, string>, query: string): ModInfo[] {
+  const tokens = normalizeSearch(query).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return mods;
+  return mods.filter((m) => {
+    const haystack = normalizeSearch(`${m.display_name} ${idByFile.get(m.file_name) ?? ""}`);
+    return tokens.every((tok) => haystack.includes(tok));
+  });
+}
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -81,7 +104,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion }: ServerManagePanelProps) {
+export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion, autoOpenModBrowser, onAutoOpenHandled }: ServerManagePanelProps) {
   const { t, rich } = useT();
   // Forge/NeoForge/Fabric usam pasta "mods"; Paper (e derivados como Spigot/Purpur)
   // usam pasta "plugins" — mesmo conceito de gerenciamento, pasta e rótulo diferentes.
@@ -95,7 +118,7 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   // compatibilidade, que nem sempre está disponível (ex: servidor importado sem meta).
   const modBrowserAvailable = modsCapable && !!loaderForServerType(serverType) && !!mcVersion;
   const [activeTab, setActiveTab] = useState<"mods" | "mundo">(modsCapable ? "mods" : "mundo");
-  const [showModBrowser, setShowModBrowser] = useState(false);
+  const [showModBrowser, setShowModBrowser] = useState(() => !!autoOpenModBrowser && modBrowserAvailable);
   const [showExportPack, setShowExportPack] = useState(false);
   // Importação de um pacote leve sem internet deixa mods pendentes (ver cubicasePack.ts).
   const [pendingPack, setPendingPack] = useState<PackPending | null>(null);
@@ -103,6 +126,9 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   const [completeNote, setCompleteNote] = useState<string | null>(null);
 
   const [mods, setMods] = useState<ModInfo[]>([]);
+  const [identities, setIdentities] = useState<ModIdentity[]>([]);
+  // Mods de modpacks bloqueados em todas as fontes: o host baixa à mão (ver lib/pendingMods.ts).
+  const [pendingMods, setPendingMods] = useState<PendingMod[]>([]);
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loadingMods, setLoadingMods] = useState(false);
   const [loadingBackups, setLoadingBackups] = useState(false);
@@ -110,8 +136,27 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
+  const [modQuery, setModQuery] = useState("");
 
   const isServerStopped = serverStatus === "offline" || serverStatus === "crashed";
+
+  // O mesmo mod (mesmo id interno) em mais de um arquivo ativo, mesmo com nomes/versões diferentes.
+  const duplicateByFile = useMemo(() => {
+    const map = new Map<string, { modId: string; others: string[] }>();
+    for (const group of findDuplicates(identities)) {
+      for (const f of group.files) {
+        map.set(f.file_name, { modId: group.modId, others: group.files.filter((o) => o !== f).map((o) => o.file_name) });
+      }
+    }
+    return map;
+  }, [identities]);
+  const duplicateCount = useMemo(() => new Set([...duplicateByFile.values()].map((d) => d.modId)).size, [duplicateByFile]);
+
+  // Servidor recém-criado: avisa o HostView que o pedido de abrir o navegador de mods foi atendido.
+  useEffect(() => {
+    if (autoOpenModBrowser) onAutoOpenHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Some mensagens de erro (ex: aviso de backup sem mundo) somem sozinhas depois de um tempo.
   useEffect(() => {
@@ -145,6 +190,10 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     try {
       const list = await invoke<ModInfo[]>("list_mods", { serverDir, folderName: itemsFolder });
       setMods(list);
+      // Identidade lida dos jars: serve só para apontar mods duplicados — se falhar, a lista segue normal.
+      readModIdentities(serverDir, itemsFolder).then(setIdentities).catch(() => setIdentities([]));
+      // Tira da lista de pendentes o que o host já colocou na pasta.
+      reconcilePendingMods(serverDir).then(setPendingMods).catch(() => {});
       setSelectedMods((prev) => {
         const stillPresent = new Set([...prev].filter((fileName) => list.some((m) => m.file_name === fileName)));
         return stillPresent.size === prev.size ? prev : stillPresent;
@@ -156,6 +205,14 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
       setLoadingMods(false);
     }
   }, [serverDir, modsCapable, itemsFolder]);
+
+  // O host baixa o mod no navegador e volta ao app: ao recuperar o foco, relê a pasta para a pendência sumir sozinha.
+  useEffect(() => {
+    if (pendingMods.length === 0) return;
+    const onFocus = () => { loadMods(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [pendingMods.length, loadMods]);
 
   const loadBackups = useCallback(async () => {
     setLoadingBackups(true);
@@ -200,10 +257,36 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     });
   };
 
-  const allModsSelected = mods.length > 0 && selectedMods.size === mods.length;
+  // Id interno de cada jar (lido por read_mod_identities): a busca acha o mod por ele também.
+  const idByFile = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const i of identities) if (i.mod_id) map.set(i.file_name, i.mod_id);
+    return map;
+  }, [identities]);
+  const visibleMods = useMemo(() => filterMods(mods, idByFile, modQuery), [mods, idByFile, modQuery]);
+
+  // "Selecionar todos" e a exclusão em lote valem só para o que está visível: nunca
+  // apagar em lote algo que a busca escondeu.
+  const allModsSelected = visibleMods.length > 0 && visibleMods.every((m) => selectedMods.has(m.file_name));
 
   const toggleSelectAllMods = () => {
-    setSelectedMods(allModsSelected ? new Set() : new Set(mods.map((m) => m.file_name)));
+    setSelectedMods((prev) => {
+      const next = new Set(prev);
+      for (const m of visibleMods) {
+        if (allModsSelected) next.delete(m.file_name);
+        else next.add(m.file_name);
+      }
+      return next;
+    });
+  };
+
+  const handleModQueryChange = (query: string) => {
+    setModQuery(query);
+    const stillVisible = new Set(filterMods(mods, idByFile, query).map((m) => m.file_name));
+    setSelectedMods((prev) => {
+      const kept = new Set([...prev].filter((f) => stillVisible.has(f)));
+      return kept.size === prev.size ? prev : kept;
+    });
   };
 
   const handleOpenModsFolder = async () => {
@@ -326,6 +409,63 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </div>
           )}
 
+          {pendingMods.length > 0 && (
+            <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-2xl space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold">{t("pendingMods.title", { count: pendingMods.length })}</p>
+                  <p className="text-xs leading-relaxed mt-0.5">{t("pendingMods.subtitle")}</p>
+                </div>
+              </div>
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                {pendingMods.map((m) => (
+                  <li key={m.key} className="flex items-center justify-between gap-3 bg-white/50 dark:bg-black/20 rounded-xl px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate">{m.name}</p>
+                      <p className="text-[11px] opacity-80 truncate">
+                        {t("pendingMods.fromPack", { pack: m.packName })}
+                        {m.fileName ? ` · ${m.fileName}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openExternal(pendingModPageUrl(m))}
+                        className="h-7 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        {t("pendingMods.openPage")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dismissPendingMods(serverDir, [m.key]).then(setPendingMods)}
+                        className="h-7 px-2.5 rounded-lg hover:bg-amber-200/60 dark:hover:bg-amber-800/40 text-[11px] font-bold cursor-pointer"
+                      >
+                        {t("pendingMods.dismiss")}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenModsFolder}
+                  className="h-8 px-3 rounded-xl bg-white/60 dark:bg-black/20 hover:bg-white dark:hover:bg-black/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" /> {t("pendingMods.openFolder")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismissPendingMods(serverDir, "all").then(setPendingMods)}
+                  className="h-8 px-3 rounded-xl text-xs font-bold hover:bg-amber-200/60 dark:hover:bg-amber-800/40 cursor-pointer"
+                >
+                  {t("pendingMods.dismissAll")}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2">
             {selectedMods.size > 0 && (
               <>
@@ -374,6 +514,41 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </button>
           </div>
 
+          {duplicateCount > 0 && (
+            <div className="p-3 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-xl flex items-center gap-2.5 text-xs">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              {t("manage.dup.banner", { count: duplicateCount })}
+            </div>
+          )}
+
+          {mods.length > 0 && (
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-secondary pointer-events-none" />
+              <input
+                type="text"
+                value={modQuery}
+                onChange={(e) => handleModQueryChange(e.target.value)}
+                placeholder={t("manage.searchPlaceholder", { items: itemsLabel.toLowerCase() })}
+                className="w-full h-10 pl-10 pr-20 border border-theme-card rounded-2xl focus:border-indigo-500 focus:outline-none transition-all text-sm font-semibold text-theme-primary bg-transparent"
+              />
+              {modQuery && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-theme-secondary">
+                    {t("manage.searchCount", { shown: visibleMods.length, total: mods.length })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleModQueryChange("")}
+                    title={t("manage.searchClear")}
+                    className="h-6 w-6 flex items-center justify-center rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {mods.length === 0 ? (
             <div className="text-center py-10 text-theme-secondary text-sm">
               {loadingMods ? (
@@ -384,45 +559,48 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
-              {mods.map((mod) => (
+              {visibleMods.length === 0 && (
+                <div className="text-center py-8 text-theme-secondary text-sm">
+                  {t("manage.searchNoMatch", { item: itemWord, query: modQuery })}
+                </div>
+              )}
+              {visibleMods.map((mod) => (
                 <div
                   key={mod.file_name}
                   className="flex items-center justify-between gap-3 bg-theme-muted border border-theme-card rounded-2xl px-4 py-3"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={selectedMods.has(mod.file_name)}
                       onChange={() => toggleModSelection(mod.file_name)}
-                      className="w-4 h-4 rounded accent-indigo-600 cursor-pointer flex-shrink-0"
                       title={t("manage.selectMod")}
                     />
                     <div className="min-w-0">
-                      <p className={cn("text-sm font-semibold truncate", mod.enabled ? "text-theme-primary" : "text-theme-secondary line-through")}>
-                        {mod.display_name}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className={cn("text-sm font-semibold truncate", mod.enabled ? "text-theme-primary" : "text-theme-secondary line-through")}>
+                          {mod.display_name}
+                        </p>
+                        {mod.enabled && duplicateByFile.has(mod.file_name) && (
+                          <span
+                            title={t("manage.dup.title", {
+                              id: duplicateByFile.get(mod.file_name)!.modId,
+                              files: duplicateByFile.get(mod.file_name)!.others.join(", "),
+                            })}
+                            className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold uppercase tracking-wide flex-shrink-0"
+                          >
+                            {t("manage.dup.badge")}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-theme-secondary">{formatSize(mod.size_bytes)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={mod.enabled}
-                      onClick={() => handleToggleMod(mod)}
+                    <Switch
+                      checked={mod.enabled}
+                      onChange={() => handleToggleMod(mod)}
                       title={mod.enabled ? t("manage.disable", { item: itemWord }) : t("manage.enable", { item: itemWord })}
-                      className={cn(
-                        "relative h-6 w-11 rounded-full transition-colors cursor-pointer flex-shrink-0",
-                        mod.enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-0.5 left-0.5 h-5 w-5 bg-white rounded-full shadow transition-transform",
-                          mod.enabled ? "translate-x-5" : "translate-x-0"
-                        )}
-                      />
-                    </button>
+                    />
                     <button
                       type="button"
                       onClick={() => setPendingAction({ kind: "delete-mod", fileName: mod.file_name, displayName: mod.display_name })}

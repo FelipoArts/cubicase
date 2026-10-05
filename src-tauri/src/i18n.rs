@@ -120,6 +120,7 @@ mod tests {
             include_str!("api_client.rs"),
             include_str!("provider_manager.rs"),
             include_str!("panel_agent.rs"),
+            include_str!("hosting.rs"),
         ];
         let mut checked = 0;
         for src in sources {

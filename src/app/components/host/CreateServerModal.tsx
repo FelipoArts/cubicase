@@ -13,6 +13,7 @@ import {
   searchVersions,
   getJavaVersion,
   getForgeVersions,
+  sanitizeServerFolderName,
   getFabricLoaderVersions,
   getPaperBuilds,
   type VersionManifest,
@@ -219,7 +220,7 @@ export function CreateServerModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serverName.trim()) return;
-    const cleanName = serverName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const cleanName = sanitizeServerFolderName(serverName);
     const seed = serverSeed.trim() || undefined;
     if (serverType === "forge") {
       if (!selectedForgeBuild) {

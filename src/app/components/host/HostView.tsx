@@ -21,13 +21,22 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { open } from "@tauri-apps/plugin-dialog";
-import { documentDir, join } from "@tauri-apps/api/path";
+import { documentDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { readTextFile, remove } from "@tauri-apps/plugin-fs";
+import { remove } from "@tauri-apps/plugin-fs";
 import { useAppStore, type ServerStatus } from "@/app/store";
 import { pushDiagnostic } from "@/app/diagnostics";
-import { installJRE, isJREInstalled, getJREPath, type DownloadProgress } from "@/lib/jre";
+import {
+  hostingHeadline,
+  type HostingHeadline,
+  isGuestActiveError,
+  isHostingActive,
+  isPrimaryDisabled,
+  isStopAction,
+  secondsUntilRetry,
+  type HostingStatus,
+} from "@/lib/hosting";
 import {
   listLocalServers,
   listAllServers,
@@ -38,6 +47,7 @@ import {
   importExistingServer,
   scanExternalServer,
   getJavaVersion,
+  startServerOrchestrated,
   updateStoredShortCode,
   type ServerInfo,
   type ServerInstallProgress,
@@ -48,6 +58,8 @@ import { installModpack, type ParsedModpack } from "@/lib/modpackImport";
 import { ServerConfigModal } from "@/app/ServerConfigModal";
 import { ConsolePanel } from "./ConsolePanel";
 import { ServerManagePanel } from "./ServerManagePanel";
+import { loaderForServerType } from "@/lib/modrinth";
+import { reconcilePendingMods } from "@/lib/pendingMods";
 import { PlayersPanel } from "./PlayersPanel";
 import { ServerList } from "./ServerList";
 import { CreateServerModal } from "./CreateServerModal";
@@ -74,8 +86,8 @@ interface HostViewProps {
   // como se fosse a rede DELE, quando na verdade era a do convidado.
   netMode: "host" | "guest" | null;
   netIp: string | null;
-  isStarting: boolean;
-  downloadProgress: DownloadProgress | null;
+  /** Status único da hospedagem (servidor + rede) vindo do backend. */
+  hosting: HostingStatus;
   logs: string[];
   mcLogs: string[];
   localServers: ServerInfo[];
@@ -92,11 +104,6 @@ interface HostViewProps {
   resourceSample: ResourceSnapshot | null;
 
   // Callbacks
-  onSetNetStatus: (status: "offline" | "connecting" | "online") => void;
-  onSetNetMode: (mode: "host" | "guest" | null) => void;
-  onSetNetIp: (ip: string | null) => void;
-  onSetIsStarting: (v: boolean) => void;
-  onSetDownloadProgress: (p: DownloadProgress | null) => void;
   onSetLogs: (logs: string[] | ((prev: string[]) => string[])) => void;
   onSetMcLogs: (logs: string[] | ((prev: string[]) => string[])) => void;
   onSetLocalServers: (servers: ServerInfo[]) => void;
@@ -109,8 +116,6 @@ interface HostViewProps {
   onSetDeleteConfirmServer: (v: string | null) => void;
   onSetTotalSystemRamGb: (v: number) => void;
   onSetServerConfigPort: (v: number) => void;
-  onSetShortCode: (v: string) => void;
-  onRegisterServer: (serverInfo: ServerInfo) => Promise<void>;
   /** Abre as Configurações do app direto na aba "Assinatura" (card Cubicase Plus abaixo). */
   onOpenSubscribe: () => void;
 }
@@ -119,8 +124,7 @@ export function HostView({
   netStatus,
   netMode,
   netIp,
-  isStarting,
-  downloadProgress,
+  hosting,
   logs,
   mcLogs,
   localServers,
@@ -136,11 +140,6 @@ export function HostView({
   shortCode,
   resourceSample,
 
-  onSetNetStatus,
-  onSetNetMode,
-  onSetNetIp,
-  onSetIsStarting,
-  onSetDownloadProgress,
   onSetLogs,
   onSetMcLogs,
   onSetLocalServers,
@@ -153,8 +152,6 @@ export function HostView({
   onSetDeleteConfirmServer,
   onSetTotalSystemRamGb,
   onSetServerConfigPort,
-  onSetShortCode,
-  onRegisterServer,
   onOpenSubscribe,
 }: HostViewProps) {
   const { t, rich } = useT();
@@ -162,6 +159,7 @@ export function HostView({
   // painel — mostrar "Parar Rede Mesh" aqui seria afirmar que é a rede DESTE
   // host, quando na verdade é a do convidado que está de pé.
   const guestOwnsNetwork = netStatus !== "offline" && netMode === "guest";
+  const hostNetOnline = netStatus === "online" && netMode === "host";
 
   // --- Store ---
   const {
@@ -192,23 +190,58 @@ export function HostView({
   const [isImporting, setIsImporting] = useState(false);
   const [showCrashDetail, setShowCrashDetail] = useState(false);
   const [showImportModpack, setShowImportModpack] = useState(false);
+  // Servidor recém-criado com suporte a mods/plugins: abre o navegador de mods antes da primeira partida.
+  const [autoOpenModsFor, setAutoOpenModsFor] = useState<string | null>(null);
   const [showImportPack, setShowImportPack] = useState(false);
   const [showRegenerateCode, setShowRegenerateCode] = useState(false);
   const [idleShutdownWarning, setIdleShutdownWarning] = useState<number | null>(null);
+  // Preparação feita aqui antes do start_hosting (instalar Java etc.) e a folga
+  // até o primeiro "hosting-status" chegar — ver handleStartHosting.
+  const [preparing, setPreparing] = useState(false);
+  const [confirmLeaveGuest, setConfirmLeaveGuest] = useState(false);
+  // Mods de modpack que o Cubicase não conseguiu baixar (ver lib/pendingMods.ts): avisa antes de iniciar.
+  const [pendingModsWarning, setPendingModsWarning] = useState<{ count: number; opts: { localOnly?: boolean; leaveGuest?: boolean } } | null>(null);
+  const [pendingLocalOnly, setPendingLocalOnly] = useState(false);
+  // Relógio para a contagem "nova tentativa em Ns" (só roda quando há uma agendada).
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Refs para evitar closure stale
   const selectedServerRef = useRef<string | null>(null);
   const localServersRef = useRef<ServerInfo[]>([]);
-  const serverConfigPortRef = useRef(25565);
-  const netStatusRef = useRef<"offline" | "connecting" | "online">("offline");
-  const pendingMcStartRef = useRef(false);
   const serverShortCodeRef = useRef<string>("");
 
   // Sincronizar refs
   useEffect(() => { selectedServerRef.current = selectedServer; }, [selectedServer]);
   useEffect(() => { localServersRef.current = localServers; }, [localServers]);
-  useEffect(() => { serverConfigPortRef.current = serverConfigPort; }, [serverConfigPort]);
-  useEffect(() => { netStatusRef.current = netStatus; }, [netStatus]);
+
+  // Folga entre o retorno do start_hosting e o primeiro status chegar. Guardado
+  // numa ref para ser cancelado: um timer de um início anterior não pode soltar
+  // o botão no meio da preparação de um início posterior.
+  const preparingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPreparingTimer = () => {
+    if (preparingTimerRef.current) {
+      clearTimeout(preparingTimerRef.current);
+      preparingTimerRef.current = null;
+    }
+  };
+  useEffect(() => clearPreparingTimer, []);
+
+  // O status da hospedagem chegou: a "preparação" acabou. Só a FASE conta — um
+  // `hosting.error` pode ser de uma tentativa ANTERIOR ainda no estado do React e
+  // soltaria o botão no mesmo render em que se clica Iniciar. Falha ao subir o
+  // Minecraft (fase idle + erro) é coberta pelo timer de folga.
+  useEffect(() => {
+    if (preparing && isHostingActive(hosting.phase)) {
+      clearPreparingTimer();
+      setPreparing(false);
+    }
+  }, [preparing, hosting.phase]);
+
+  useEffect(() => {
+    if (hosting.netRetryAtMs == null) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hosting.netRetryAtMs]);
 
   // Aviso de desligamento por inatividade (wake-on-demand) — emitido pelo Rust
   // um tick (60s) antes de desligar de verdade (ver idle-shutdown-warning em
@@ -338,104 +371,13 @@ export function HostView({
 
   // --- Handlers ---
 
-  const handleStartNetwork = async () => {
-    if (netStatus === "online") {
-      try {
-        onSetLogs(prev => [...prev, "[INFO] Parando rede mesh... O servidor Minecraft continua rodando."]);
-        await invoke("stop_network_node");
-        onSetIsStarting(false);
-        onSetNetStatus("offline");
-        onSetNetMode(null);
-        onSetNetIp(null);
-        pendingMcStartRef.current = false;
-      } catch (err) {
-        console.error(err);
-        pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.stopMesh"), message: String(err) });
-      }
-      return;
-    }
+  // --- Hospedagem unificada ---
+  // Um único botão liga o Minecraft e a rede mesh juntos (start_hosting no
+  // backend, ver src-tauri/src/hosting.rs). A rede é detalhe de implementação:
+  // só aparece para o usuário quando FALHA — e aí o servidor segue de pé só
+  // neste computador, com um aviso claro e um botão para tentar de novo.
 
-    if (isStarting || netStatus === "connecting") {
-      try {
-        onSetLogs(prev => [...prev, tn("host.log.cancelling")]);
-        await invoke("stop_network_node");
-        onSetIsStarting(false);
-        onSetNetStatus("offline");
-        onSetNetMode(null);
-        onSetNetIp(null);
-        pendingMcStartRef.current = false;
-      } catch (err) {
-        console.error(err);
-      }
-      return;
-    }
-
-    // A rede mesh agora é sempre atrelada a um servidor específico (é o
-    // shortCode dele que a API central usa pra saber a quem pertence a
-    // credencial do Tailscale) — não dá mais pra "ligar a rede" sem escolher
-    // qual servidor ela vai expor.
-    const currentServerInfo = selectedServer ? localServers.find(s => s.name === selectedServer) : null;
-    if (!currentServerInfo?.shortCode) {
-      onSetLogs(prev => [...prev, "[ERR] Selecione um servidor antes de iniciar a rede mesh."]);
-      pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.noServer.title"), message: tn("host.err.noServer.meshMessage") });
-      return;
-    }
-
-    try {
-      onSetIsStarting(true);
-      onSetLogs([]);
-
-      onSetLogs(prev => [...prev, tn("host.log.checkingJre")]);
-      const installed = await isJREInstalled(17);
-      if (!installed) {
-        onSetLogs(prev => [...prev, tn("host.log.javaMissing")]);
-        await installJRE(17, (p) => onSetDownloadProgress(p));
-      }
-      onSetDownloadProgress(null);
-      onSetLogs(prev => [...prev, tn("host.log.javaReady")]);
-
-      // Garante que o ServerEntity já existe na API Central ANTES de pedir a
-      // ConnectionSession — senão a API responde SERVER_NOT_FOUND (a
-      // ConnectionSession é sempre amarrada a um servidor já registrado).
-      onSetLogs(prev => [...prev, "[INFO] Registrando servidor na API Central..."]);
-      await onRegisterServer(currentServerInfo);
-
-      onSetLogs(prev => [...prev, tn("host.log.authenticating")]);
-      onSetNetStatus("connecting");
-      onSetNetMode("host");
-      await invoke("start_network_node", {
-        mode: "host",
-        shortCode: currentServerInfo.shortCode,
-        targetIp: null,
-        // O túnel mesh precisa apontar pra porta REAL do Minecraft (server-port em
-        // server.properties, editável no modal de configuração do servidor) — não
-        // pra "Porta Local de Convidado" dos Ajustes do Sistema, que é só a porta
-        // local usada quando ESTE app entra como convidado em outro servidor.
-        // Divergir aqui deixa o mesh de pé mas incapaz de alcançar o Java real.
-        localPort: serverConfigPortRef.current,
-      });
-
-      if (selectedServer && serverStatus !== "online" && serverStatus !== "starting") {
-        pendingMcStartRef.current = true;
-        onSetLogs(prev => [...prev, tn("host.log.meshWaiting")]);
-      } else if (selectedServer && (serverStatus === "online" || serverStatus === "starting")) {
-        onSetLogs(prev => [...prev, tn("host.log.meshRunning")]);
-      } else {
-        onSetLogs(prev => [...prev, tn("host.log.meshActive")]);
-      }
-    } catch (error) {
-      console.error(error);
-      onSetIsStarting(false);
-      onSetNetStatus("offline");
-      onSetNetMode(null);
-      onSetDownloadProgress(null);
-      pendingMcStartRef.current = false;
-      onSetLogs(prev => [...prev, tn("host.log.startHostFailed", { error: String(error) })]);
-      pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.startMesh"), message: String(error) });
-    }
-  };
-
-  const handleStartMCServer = async () => {
+  const handleStartHosting = async (opts: { localOnly?: boolean; leaveGuest?: boolean; skipPendingCheck?: boolean } = {}) => {
     const currentSelectedServer = selectedServerRef.current || selectedServer;
     const currentLocalServers = localServersRef.current.length > 0 ? localServersRef.current : localServers;
 
@@ -443,68 +385,62 @@ export function HostView({
       pushDiagnostic({ level: "warning", source: tn("diag.source.server"), title: tn("host.err.noServer.title"), message: tn("host.err.noServer.message") });
       return;
     }
-
-    const serverInfo = currentLocalServers.find(s => s.name === currentSelectedServer);
-    if (!serverInfo) {
+    const info = currentLocalServers.find(s => s.name === currentSelectedServer);
+    if (!info) {
       pushDiagnostic({ level: "warning", source: tn("diag.source.server"), title: tn("host.err.notFound.title"), message: tn("host.err.notFound.message") });
       return;
     }
 
+    // Mods do modpack que ficaram bloqueados em todas as fontes: avisa antes de iniciar (não impede).
+    if (!opts.skipPendingCheck) {
+      const pending = await reconcilePendingMods(info.path).catch(() => []);
+      if (pending.length > 0) {
+        setPendingModsWarning({ count: pending.length, opts: { localOnly: opts.localOnly, leaveGuest: opts.leaveGuest } });
+        return;
+      }
+    }
+
+    // Convidado de outro servidor: só existe UMA rede por instalação. Pergunta
+    // ANTES de baixar Java/preparar qualquer coisa, e nunca derruba a conexão
+    // do convidado sem o usuário confirmar.
+    if (guestOwnsNetwork && !opts.leaveGuest) {
+      setPendingLocalOnly(!!opts.localOnly);
+      setConfirmLeaveGuest(true);
+      return;
+    }
+
+    clearPreparingTimer();
+    setPreparing(true);
     try {
-      setServerStatus("starting");
-      setRunningServer(currentSelectedServer);
+      setRunningServer(info.name);
+      onSetLogs([]);
       onSetMcLogs([]);
-      onSetMcLogs(prev => [...prev, tn("app.mc.preparing", { name: selectedServer ?? "" })]);
-
-      // Registrar (idempotente) mesmo sem a rede mesh ligada: é o que dá ao
-      // Rust um shortCode em `active_short_code` pra reportar o status deste
-      // servidor à API Central — sem isso o convidado nunca saberia que o
-      // Minecraft está de pé quando o host optou por não usar a malha agora.
-      await onRegisterServer(serverInfo);
-
-      const version = serverInfo.version || "1.20.1";
-      const javaVer = getJavaVersion(version);
-
-      onSetMcLogs(prev => [...prev, `[Cubicase] Verificando compatibilidade com Java JRE ${javaVer}...`]);
-      const installed = await isJREInstalled(javaVer);
-      if (!installed) {
-        onSetMcLogs(prev => [...prev, tn("app.mc.jreMissing", { java: javaVer })]);
-        await installJRE(javaVer, (p) => {
-          onSetServerInstallProgress({ status: tn("app.mc.installingJre", { java: javaVer, status: p.status }), percent: p.percent });
-        });
-      }
-      onSetServerInstallProgress(null);
-      onSetMcLogs(prev => [...prev, `[Cubicase] JRE ${javaVer} pronto!`]);
-
-      const jrePath = await getJREPath(javaVer);
-      const javaPath = `${jrePath}\\bin\\java.exe`;
-
-      let ram = 4;
-      try {
-        const metaPath = await join(serverInfo.path, 'cubicase-meta.json');
-        const metaContent = await readTextFile(metaPath);
-        const meta = JSON.parse(metaContent) as { ramGb?: number };
-        if (typeof meta.ramGb === 'number' && meta.ramGb >= 2) ram = meta.ramGb;
-      } catch (e) {
-        console.warn('Could not read RAM from meta file, using default 4GB:', e);
+      onSetMcLogs(prev => [...prev, tn("app.mc.preparing", { name: info.name })]);
+      if (!info.shortCode && !opts.localOnly) {
+        onSetMcLogs(prev => [...prev, tn("host.log.noCodeLocalOnly")]);
       }
 
-      // serverJarName opcional: null = server.jar (Vanilla), ou "forge-1.20.1-47.1.0-shim.jar" (Forge antigo)
-      // launchArgsDir opcional: pasta com win_args.txt/unix_args.txt (Forge/NeoForge modernos, sem JAR único)
-      const serverJarName = serverInfo.serverJar || null;
-      const launchArgsDir = serverInfo.launchArgsDir || null;
-      onSetMcLogs(prev => [...prev, `[Cubicase] Iniciando Java runtime com ${ram}GB de RAM...`]);
-      await invoke("start_minecraft_server", {
-        serverDir: serverInfo.path,
-        javaPath: javaPath,
-        ramGb: ram,
-        // Idem: a porta do processo Java é a configurada no server.properties
-        // deste servidor, não a porta local global de convidado.
-        localPort: serverConfigPortRef.current,
-        serverJarName: serverJarName,
-        launchArgsDir: launchArgsDir,
-      });
+      await startServerOrchestrated(
+        info,
+        {
+          onLog: (line) => onSetMcLogs(prev => [...prev, `[Cubicase] ${line}`]),
+          onInstallProgress: onSetServerInstallProgress,
+        },
+        opts,
+      );
+      // `preparing` só cai quando o status da hospedagem chega (efeito abaixo) —
+      // sem isso o botão piscaria "Iniciar" entre o retorno do comando e o evento.
+      preparingTimerRef.current = setTimeout(() => setPreparing(false), 4000);
     } catch (err) {
+      onSetServerInstallProgress(null);
+      clearPreparingTimer();
+      setPreparing(false);
+      if (isGuestActiveError(err)) {
+        // Corrida: o convidado conectou entre o clique e o start.
+        setPendingLocalOnly(!!opts.localOnly);
+        setConfirmLeaveGuest(true);
+        return;
+      }
       console.error(err);
       setServerStatus("offline");
       onSetMcLogs(prev => [...prev, tn("host.mc.startFailed", { error: String(err) })]);
@@ -512,21 +448,23 @@ export function HostView({
     }
   };
 
-  const handleStopMCServer = async () => {
+  const handleStopHosting = async () => {
     try {
-      setServerStatus("stopping");
-      onSetMcLogs(prev => [...prev, `[Cubicase] Enviando comando "/stop" para o console do Minecraft...`]);
-      await invoke("stop_minecraft_server");
+      onSetMcLogs(prev => [...prev, tn("host.mc.stopping")]);
+      await invoke("stop_hosting");
+      // Com o modo de espera (Plus) ligado, parar à mão PAUSA a espera: avisa na
+      // hora, senão o usuário fica sem entender por que ninguém consegue acordar
+      // o servidor depois.
+      if (wakeOnDemandServerInfo?.wakeOnDemandEnabled) {
+        pushDiagnostic({ level: "info", source: tn("diag.source.server"), title: tn("host.standby.pausedToast.title"), message: tn("host.standby.pausedToast.message") });
+      }
     } catch (err) {
       console.error(err);
       onSetMcLogs(prev => [...prev, tn("host.mc.stopFailed", { error: String(err) })]);
       pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("host.err.stopServer"), message: String(err) });
-      // Sem isso, um comando "stop_minecraft_server" que falha (IPC, painc no
-      // backend) deixava serverStatus travado em "stopping" pra sempre — o
-      // botão Iniciar/Parar fica desabilitado nesse estado, e nenhum evento
-      // vai corrigir sozinho um comando que nem chegou a rodar de verdade no
-      // backend. Consulta o estado real em vez de chutar "offline" (o
-      // servidor pode muito bem ainda estar rodando).
+      // Um comando que falha (IPC, panic no backend) não pode deixar o status
+      // preso em "stopping" — consulta o estado real em vez de chutar "offline"
+      // (o servidor pode muito bem ainda estar rodando).
       try {
         const status = await invoke<{ minecraftStatus: ServerStatus }>("get_system_status");
         setServerStatus(status.minecraftStatus);
@@ -536,6 +474,27 @@ export function HostView({
       }
     }
   };
+
+  // "Voltar à espera": reativa o wake-on-demand depois de uma parada manual.
+  const handleResumeStandby = async () => {
+    try {
+      await invoke("resume_wake_standby");
+    } catch (err) {
+      console.error(err);
+      pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("host.err.resumeStandby"), message: String(err) });
+    }
+  };
+
+  // "Tentar de novo" / "Abrir para amigos": retoma a rede sem reiniciar o Minecraft.
+  const handleRetryNetwork = async () => {
+    try {
+      await invoke("retry_hosting_network");
+    } catch (err) {
+      console.error(err);
+      pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.retryNetwork"), message: String(err) });
+    }
+  };
+
 
   const handleSendMCCommand = async (command: string) => {
     try {
@@ -589,6 +548,9 @@ export function HostView({
       const servers = await listLocalServers();
       onSetLocalServers(servers);
       setSelectedServer(name);
+      // Mods de geração de terreno, por exemplo, precisam estar instalados ANTES da primeira
+      // partida para o mundo já nascer com eles — então oferecemos os mods logo ao criar.
+      if (serverType && loaderForServerType(serverType)) setAutoOpenModsFor(name);
       onSetShowCreateServer(false);
       onSetServerInstallProgress(null);
     } catch (err) {
@@ -740,6 +702,23 @@ export function HostView({
   const serverInfo = selectedServer ? localServers.find(s => s.name === selectedServer) : null;
   const displayShortCode = serverInfo?.shortCode || serverShortCodeRef.current || shortCode;
 
+  // Status único mostrado ao usuário (nunca "mesh"): ver src/lib/hosting.ts.
+  const headline = hostingHeadline({ status: hosting, preparing, mcStatus: serverStatus, hostNetOnline });
+  const sessionActive = isHostingActive(hosting.phase);
+  const retryInSecs = secondsUntilRetry(hosting, nowMs);
+  const friendsOnline = headline === "onlineFriends";
+  const friendsHint: Record<HostingHeadline, string> = {
+    idle: t("host.friends.hint.idle"),
+    crashed: t("host.friends.hint.idle"),
+    preparing: t("host.friends.hint.starting"),
+    starting: t("host.friends.hint.starting"),
+    connecting: t("host.friends.hint.connecting"),
+    onlineFriends: "",
+    localOnlyChoice: t("host.friends.hint.local"),
+    localOnlyFailed: t("host.friends.hint.local"),
+    stopping: t("host.friends.hint.idle"),
+  };
+
   // Link de convite (play.cubicase.net/<slug>) — todo servidor já tem um de
   // graça (o próprio código em minúsculas, ver defaultSlugFor); só busca na
   // API Central se existe um personalizado (Cubicase Plus, editável no modal
@@ -777,9 +756,12 @@ export function HostView({
         <div className="lg:col-span-2 space-y-6">
           {/* Minecraft Server Control Card */}
           <div className="bg-theme-card p-8 rounded-[2rem] border-theme-card shadow-theme-card space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-100 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full">
+            {/* Duas faixas fixas: informações do servidor em cima; embaixo, o status à
+                esquerda e as ações à direita. Sem depender da largura da janela, nunca
+                sobra um vão nem o título é espremido pelos controles. */}
+            <div className="space-y-5">
+              <div className="min-w-0">
+                <span className="inline-block whitespace-nowrap text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-100 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full">
                   Minecraft Server {serverTypeLabel}
                 </span>
                 <div className="flex items-center gap-2 mt-2">
@@ -808,10 +790,10 @@ export function HostView({
 
                 {/* Código de convite permanente */}
                 {selectedServer && displayShortCode && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-theme-accent border border-theme-accent rounded-xl">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-theme-accent border border-theme-accent rounded-xl whitespace-nowrap">
                       <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">{t("host.code")}</span>
-                      <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 text-sm tracking-wider">
+                      <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 text-sm tracking-wider whitespace-nowrap">
                         CF-{displayShortCode}
                       </span>
                     </div>
@@ -855,8 +837,9 @@ export function HostView({
               </div>
 
               {selectedServer && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-theme-muted border border-theme-card rounded-xl text-xs font-bold text-theme-secondary">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 pt-5 border-t border-theme-card">
+                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-theme-muted border border-theme-card rounded-xl text-xs font-bold text-theme-secondary whitespace-nowrap">
                     <div className={cn(
                       "w-2 h-2 rounded-full",
                       serverStatus === "online" ? "bg-emerald-500 animate-pulse" :
@@ -865,7 +848,11 @@ export function HostView({
                       serverStatus === "crashed" ? "bg-rose-500" : "bg-slate-400"
                     )} />
                     <span className="uppercase tracking-wider">
-                      {serverStatus === "online" ? t("host.status.online") :
+                      {headline === "preparing" ? t("host.status.preparing") :
+                       headline === "connecting" ? t("host.status.connecting") :
+                       headline === "onlineFriends" ? t("host.status.friends") :
+                       headline === "localOnlyChoice" || headline === "localOnlyFailed" ? t("host.status.localOnly") :
+                       serverStatus === "online" ? t("host.status.online") :
                        serverStatus === "starting" ? t("host.status.starting") :
                        serverStatus === "stopping" ? t("host.status.stopping") :
                        serverStatus === "crashed" ? t("host.status.crashed") : t("host.status.offline")}
@@ -873,10 +860,17 @@ export function HostView({
                   </div>
 
                   {wakeOnDemandServerInfo?.wakeOnDemandEnabled && serverStatus === "offline" && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-300">
-                      <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                      <span className="uppercase tracking-wider">{t("host.standby")}</span>
-                    </div>
+                    hosting.wakePaused ? (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-bold text-amber-700 dark:text-amber-300 whitespace-nowrap" title={t("host.standby.pausedTitle")}>
+                        <div className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span className="uppercase tracking-wider">{t("host.standby.paused")}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-300 whitespace-nowrap">
+                        <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                        <span className="uppercase tracking-wider">{t("host.standby")}</span>
+                      </div>
+                    )
                   )}
 
                   {/* Indicador leve de saúde: RAM/CPU real da máquina, atualizado a
@@ -885,7 +879,7 @@ export function HostView({
                       contínua sem virar um dashboard. */}
                   {serverStatus === "online" && resourceSample?.totalRamMb && resourceSample.availableRamMb !== undefined && (
                     <div
-                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-muted border border-theme-card rounded-xl text-xs font-bold text-theme-secondary"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-muted border border-theme-card rounded-xl text-xs font-bold text-theme-secondary whitespace-nowrap"
                       title={t("host.resourceTitle")}
                     >
                       <Activity className="w-3.5 h-3.5" />
@@ -896,28 +890,47 @@ export function HostView({
                       </span>
                     </div>
                   )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                  {/* "Só neste computador": o caminho avançado, sem rede. Fica discreto
+                      ao lado do botão principal e só aparece quando há o que iniciar. */}
+                  {(headline === "idle" || headline === "crashed") && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartHosting({ localOnly: true })}
+                      className="h-12 px-4 rounded-xl text-xs font-bold whitespace-nowrap text-theme-secondary border border-theme-card hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all active:scale-95 cursor-pointer"
+                      title={t("host.startLocalOnly.hint")}
+                    >
+                      {t("host.startLocalOnly")}
+                    </button>
+                  )}
 
                   <button
                     type="button"
-                    onClick={serverStatus === "online" ? handleStopMCServer : handleStartMCServer}
-                    disabled={serverStatus === "starting" || serverStatus === "stopping"}
+                    onClick={isStopAction(headline) ? handleStopHosting : () => handleStartHosting()}
+                    disabled={isPrimaryDisabled(headline)}
                     className={cn(
-                      "h-12 px-6 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-md disabled:opacity-50 cursor-pointer",
-                      serverStatus === "online"
-                        ? "bg-rose-500 hover:bg-rose-600 text-white shadow-theme-shadow"
-                        : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-theme-shadow"
+                      "h-12 px-6 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all active:scale-95 shadow-md disabled:opacity-50 cursor-pointer",
+                      headline === "starting"
+                        ? "bg-amber-500 hover:bg-amber-600 text-white shadow-theme-shadow"
+                        : isStopAction(headline)
+                          ? "bg-rose-500 hover:bg-rose-600 text-white shadow-theme-shadow"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-theme-shadow"
                     )}
+                    title={headline === "starting" ? t("host.cancelStart") : undefined}
                   >
-                    {serverStatus === "starting" ? (
+                    {headline === "preparing" || headline === "starting" ? (
                       <><Loader2 className="w-4 h-4 animate-spin" /> {t("host.starting")}</>
-                    ) : serverStatus === "stopping" ? (
+                    ) : headline === "stopping" ? (
                       <><Loader2 className="w-4 h-4 animate-spin" /> {t("host.stopping")}</>
-                    ) : serverStatus === "online" ? (
+                    ) : isStopAction(headline) ? (
                       <><X className="w-4 h-4" /> {t("host.stopServer")}</>
                     ) : (
                       <><Play className="w-4 h-4 fill-current" /> {t("host.startServer")}</>
                     )}
                   </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -975,103 +988,107 @@ export function HostView({
               </div>
             )}
 
-            {/* Alerta: servidor MC rodando sem rede mesh */}
-            {(serverStatus === "online" || serverStatus === "starting") && netStatus === "offline" && (
+            {/* Parou à mão com o modo de espera ligado: deixa EXPLÍCITO por que ninguém
+                consegue acordar o servidor e como reativar. */}
+            {wakeOnDemandServerInfo?.wakeOnDemandEnabled && hosting.wakePaused && !sessionActive && serverStatus === "offline" && (
               <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-2xl flex items-center justify-between gap-4 text-sm">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">{t("host.meshOff.title")}</span> {t("host.meshOff.body")}
+                    <span className="font-bold">{t("host.standby.banner.title")}</span> {t("host.standby.banner.body")}
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={handleStartNetwork}
-                  disabled={isStarting}
+                  onClick={handleResumeStandby}
+                  className="flex-shrink-0 h-10 px-5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-theme-shadow whitespace-nowrap"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> {t("host.standby.resume")}
+                </button>
+              </div>
+            )}
+
+            {/* Servidor de pé, mas os amigos ainda não conseguem entrar: a rede falhou
+                ou caiu. O Minecraft NÃO é derrubado — só avisamos e oferecemos retomar. */}
+            {sessionActive && headline === "localOnlyFailed" && (
+              <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-2xl flex items-center justify-between gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">
+                      {hosting.localOnlyReason === "networkDropped" ? t("host.local.dropped.title") : t("host.local.failed.title")}
+                    </span>{" "}
+                    {hosting.netRetrying ? t("host.local.retrying")
+                      : hosting.netGaveUp ? t("host.local.gaveUp")
+                      : retryInSecs !== null ? t("host.local.retryIn", { seconds: retryInSecs })
+                      : t("host.local.failed.body")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRetryNetwork}
+                  disabled={hosting.netRetrying}
                   className="flex-shrink-0 h-10 px-5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all text-xs font-bold flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-md shadow-theme-shadow"
                 >
-                  {isStarting ? (
+                  {hosting.netRetrying ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("host.starting")}</>
                   ) : (
-                    <><Play className="w-3.5 h-3.5 fill-current" /> {t("host.startMesh")}</>
+                    <><RefreshCw className="w-3.5 h-3.5" /> {t("host.local.retry")}</>
                   )}
                 </button>
               </div>
             )}
+
+            {/* Iniciado de propósito só neste computador. */}
+            {sessionActive && headline === "localOnlyChoice" && (
+              <div className="p-4 bg-theme-muted border border-theme-card text-theme-secondary rounded-2xl flex items-center justify-between gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <Globe className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-theme-primary">{t("host.local.choice.title")}</span> {t("host.local.choice.body")}
+                  </div>
+                </div>
+                {serverInfo?.shortCode && (
+                  <button
+                    type="button"
+                    onClick={handleRetryNetwork}
+                    className="flex-shrink-0 h-10 px-5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-theme-shadow"
+                  >
+                    <Globe className="w-3.5 h-3.5" /> {t("host.local.open")}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Rede do Servidor (Mesh VPN) */}
-          <div className="bg-theme-card p-8 rounded-[2rem] border-theme-card shadow-theme-card space-y-8">
-            <div className="flex items-start justify-between flex-wrap gap-4">
-              <div>
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-100 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full">
-                  {t("host.net.badge")}
-                </span>
-                <h2 className="text-3xl font-bold text-theme-primary mt-2">{t("host.net.title")}</h2>
-                <p className="text-theme-secondary mt-1">{t("host.net.subtitle")}</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleStartNetwork}
-                disabled={(isStarting && downloadProgress !== null) || guestOwnsNetwork}
-                title={guestOwnsNetwork ? t("host.net.guestOwns") : undefined}
-                className={cn(
-                  "h-14 px-8 rounded-2xl font-bold flex items-center gap-3 transition-all active:scale-95 shadow-lg disabled:opacity-50 cursor-pointer",
-                  guestOwnsNetwork
-                    ? "bg-theme-muted text-theme-secondary shadow-none"
-                    : netStatus !== "offline" || isStarting
-                      ? "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-300 shadow-theme-shadow hover:bg-rose-100 dark:hover:bg-rose-900/30"
-                      : "bg-indigo-600 text-white shadow-theme-shadow hover:bg-indigo-700"
-                )}
-              >
-                {guestOwnsNetwork ? (
-                  <><Globe className="w-5 h-5" /> {t("host.net.inUseByGuest")}</>
-                ) : isStarting || netStatus === "connecting" ? (
-                  downloadProgress ? (
-                    <><Activity className="w-5 h-5 animate-spin" /> {t("host.net.installingJre", { percent: downloadProgress.percent })}</>
-                  ) : (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> {t("host.starting")}</>
-                  )
-                ) : netStatus === "online" ? (
-                  <><Activity className="w-5 h-5 animate-pulse" /> {t("host.stopMesh")}</>
-                ) : (
-                  <><Play className="w-5 h-5 fill-current" /> {t("host.startMesh")}</>
-                )}
-              </button>
+          {/* Amigos: convite + estado da conexão. A rede mesh é um detalhe
+              técnico — só aparece (colapsada) para diagnóstico. */}
+          <div className="bg-theme-card p-8 rounded-[2rem] border-theme-card shadow-theme-card space-y-6">
+            <div>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-100 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full">
+                {t("host.friends.badge")}
+              </span>
+              <h2 className="text-3xl font-bold text-theme-primary mt-2">{t("host.friends.title")}</h2>
+              <p className="text-theme-secondary mt-1">{t("host.friends.subtitle")}</p>
             </div>
 
-            {downloadProgress && (
+            {preparing && serverInstallProgress && (
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-bold text-indigo-600 uppercase tracking-wider">
-                  <span>{downloadProgress.status}</span>
-                  <span>{downloadProgress.percent}%</span>
+                  <span>{serverInstallProgress.status}</span>
+                  <span>{serverInstallProgress.percent}%</span>
                 </div>
                 <div className="w-full h-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-full overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${downloadProgress.percent}%` }}
+                    animate={{ width: `${serverInstallProgress.percent}%` }}
                     className="h-full bg-indigo-600"
                   />
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
-                <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.redirect")}</p>
-                <p className="text-sm font-bold text-theme-primary mt-1">127.0.0.1:{serverConfigPort}</p>
-              </div>
-              <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
-                <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.meshAddress")}</p>
-                <p className="text-sm font-bold text-theme-primary mt-1">{netIp || t("host.net.inactive")}</p>
-              </div>
-              <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
-                <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.interface")}</p>
-                <p className="text-sm font-bold text-emerald-600 mt-1">{netStatus === "online" ? t("host.net.active") : t("host.net.disconnected")}</p>
-              </div>
-            </div>
-
-            {netStatus === "online" && netIp && (
+            {friendsOnline && displayShortCode ? (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1082,7 +1099,7 @@ export function HostView({
                     <ShieldCheck className="text-indigo-600 w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-indigo-900 dark:text-indigo-200">{t("host.net.activeTitle")}</p>
+                    <p className="text-sm font-bold text-indigo-900 dark:text-indigo-200">{t("host.friends.onlineTitle")}</p>
                     <p className="text-xs text-indigo-600 dark:text-indigo-400">{t("host.net.share")}</p>
                   </div>
                 </div>
@@ -1100,7 +1117,38 @@ export function HostView({
                   </button>
                 </div>
               </motion.div>
+            ) : (
+              <div className="p-5 bg-theme-muted border border-theme-card rounded-2xl flex items-center gap-4 text-sm text-theme-secondary">
+                <Globe className="w-5 h-5 flex-shrink-0 text-slate-400" />
+                <span>{friendsHint[headline]}</span>
+              </div>
             )}
+
+            {/* Detalhes técnicos da rede (diagnóstico) — fora do caminho do usuário comum. */}
+            <details className="group">
+              <summary className="cursor-pointer select-none text-xs font-bold text-theme-secondary uppercase tracking-wider hover:text-theme-primary">
+                {t("host.tech.summary")}
+              </summary>
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
+                  <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.redirect")}</p>
+                  <p className="text-sm font-bold text-theme-primary mt-1">127.0.0.1:{serverConfigPort}</p>
+                </div>
+                <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
+                  <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.meshAddress")}</p>
+                  <p className="text-sm font-bold text-theme-primary mt-1">{(hosting.ip ?? netIp) || t("host.net.inactive")}</p>
+                </div>
+                <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
+                  <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.interface")}</p>
+                  <p className={cn("text-sm font-bold mt-1", hosting.net === "online" ? "text-emerald-600" : "text-theme-secondary")}>
+                    {hosting.net === "online" ? t("host.net.active") : t("host.net.disconnected")}
+                  </p>
+                </div>
+              </div>
+              {hosting.netError && (
+                <p className="mt-3 text-[11px] font-mono text-theme-secondary break-words">{hosting.netError}</p>
+              )}
+            </details>
           </div>
 
           {/* Gerenciamento de Mods e Mundo */}
@@ -1112,6 +1160,8 @@ export function HostView({
               serverType={serverInfo.serverType}
               serverStatus={serverStatus}
               mcVersion={serverInfo.version}
+              autoOpenModBrowser={autoOpenModsFor === serverInfo.name}
+              onAutoOpenHandled={() => setAutoOpenModsFor(null)}
             />
           )}
 
@@ -1213,6 +1263,32 @@ export function HostView({
       </div>
 
       {/* Modais */}
+      {/* Este app só tem UMA rede por vez: hospedar exige sair do servidor onde está como Convidado. */}
+      <ConfirmActionModal
+        isOpen={confirmLeaveGuest}
+        title={t("host.guestActive.title")}
+        message={t("host.guestActive.message")}
+        confirmLabel={t("host.guestActive.confirm")}
+        onClose={() => setConfirmLeaveGuest(false)}
+        onConfirm={async () => {
+          setConfirmLeaveGuest(false);
+          await handleStartHosting({ localOnly: pendingLocalOnly, leaveGuest: true, skipPendingCheck: true });
+        }}
+      />
+
+      <ConfirmActionModal
+        isOpen={!!pendingModsWarning}
+        title={t("pendingMods.startTitle")}
+        message={t("pendingMods.startMessage", { count: pendingModsWarning?.count ?? 0 })}
+        confirmLabel={t("pendingMods.startConfirm")}
+        onClose={() => setPendingModsWarning(null)}
+        onConfirm={async () => {
+          const opts = pendingModsWarning?.opts ?? {};
+          setPendingModsWarning(null);
+          await handleStartHosting({ ...opts, skipPendingCheck: true });
+        }}
+      />
+
       <CreateServerModal
         isOpen={showCreateServer}
         onClose={() => onSetShowCreateServer(false)}

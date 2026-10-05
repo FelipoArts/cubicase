@@ -48,6 +48,20 @@ function assertValidServerFolderName(name: string): void {
 }
 
 /**
+ * Converte o nome digitado em um nome de pasta válido, aceitando espaços e
+ * acentos (as mesmas regras do rename): troca caracteres proibidos por "_",
+ * tira espaço/ponto no final e evita nomes reservados do Windows.
+ */
+export function sanitizeServerFolderName(raw: string): string {
+  const clean = raw
+    .trim()
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .replace(/[ .]+$/, "");
+  if (!clean) return "Servidor";
+  return RESERVED_WINDOWS_NAMES.test(clean) ? `${clean}_` : clean;
+}
+
+/**
  * Renomeia um servidor PADRÃO (pasta dentro de `CubicaseServers`) e migra os
  * backups dele junto (se existirem), pra continuarem associados ao novo
  * nome. NÃO serve para servidores importados — eles vivem numa pasta
@@ -1854,39 +1868,46 @@ class NeoForgeProviderImpl implements ForgeProvider {
     const cached = forgeVersionCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < FORGE_CACHE_TTL) return cached.builds;
 
+    // O NeoForge versiona como <minor>.<patch>.<build> do Minecraft sem o "1."
+    // (1.21.1 → 21.1.x, 1.21 → 21.0.x, 1.20.4 → 20.4.x). Versões novas (26.x)
+    // usam o próprio número do Minecraft como prefixo. 1.20.1 usa o esquema
+    // antigo (47.1.x, artefato "forge"), não coberto aqui.
+    const parts = mcVersion.split('.');
+    const prefix = parts[0] === '1'
+      ? `${parts[1]}.${parts[2] ?? '0'}.`
+      : `${mcVersion}.`;
+    if (mcVersion === '1.20.1' || parts[0] === '1' && !parts[1]) return [];
+
     try {
-      // Tentar API principal com timeout mais curto
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const url = `https://neoapi.neoforged.net/api/v1/versions/${mcVersion}`;
-      const res = await fetch(url, { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge', { signal: controller.signal });
       clearTimeout(timeoutId);
-      
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as any;
-      
-      const builds: ForgeBuild[] = (data.versions || []).map((v: any) => ({
+      const data = await res.json() as { versions?: string[] };
+
+      const matching = (data.versions || []).filter(v => v.startsWith(prefix));
+      const buildNum = (v: string) => parseInt(v.slice(prefix.length), 10) || 0;
+      const isStable = (v: string) => !/-(alpha|beta|rc|snapshot)/i.test(v);
+      matching.sort((a, b) => buildNum(b) - buildNum(a));
+      const latestStable = matching.find(isStable);
+
+      const builds: ForgeBuild[] = matching.slice(0, 60).map(v => ({
         mcVersion,
-        forgeVersion: v.version || v.name || '',
-        build: v.build || 0,
-        date: v.date || v.time || '',
-        recommended: v.recommended || v.latest || false,
-        downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${v.version}/neoforge-${v.version}-installer.jar`,
-        installerUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${v.version}/neoforge-${v.version}-installer.jar`,
-        provider: 'neoforge',
+        forgeVersion: v,
+        build: buildNum(v),
+        date: '',
+        recommended: v === latestStable,
+        downloadUrl: this.getInstallerUrl(mcVersion, v),
+        installerUrl: this.getInstallerUrl(mcVersion, v),
+        provider: 'neoforge' as const,
       }));
 
-      builds.sort((a: ForgeBuild, b: ForgeBuild) => {
-        if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-        return b.build - a.build;
-      });
-
-      forgeVersionCache.set(cacheKey, { builds, fetchedAt: Date.now() });
+      if (builds.length > 0) forgeVersionCache.set(cacheKey, { builds, fetchedAt: Date.now() });
       return builds;
-    } catch (_err) {
-      // NeoForged API frequentemente indisponível — usar fallback silenciosamente
-      return getForgeFallbackVersions(mcVersion);
+    } catch (err) {
+      console.warn(`[NeoForgeProvider] Maven API falhou para ${mcVersion}:`, err);
+      return [];
     }
   }
 
@@ -1915,10 +1936,12 @@ function getProviderByName(name: string): ForgeProvider {
  * só entra como alternativa se o Forge realmente não tiver nada para essa versão.
  */
 export async function getForgeVersions(mcVersion: string): Promise<ForgeBuild[]> {
-  const forgeBuilds = await forgeProvider.fetchVersions(mcVersion);
-  if (forgeBuilds.length > 0) return forgeBuilds;
-
-  return neoforgeProvider.fetchVersions(mcVersion);
+  const [forgeBuilds, neoBuilds] = await Promise.all([
+    forgeProvider.fetchVersions(mcVersion),
+    neoforgeProvider.fetchVersions(mcVersion),
+  ]);
+  // Forge clássico primeiro (comportamento anterior), NeoForge logo depois.
+  return [...forgeBuilds, ...neoBuilds];
 }
 
 /**
@@ -1935,7 +1958,6 @@ function getForgeFallbackVersions(mcVersion: string): ForgeBuild[] {
     '1.18.2': { provider: 'forge', versions: ['40.2.0', '40.1.80', '40.1.73'] },
     '1.16.5': { provider: 'forge', versions: ['36.2.0', '36.1.82', '36.1.62'] },
     '1.12.2': { provider: 'forge', versions: ['14.23.5.2860', '14.23.5.2859', '14.23.5.2854'] },
-    '1.21.1': { provider: 'neoforge', versions: ['21.0.0-beta', '21.0.0-alpha'] },
   };
 
   const entry = knownForge[mcVersion];
@@ -2120,20 +2142,43 @@ export interface StartServerCallbacks {
   onInstallProgress?: (progress: ServerInstallProgress | null) => void;
 }
 
+export interface StartServerOptions {
+  /** Sobe só o Minecraft, sem abrir para os amigos (rede mesh desligada). */
+  localOnly?: boolean;
+  /** Confirma sair do modo Convidado (de outro servidor) para hospedar este. */
+  leaveGuest?: boolean;
+}
+
+/** Descrição padrão enviada à API Central quando o servidor não tem uma própria. */
+export function defaultServerDescription(serverInfo: Pick<ServerInfo, "serverType" | "version">): string {
+  const type = serverInfo.serverType || "vanilla";
+  const typeLabel =
+    type === "vanilla" ? "Vanilla" :
+    type === "neoforge" ? "NeoForge" :
+    type === "forge" ? "Forge" :
+    type === "fabric" ? "Fabric" :
+    type === "paper" ? "Paper" :
+    type;
+  return tn("app.defaultDescription", { type: typeLabel, version: serverInfo.version || "1.20.1" });
+}
+
 /**
- * Orquestra o início de um servidor: resolve a versão de Java exigida,
- * garante o JRE instalado (baixa do Adoptium se preciso), lê RAM
- * (cubicase-meta.json) e porta (server.properties) configuradas, e chama o
- * comando Tauri que sobe o processo Java. Mesma lógica usada pelo botão
- * "Iniciar Servidor" em HostView.tsx — extraída pra cá para ser reaproveitada
- * também pelo pedido de início remoto vindo do painel web (ver page.tsx,
- * listener do evento "panel-start-server-request" — panel_agent.rs no
- * backend emite esse evento em vez de reimplementar toda essa orquestração
- * em Rust; ver plans/remote-web-panel-plan.md, Fase 2).
+ * Orquestra o início da hospedagem de um servidor: resolve a versão de Java
+ * exigida, garante o JRE instalado (baixa do Adoptium se preciso), lê a RAM
+ * (cubicase-meta.json) e chama `start_hosting` — o orquestrador do backend que
+ * sobe o Minecraft e a rede mesh JUNTOS (a porta vem do server.properties, lida
+ * lá). Mesma lógica usada pelo botão "Iniciar Servidor" em HostView.tsx,
+ * pelo início remoto vindo do painel web (ver page.tsx, evento
+ * "panel-start-server-request") e pela auto-correção de JRE.
+ *
+ * Rejeita com `GUEST_ACTIVE` (ver isGuestActiveError em hosting.ts) quando este
+ * app está conectado como convidado de outro servidor e `leaveGuest` não foi
+ * confirmado.
  */
 export async function startServerOrchestrated(
   serverInfo: ServerInfo,
-  callbacks: StartServerCallbacks = {}
+  callbacks: StartServerCallbacks = {},
+  options: StartServerOptions = {}
 ): Promise<void> {
   const { onLog, onInstallProgress } = callbacks;
   const log = (msg: string) => onLog?.(msg);
@@ -2164,22 +2209,24 @@ export async function startServerOrchestrated(
     // usa o padrão de 4GB
   }
 
-  let port = 25565;
-  try {
-    const propsContent = await readTextFile(await join(serverInfo.path, "server.properties"));
-    const match = propsContent.match(/^server-port=(\d+)/m);
-    if (match) port = parseInt(match[1], 10);
-  } catch {
-    // usa a porta padrão
-  }
-
   log(tn("srv.log.startingJava", { ram }));
-  await invoke("start_minecraft_server", {
-    serverDir: serverInfo.path,
-    javaPath,
-    ramGb: ram,
-    localPort: port,
-    serverJarName: serverInfo.serverJar || null,
-    launchArgsDir: serverInfo.launchArgsDir || null,
+  await invoke("start_hosting", {
+    config: {
+      name: serverInfo.name,
+      version: serverInfo.version || "1.20.1",
+      serverType: serverInfo.serverType || "vanilla",
+      description: serverInfo.description || defaultServerDescription(serverInfo),
+      forgeVersion: serverInfo.forgeVersion ?? null,
+      modLoaderVersion: serverInfo.modLoaderVersion ?? null,
+      // Sem código de convite (servidor nunca registrado) o backend sobe só local.
+      shortCode: serverInfo.shortCode ?? "",
+      serverDir: serverInfo.path,
+      javaPath,
+      ramGb: ram,
+      serverJarName: serverInfo.serverJar || null,
+      launchArgsDir: serverInfo.launchArgsDir || null,
+    },
+    localOnly: !!options.localOnly,
+    leaveGuest: !!options.leaveGuest,
   });
 }

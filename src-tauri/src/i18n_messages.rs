@@ -276,4 +276,11 @@ messages! {
     "pack.err.pathTooLong" => ("O caminho ficaria longo demais para o Windows (máx. {max} caracteres, contando o maior arquivo do pacote). Use um nome de servidor de até {allowed} caracteres.", "The path would be too long for Windows (max {max} characters, counting the pack's longest file). Use a server name of up to {allowed} characters."),
     "pack.err.noSpaceImport" => ("Espaço insuficiente para importar: são necessários cerca de {need}, e há {free} livres (faltam {missing}). Libere espaço e tente de novo.", "Not enough space to import: about {need} is needed, and {free} is free ({missing} short). Free up space and try again."),
     "pack.warn.jrePathTooLong" => ("O Java do pacote não foi instalado porque o caminho ficaria longo demais. Ele será baixado depois, se houver internet.", "The pack's Java wasn't installed because the path would be too long. It will be downloaded later if there's internet."),
+
+    // ---------- Hospedagem unificada (servidor + rede) ----------
+    "hosting.err.noJava" => ("O Java deste servidor não foi encontrado. Reinicie o app ou reinstale o Java e tente de novo.", "This server's Java wasn't found. Restart the app or reinstall Java and try again."),
+    "hosting.err.noServerDir" => ("A pasta do servidor não existe mais: {dir}", "The server folder no longer exists: {dir}"),
+    "hosting.err.alreadyRunning" => ("Já existe um servidor sendo hospedado. Pare-o antes de iniciar outro.", "A server is already being hosted. Stop it before starting another."),
+    "hosting.err.notRunning" => ("Nenhum servidor está sendo hospedado agora.", "No server is being hosted right now."),
+    "hosting.err.stopping" => ("O servidor está sendo parado. Aguarde terminar.", "The server is being stopped. Wait for it to finish."),
 }

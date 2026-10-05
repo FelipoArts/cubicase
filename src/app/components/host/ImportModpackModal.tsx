@@ -6,6 +6,7 @@ import { Package, X, Loader2, AlertTriangle, FileArchive, ExternalLink } from "l
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { parseModpack, type ParsedModpack, type ModpackInstallProgress } from "@/lib/modpackImport";
+import { sanitizeServerFolderName } from "@/lib/server";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useT } from "@/i18n";
 
@@ -66,7 +67,7 @@ export function ImportModpackModal({ isOpen, onClose, onImport, installProgress,
     try {
       const result = await parseModpack(selected as string);
       setParsed(result);
-      setServerName(result.packName.trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "Modpack");
+      setServerName(sanitizeServerFolderName(result.packName).slice(0, 40).trim() || "Modpack");
       setStep("confirm");
     } catch (err) {
       console.error(err);
@@ -78,7 +79,7 @@ export function ImportModpackModal({ isOpen, onClose, onImport, installProgress,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!parsed || !serverName.trim()) return;
-    const cleanName = serverName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const cleanName = sanitizeServerFolderName(serverName);
     await onImport(cleanName, parsed, serverRam);
   };
 

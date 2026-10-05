@@ -1039,3 +1039,35 @@ async fn restore_world_backup_corrupted_zip_leaves_original_world_untouched() {
     assert!(result.is_err());
     assert_eq!(fs::read_to_string(world.join("marker.txt")).unwrap(), "original");
 }
+
+// ------------------------------------------------------------
+// Conflito de papel da rede (host × guest)
+// ------------------------------------------------------------
+
+#[test]
+fn role_conflict_only_when_active_role_differs() {
+    assert!(!network_role_conflict(None, "host"));
+    assert!(!network_role_conflict(None, "guest"));
+    assert!(!network_role_conflict(Some("host"), "host"));
+    assert!(!network_role_conflict(Some("guest"), "guest"));
+    assert!(network_role_conflict(Some("host"), "guest"));
+    assert!(network_role_conflict(Some("guest"), "host"));
+}
+
+// ------------------------------------------------------------
+// Painel remoto: não reenviar o que não mudou
+// ------------------------------------------------------------
+
+#[test]
+fn panel_agent_ignora_apenas_o_carimbo_ts_ao_comparar_mensagens() {
+    use crate::panel_agent::same_ignoring_ts;
+    let a = r#"{"type":"status","serverRunning":false,"playerCount":0,"ts":"2026-01-01T00:00:00Z"}"#;
+    let b = r#"{"type":"status","serverRunning":false,"playerCount":0,"ts":"2026-01-01T00:00:05Z"}"#;
+    assert!(same_ignoring_ts(a, b));
+
+    let mudou = r#"{"type":"status","serverRunning":true,"playerCount":0,"ts":"2026-01-01T00:00:05Z"}"#;
+    assert!(!same_ignoring_ts(a, mudou));
+
+    // Sem JSON válido nunca é "igual": na dúvida, envia.
+    assert!(!same_ignoring_ts("lixo", "lixo"));
+}
