@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.24"
 
       # O sidecar tsnet-node (Go) fica fora do git (ver .gitignore) — cada
       # dev compila localmente antes de rodar/buildar o app. Aqui replicamos

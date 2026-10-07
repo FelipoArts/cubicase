@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.24"
 
       # O tauri-build (build.rs do cargo test) exige o sidecar declarado em
       # tauri.conf.json (externalBin) — o binário fica fora do git, então o CI
@@ -35,6 +35,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path ../../binaries | Out-Null
           go build -o ../../binaries/tsnet-node-x86_64-pc-windows-msvc.exe .
+
+      # Transporte P2P (substitui o tsnet-node): testes com conexões WebRTC reais em loopback.
+      - name: Test cubicase-link sidecar
+        working-directory: src-tauri/sidecars/cubicase-link
+        run: go test ./... -count=1 -timeout 300s
 
       - name: Install frontend dependencies
         run: npm ci

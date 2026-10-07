@@ -15,6 +15,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $sidecarDir = Join-Path $root "src-tauri\sidecars\tsnet-node"
 $binariesDir = Join-Path $root "src-tauri\binaries"
 $target = Join-Path $binariesDir "tsnet-node-x86_64-pc-windows-msvc.exe"
+$linkDir = Join-Path $root "src-taurisidecarscubicase-link"
+$linkTarget = Join-Path $binariesDir "cubicase-link-x86_64-pc-windows-msvc.exe"
 
 New-Item -ItemType Directory -Force -Path $binariesDir | Out-Null
 
@@ -26,3 +28,13 @@ try {
 }
 
 Write-Host "Sidecar tsnet-node compilado: $target"
+
+# Transporte P2P novo (cubicase-link). Ainda não está no externalBin do Tauri (a integração é a
+# Fase 4 do plano); compilar aqui garante que o código continua compilando em todo build.
+Push-Location $linkDir
+try {
+    go build -o $linkTarget .
+} finally {
+    Pop-Location
+}
+Write-Host "Sidecar cubicase-link compilado: $linkTarget"
