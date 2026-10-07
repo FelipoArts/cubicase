@@ -33,6 +33,7 @@ mod players;
 mod pack;
 mod hosting;
 mod mod_identity;
+mod owner_secret;
 #[cfg(test)]
 mod tests;
 
@@ -750,6 +751,11 @@ async fn start_network_node_with_retry(
         if network_role_conflict(active_now.as_deref(), &mode) {
             return result;
         }
+        // Recusa definitiva da API (limite de pedidos, sem permissao, servidor inexistente):
+        // repetir so gasta o limite de pedidos por minuto e piora o problema.
+        if result.as_ref().err().map(|e| is_permanent_api_error(e)).unwrap_or(false) {
+            break;
+        }
         if attempt < NETWORK_MAX_ATTEMPTS {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
@@ -765,6 +771,11 @@ async fn start_network_node_with_retry(
         let _ = stop_network_node_internal(&app, &state).await;
     }
     result
+}
+
+/// Erros da API que não mudam tentando de novo na hora.
+fn is_permanent_api_error(msg: &str) -> bool {
+    ["[RATE_LIMITED]", "[FORBIDDEN]", "[SERVER_NOT_FOUND]", "[VALIDATION_ERROR]", "[BAD_REQUEST]"].iter().any(|c| msg.contains(c))
 }
 
 /// `true` quando já existe um nó de rede ativo de um papel DIFERENTE do pedido
@@ -1397,6 +1408,38 @@ async fn copy_local_mod_file(from_path: String, to_path: String) -> Result<(), S
     .map_err(|e| e.to_string())?
 }
 
+/// Origens de onde um mod pode ser baixado: o CDN do Modrinth (HTTPS) ou o
+/// proxy local do sidecar que leva ao host pela mesh (loopback:25568).
+fn is_allowed_mod_origin(url: &reqwest::Url) -> bool {
+    match url.scheme() {
+        "https" => url.host_str() == Some("cdn.modrinth.com") && url.port().is_none(),
+        "http" => url.host_str() == Some("127.0.0.1") && url.port() == Some(25568),
+        _ => false,
+    }
+}
+
+/// Valida URL e destino de download_mod_file. O destino só pode ser um arquivo
+/// `.jar` sem componentes ".." (impede largar arquivos fora da pasta de mods).
+fn validate_mod_download(url: &str, dest_path: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "URL de download inválida.".to_string())?;
+    if !is_allowed_mod_origin(&parsed) {
+        return Err(format!("Origem de download não permitida: {}", parsed.host_str().unwrap_or("?")));
+    }
+    let dest = std::path::Path::new(dest_path);
+    if dest.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err("Destino de download inválido.".to_string());
+    }
+    let ok_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.to_lowercase().ends_with(".jar"))
+        .unwrap_or(false);
+    if !ok_name {
+        return Err("Destino de download inválido (esperado um arquivo .jar).".to_string());
+    }
+    Ok(())
+}
+
 /// Baixa um mod (do CDN do Modrinth ou direto do host pela mesh, via a rota
 /// "/mods/file" — para quem chama, é só uma URL HTTP) em streaming pro disco
 /// (nunca carrega o arquivo inteiro em memória, diferente de
@@ -1411,6 +1454,10 @@ async fn copy_local_mod_file(from_path: String, to_path: String) -> Result<(), S
 async fn download_mod_file(url: String, dest_path: String, expected_sha1: Option<String>) -> Result<(), String> {
     use futures_util::StreamExt;
 
+    // A lista de mods vem de terceiros (o host de um servidor, um pacote
+    // .cubicase): só aceita destinos .jar sem "..", e origens conhecidas.
+    validate_mod_download(&url, &dest_path)?;
+
     if let Some(parent) = std::path::Path::new(&dest_path).parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -1418,6 +1465,11 @@ async fn download_mod_file(url: String, dest_path: String, expected_sha1: Option
     const MAX_ATTEMPTS: u32 = 5;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(600)) // mod individual, mas a mesh pode ser lenta
+        // Redirecionamento só para origens também permitidas (senão um CDN
+        // comprometido/URL forjada escapava da allowlist por um 302).
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if is_allowed_mod_origin(attempt.url()) { attempt.follow() } else { attempt.stop() }
+        }))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -2780,8 +2832,9 @@ async fn stop_minecraft_server_internal(
     let _ = app.emit("minecraft-status-changed", "stopping");
     report_mc_status(app, state.inner(), "stopping");
 
-    // Aguardar até 15 segundos pelo processo encerrar de forma limpa
-    for _ in 0..15 {
+    // Aguardar até 45 segundos pelo processo encerrar de forma limpa (salvar o mundo
+    // de um servidor grande/com mods pode passar de 15 s; matar no meio corrompe dados).
+    for _ in 0..45 {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let still_running = {
             let mut guard = state.minecraft_process.lock().unwrap_or_else(|e| e.into_inner());
@@ -3287,6 +3340,12 @@ async fn list_world_backups(server_dir: String, backups_dir: String) -> Result<V
     Ok(backups)
 }
 
+/// Arquivos que nao entram no backup do mundo (ver comentario em zip_add_dir).
+fn is_backup_excluded_file(rel_name: &str) -> bool {
+    let file = rel_name.rsplit('/').next().unwrap_or("").to_lowercase();
+    file == "session.lock" || file.ends_with(".tmp")
+}
+
 fn zip_add_dir(
     zip: &mut zip::ZipWriter<File>,
     base_dir: &PathBuf,
@@ -3298,6 +3357,12 @@ fn zip_add_dir(
         let relative = path.strip_prefix(base_dir).map_err(|e| e.to_string())?;
         let name = relative.to_string_lossy().replace('\\', "/");
         if name.is_empty() {
+            continue;
+        }
+        // session.lock fica travado pelo Java enquanto o servidor roda (no Windows a
+        // leitura falha com violacao de bloqueio e derrubava o backup inteiro) e nao
+        // tem valor num backup: o Minecraft recria o arquivo ao abrir o mundo.
+        if is_backup_excluded_file(&name) {
             continue;
         }
         if path.is_dir() {
@@ -3333,17 +3398,43 @@ async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupI
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let file_name = format!("{}_{}.zip", level_name, timestamp);
     let zip_path = backups_dir.join(&file_name);
-
-    let file = File::create(&zip_path).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    let server_root = PathBuf::from(&server_dir);
-    for folder in &folders {
-        zip_add_dir(&mut zip, &server_root, folder, options)?;
+    // Escreve num arquivo temporario ("<nome>.zip.tmp", que list_world_backups nao
+    // lista) e so renomeia para ".zip" depois de fechar e RELER o zip. Antes o zip
+    // era gravado direto no nome final: uma falha no meio (disco cheio, arquivo
+    // travado, app fechado) deixava um zip parcial listado como backup valido — e a
+    // retencao entao apagava backups bons para manter esse.
+    let tmp_path = backups_dir.join(format!("{}.tmp", file_name));
+    // Restos de uma tentativa anterior interrompida.
+    if let Ok(entries) = std::fs::read_dir(&backups_dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().ends_with(".zip.tmp") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
-    zip.finish().map_err(|e| e.to_string())?;
+
+    let build = || -> Result<(), String> {
+        let file = File::create(&tmp_path).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let server_root = PathBuf::from(&server_dir);
+        for folder in &folders {
+            zip_add_dir(&mut zip, &server_root, folder, options)?;
+        }
+        zip.finish().map_err(|e| e.to_string())?;
+        // Releitura: o diretorio central do zip precisa abrir e cada entrada ter cabecalho valido.
+        let check = File::open(&tmp_path).map_err(|e| e.to_string())?;
+        let mut archive = zip::ZipArchive::new(check).map_err(|e| tr!("backup.corrupted", error = e))?;
+        for i in 0..archive.len() {
+            archive.by_index(i).map_err(|e| tr!("backup.corruptedEntry", index = i, error = e))?;
+        }
+        std::fs::rename(&tmp_path, &zip_path).map_err(|e| e.to_string())
+    };
+    if let Err(e) = build() {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
 
     let size_bytes = std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
     Ok(BackupInfo {
@@ -4223,11 +4314,11 @@ fn start_registry_http_server(
 /// a montagem de headers (Content-Type + CORS) em cada rota.
 fn respond_json(request: tiny_http::Request, status: u16, body: &str) {
     let content_type = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
-    let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+    // Sem CORS de propósito: o servidor local só é consumido pelo sidecar (não por
+    // navegador); "*" deixava qualquer site aberto no navegador do host consultá-lo.
     let response = tiny_http::Response::from_string(body.to_string())
         .with_status_code(tiny_http::StatusCode(status))
-        .with_header(content_type)
-        .with_header(cors);
+        .with_header(content_type);
     let _ = request.respond(response);
 }
 
@@ -4245,16 +4336,21 @@ fn percent_decode(s: &str) -> String {
                 out.push(b' ');
                 i += 1;
             }
-            b'%' if i + 3 <= bytes.len() => match u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                Ok(byte) => {
-                    out.push(byte);
-                    i += 3;
+            b'%' if i + 3 <= bytes.len() => {
+                // Sobre bytes (não fatiando o &str): "%" seguido de caractere multibyte
+                // fazia s[i+1..i+3] cair no meio de um caractere e dar panic.
+                let hex = |b: u8| (b as char).to_digit(16);
+                match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                    (Some(h), Some(l)) => {
+                        out.push((h * 16 + l) as u8);
+                        i += 3;
+                    }
+                    _ => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
                 }
-                Err(_) => {
-                    out.push(bytes[i]);
-                    i += 1;
-                }
-            },
+            }
             b => {
                 out.push(b);
                 i += 1;
@@ -5102,6 +5198,56 @@ async fn execute_sync_operation(
     result
 }
 
+/// Anexa o segredo de dono do servidor (ver owner_secret.rs) a uma chamada de
+/// dono à API Central.
+fn with_owner(req: reqwest::RequestBuilder, short_code: &str) -> reqwest::RequestBuilder {
+    req.header("X-Owner-Secret", owner_secret::get_or_create(short_code))
+}
+
+/// Garante que este app ainda consegue provar que é o dono do código do
+/// servidor na API Central. Se a API responder 403 (o segredo se perdeu, ou
+/// outra pessoa reivindicou o código antes), o servidor NÃO fica preso: o app
+/// registra o mesmo servidor com um código novo (e segredo novo), grava no
+/// `cubicase-meta.json` e devolve o código novo — a hospedagem segue normal,
+/// só muda o código de convite. Qualquer outro resultado (rede fora, 5xx,
+/// sucesso) devolve None: nada a fazer agora, a fila de sync cuida do resto.
+pub(crate) async fn ensure_server_ownership(app: &tauri::AppHandle, cfg: &hosting::HostingConfig) -> Option<String> {
+    let url = format!("{}/api/v1/servers", API_BASE_URL);
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().ok()?;
+    let mut payload = serde_json::json!({
+        "name": cfg.name,
+        "version": cfg.version,
+        "serverType": cfg.server_type,
+        "description": cfg.description,
+        "forgeVersion": cfg.forge_version,
+        "modLoaderVersion": cfg.mod_loader_version,
+        "shortCode": cfg.short_code,
+    });
+    let probe = with_owner(client.post(&url).json(&payload), &cfg.short_code).send().await.ok()?;
+    if probe.status().as_u16() != 403 {
+        return None;
+    }
+
+    log_to_file(app, &format!("[SYNC] Dono do código {} não confirmado (403): registrando o servidor com um código novo.", cfg.short_code));
+    payload.as_object_mut()?.remove("shortCode");
+    let resp = client.post(&url).json(&payload).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    let data = body.get("data")?;
+    let new_code = data.get("shortCode")?.as_str()?.to_string();
+    let secret = data.get("ownerSecret")?.as_str()?.to_string();
+    owner_secret::adopt_rotated(&cfg.short_code, &new_code, &secret, &cfg.server_dir);
+    log_to_file(app, &format!("[SYNC] Código novo emitido: {} -> {}", cfg.short_code, new_code));
+    let _ = app.emit("server-code-rotated", serde_json::json!({
+        "serverDir": cfg.server_dir,
+        "oldCode": cfg.short_code,
+        "newCode": new_code,
+    }));
+    Some(new_code)
+}
+
 /// POST /api/v1/servers — Criar servidor
 async fn execute_register_server(app: &tauri::AppHandle, payload: &serde_json::Value) -> Result<(), String> {
     let url = format!("{}/api/v1/servers", API_BASE_URL);
@@ -5110,19 +5256,35 @@ async fn execute_register_server(app: &tauri::AppHandle, payload: &serde_json::V
         .build()
         .map_err(|e| e.to_string())?;
     
-    let response = client.post(&url)
-        .json(payload)
+    // Com shortCode (o normal): usa/cria o segredo desse código. Sem código, a API
+    // gera o código E o segredo, que volta uma única vez na resposta e é guardado.
+    let known_code = payload.get("shortCode").and_then(|v| v.as_str()).filter(|c| !c.is_empty());
+    let mut req = client.post(&url).json(payload);
+    if let Some(code) = known_code {
+        req = with_owner(req, code);
+    }
+    let response = req
         .send()
         .await
         .map_err(|e| tr!("err.connectionFailed", error = e))?;
-    
+
     let status = response.status();
     let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    
+
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status, body));
     }
-    
+
+    if known_code.is_none() {
+        let data = body.get("data");
+        if let (Some(code), Some(secret)) = (
+            data.and_then(|d| d.get("shortCode")).and_then(|v| v.as_str()),
+            data.and_then(|d| d.get("ownerSecret")).and_then(|v| v.as_str()),
+        ) {
+            owner_secret::set(code, secret);
+        }
+    }
+
     log_to_file(app, &format!("[SYNC] Servidor registrado: {:?}", body.get("data").and_then(|d| d.get("shortCode"))));
     Ok(())
 }
@@ -5136,7 +5298,7 @@ async fn execute_update_server(app: &tauri::AppHandle, payload: &serde_json::Val
         .build()
         .map_err(|e| e.to_string())?;
     
-    let response = client.patch(&url)
+    let response = with_owner(client.patch(&url), short_code)
         .json(payload)
         .send()
         .await
@@ -5161,7 +5323,7 @@ async fn execute_delete_server(app: &tauri::AppHandle, payload: &serde_json::Val
         .build()
         .map_err(|e| e.to_string())?;
     
-    let response = client.delete(&url)
+    let response = with_owner(client.delete(&url), short_code)
         .send()
         .await
         .map_err(|e| tr!("err.connectionFailed", error = e))?;
@@ -5171,6 +5333,7 @@ async fn execute_delete_server(app: &tauri::AppHandle, payload: &serde_json::Val
         let body = response.text().await.unwrap_or_default();
         return Err(format!("HTTP {}: {}", status, body));
     }
+    owner_secret::remove(short_code);
     
     log_to_file(app, &format!("[SYNC] Servidor removido: {}", short_code));
     Ok(())
@@ -5211,7 +5374,7 @@ async fn execute_update_session(app: &tauri::AppHandle, payload: &serde_json::Va
         .build()
         .map_err(|e| e.to_string())?;
     
-    let response = client.post(&url)
+    let response = with_owner(client.post(&url), short_code)
         .json(payload)
         .send()
         .await
@@ -5260,7 +5423,7 @@ async fn execute_heartbeat(_app: &tauri::AppHandle, payload: &serde_json::Value)
         .build()
         .map_err(|e| e.to_string())?;
     
-    let response = client.post(&url)
+    let response = with_owner(client.post(&url), short_code)
         .json(payload)
         .send()
         .await
@@ -5394,6 +5557,10 @@ async fn sync_register_server(
     }
     if let Some(ref dir) = server_dir {
         *state.active_server_dir.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.clone());
+    }
+    // Segredo de dono: a pasta do servidor e a fonte (acompanha o servidor entre PCs).
+    if let (Some(sc), Some(dir)) = (short_code.as_deref(), server_dir.as_deref()) {
+        owner_secret::sync_with_meta(sc, dir);
     }
 
     let payload = serde_json::json!({
@@ -5531,6 +5698,13 @@ async fn sync_delete_server(
     }
 }
 
+/// Segredo de dono do servidor, para o frontend autenticar as rotas de dono que
+/// ele mesmo chama (link de convite e endereço de conexão personalizados).
+#[tauri::command]
+fn get_owner_secret(short_code: String) -> String {
+    owner_secret::get_or_create(&short_code)
+}
+
 /// Regenera o shortCode de um servidor na API Central (ex.: código vazou
 /// publicamente). Diferente das demais operações de sincronização, NÃO passa
 /// pela fila de retry em segundo plano: quem decide o novo código é sempre o
@@ -5554,7 +5728,7 @@ async fn regenerate_server_code(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.post(&url)
+    let response = with_owner(client.post(&url), &short_code)
         .send()
         .await
         .map_err(|e| tr!("err.connectionFailed", error = e))?;
@@ -5568,6 +5742,10 @@ async fn regenerate_server_code(
     let new_short_code = body.get("data").and_then(|d| d.get("shortCode")).and_then(|v| v.as_str())
         .ok_or_else(|| tr!("err.noNewShortCode"))?
         .to_string();
+
+    // O segredo do dono acompanha o servidor para o codigo novo (a API move o hash).
+    owner_secret::set(&new_short_code, &owner_secret::get_or_create(&short_code));
+    owner_secret::remove(&short_code);
 
     // Se este era o servidor ativo (hospedando agora), atualiza a referência em
     // memória — sem isso, heartbeats e o shutdown gracioso continuariam
@@ -5654,7 +5832,7 @@ async fn send_sleep_heartbeat(short_code: &str, status: &str) -> Result<serde_js
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.post(&url)
+    let resp = with_owner(client.post(&url), short_code)
         .json(&serde_json::json!({ "status": status, "currentPlayers": 0 }))
         .send()
         .await
@@ -5932,6 +6110,18 @@ async fn get_sync_telemetry(
 /// Tailscale, notifica a API Central e então finaliza o processo do app de vez.
 /// Só é chamado a partir do "Sair" do tray — fechar a janela (X) agora apenas
 /// esconde o app para o system tray, mantendo servidor e rede mesh no ar.
+/// Apaga arquivos tsnet_*.json do AppData (configs temporárias do sidecar, com a auth key da sessão).
+fn remove_stale_sidecar_configs(data_dir: &std::path::Path) {
+  if let Ok(entries) = std::fs::read_dir(data_dir) {
+    for entry in entries.flatten() {
+      let name = entry.file_name().to_string_lossy().to_string();
+      if name.starts_with("tsnet_") && name.ends_with(".json") {
+        let _ = std::fs::remove_file(entry.path());
+      }
+    }
+  }
+}
+
 async fn graceful_shutdown_and_exit(app: tauri::AppHandle) {
   log_to_file(&app, "=== SHUTDOWN GRACIOSO (Sair pelo tray) ===");
 
@@ -5952,9 +6142,10 @@ async fn graceful_shutdown_and_exit(app: tauri::AppHandle) {
     };
 
     if has_stdin {
-      log_to_file(&app, "[SHUTDOWN] Comando stop enviado ao servidor Minecraft. Aguardando 5s...");
-      // Aguarda até 5 segundos pelo servidor fechar
-      for _ in 0..5 {
+      log_to_file(&app, "[SHUTDOWN] Comando stop enviado ao servidor Minecraft. Aguardando até 60s (salvando o mundo)...");
+      // Aguarda até 60 segundos pelo servidor fechar: mundos grandes/com mods levam mais
+      // que 5 s para salvar, e matar o Java no meio do save corrompe chunks/level.dat.
+      for _ in 0..60 {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let still_running = {
           let mut guard = state_ref.minecraft_process.lock().unwrap_or_else(|e| e.into_inner());
@@ -6001,6 +6192,8 @@ async fn graceful_shutdown_and_exit(app: tauri::AppHandle) {
     if config_path.exists() {
       let _ = std::fs::remove_file(&config_path);
     }
+    // Configs por sessão (tsnet_<id>.json, contêm a auth key): só eram apagadas no stop normal.
+    remove_stale_sidecar_configs(&data_dir);
   }
 
   // 4. Encerrar a ConnectionSession ativa (se houver) — revoga a credencial do
@@ -6097,6 +6290,13 @@ pub fn run() {
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(move |app| {
+      // Segredos de dono dos servidores (ver owner_secret.rs) - precisa estar carregado
+      // antes de o motor de sync e o painel comecarem a falar com a API.
+      if let Ok(dir) = app.path().app_local_data_dir() {
+        owner_secret::init(&dir);
+        // Nenhum sidecar está vivo no boot: sobras de execuções que terminaram à força.
+        remove_stale_sidecar_configs(&dir);
+      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -6293,6 +6493,7 @@ pub fn run() {
        sync_update_server,
        sync_delete_server,
        regenerate_server_code,
+       get_owner_secret,
        arm_wake_on_demand,
        disarm_wake_on_demand,
        cancel_idle_shutdown,

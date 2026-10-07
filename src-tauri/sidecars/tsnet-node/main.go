@@ -425,9 +425,11 @@ func startHTTPServer(ctx context.Context, s *tsnet.Server) {
 
 	server := &http.Server{
 		Handler: mux,
-		// Timeouts para evitar conexões penduradas
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		// Timeouts para evitar conexões penduradas. Sem WriteTimeout de propósito: ele
+		// vale pela resposta INTEIRA e cortava em 10 s o download de mods (/mods/file,
+		// dezenas de MB) em links lentos; o limite por rota já está no proxyToRust.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Rodar servidor HTTP até o contexto ser cancelado

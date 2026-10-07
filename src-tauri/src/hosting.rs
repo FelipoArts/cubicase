@@ -1023,6 +1023,15 @@ pub async fn begin_hosting(
 
     // Sem código de convite não há como a rede apontar para este servidor: sobe
     // só local (a UI avisa) em vez de falhar em loop.
+    // Antes de tudo: confirma que este app ainda é o dono do código na API Central;
+    // se não for (segredo perdido/código reivindicado por outro), troca por um
+    // código novo em vez de deixar o servidor sem convite (ver ensure_server_ownership).
+    let mut config = config;
+    if !config.short_code.is_empty() {
+        if let Some(new_code) = crate::ensure_server_ownership(&app, &config).await {
+            config.short_code = new_code;
+        }
+    }
     let local_only = local_only || config.short_code.is_empty();
     let cfg = Arc::new(config);
 

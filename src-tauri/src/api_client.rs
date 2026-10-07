@@ -179,6 +179,18 @@ impl ApiTransport for HttpTransport {
         req = req.header("X-Request-Id", &request.request_id);
         req = req.header("X-Correlation-Id", &request.correlation_id);
 
+        // Hospedar (sessão "host") exige ser o dono do servidor: anexa o segredo
+        // de dono (ver owner_secret.rs). Convidado não manda nada.
+        if request.method == "POST" && request.path.ends_with("/connection-sessions") {
+            let is_host = request.body.as_ref()
+                .and_then(|b| b.get("mode"))
+                .and_then(|m| m.as_str()) == Some("host");
+            let code = request.path.trim_start_matches("/api/v1/servers/").split('/').next().unwrap_or("");
+            if is_host && !code.is_empty() {
+                req = req.header("X-Owner-Secret", crate::owner_secret::get_or_create(code));
+            }
+        }
+
         // Body
         if let Some(body) = request.body {
             req = req.json(&body);
@@ -334,7 +346,12 @@ impl ApiClient {
                         });
                 }
                 Err(e) => {
+                    // 4xx (exceto 408/429-transitorio) e resposta definitiva da API: nao repetir.
+                    let definitive = (400..500).contains(&e.status_code) && e.status_code != 408;
                     last_error = e;
+                    if definitive {
+                        break;
+                    }
                     if (attempt as u32) < self.config.retry_count - 1 {
                         // Jitter: ~900ms, ~2100ms, ~4300ms. `ThreadRng` não é
                         // `Send` — precisa ficar fora de escopo antes do

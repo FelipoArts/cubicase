@@ -1071,3 +1071,88 @@ fn panel_agent_ignora_apenas_o_carimbo_ts_ao_comparar_mensagens() {
     // Sem JSON válido nunca é "igual": na dúvida, envia.
     assert!(!same_ignoring_ts("lixo", "lixo"));
 }
+
+// ------------------------------------------------------------
+// download_mod_file: origem e destino (lista de mods vem de terceiros)
+// ------------------------------------------------------------
+
+#[test]
+fn mod_download_aceita_so_cdn_do_modrinth_e_proxy_local() {
+    let ok = |u: &str| validate_mod_download(u, "C:/mods/a.jar").is_ok();
+    assert!(ok("https://cdn.modrinth.com/data/x/versions/y/a.jar"));
+    assert!(ok("http://127.0.0.1:25568/mods/file?code=ABC&name=a.jar"));
+    assert!(!ok("http://cdn.modrinth.com/a.jar"), "sem TLS");
+    assert!(!ok("https://evil.example/a.jar"));
+    assert!(!ok("https://cdn.modrinth.com.evil.example/a.jar"));
+    assert!(!ok("https://cdn.modrinth.com:8443/a.jar"));
+    assert!(!ok("http://127.0.0.1:9999/a.jar"), "outra porta local");
+    assert!(!ok("http://localhost:25568/a.jar"));
+    assert!(!ok("file:///C:/Windows/win.ini"));
+}
+
+#[test]
+fn mod_download_so_escreve_jar_sem_parent_dir() {
+    let url = "https://cdn.modrinth.com/a.jar";
+    assert!(validate_mod_download(url, "C:/srv/mods/ok.JAR").is_ok());
+    assert!(validate_mod_download(url, "C:/srv/mods/../../Startup/x.jar").is_err());
+    assert!(validate_mod_download(url, "C:/srv/mods/x.bat").is_err());
+    assert!(validate_mod_download(url, "C:/srv/mods/x.jar.bat").is_err());
+}
+
+// ------------------------------------------------------------
+// backup_world: session.lock fora do zip, escrita via .tmp, sem parciais
+// ------------------------------------------------------------
+
+#[tokio::test]
+async fn backup_world_skips_session_lock_and_leaves_no_temp_files() {
+    let tmp = TempDir::new().unwrap();
+    let world = make_world(&tmp, "world", "");
+    fs::write(world.join("level.dat"), b"dados").unwrap();
+    fs::write(world.join("session.lock"), b"travado pelo Java").unwrap();
+    let backups_dir = backups_dir_for(&tmp);
+    fs::create_dir_all(&backups_dir).unwrap();
+    // resto de uma tentativa interrompida
+    fs::write(PathBuf::from(&backups_dir).join("world_antigo.zip.tmp"), b"parcial").unwrap();
+
+    let info = backup_world(server_dir(&tmp), backups_dir.clone()).await.unwrap();
+
+    let zip_path = PathBuf::from(&backups_dir).join(&info.file_name);
+    let mut archive = zip::ZipArchive::new(File::open(&zip_path).unwrap()).unwrap();
+    let names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().to_string()).collect();
+    assert!(names.iter().any(|n| n.ends_with("level.dat")), "level.dat precisa estar no backup: {:?}", names);
+    assert!(!names.iter().any(|n| n.ends_with("session.lock")), "session.lock nao pode entrar: {:?}", names);
+
+    let leftovers: Vec<String> = fs::read_dir(&backups_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "nenhum .tmp pode sobrar: {:?}", leftovers);
+    assert_eq!(list_world_backups(server_dir(&tmp), backups_dir).await.unwrap().len(), 1);
+}
+
+#[test]
+fn backup_excluded_files_are_only_lock_and_temp() {
+    assert!(is_backup_excluded_file("world/session.lock"));
+    assert!(is_backup_excluded_file("world/SESSION.LOCK"));
+    assert!(is_backup_excluded_file("world/data/x.tmp"));
+    assert!(!is_backup_excluded_file("world/level.dat"));
+    assert!(!is_backup_excluded_file("world/region/r.0.0.mca"));
+}
+
+// ------------------------------------------------------------
+// servidor HTTP local: percent_decode nao pode dar panic (nem aceitar lixo)
+// ------------------------------------------------------------
+
+#[test]
+fn percent_decode_handles_multibyte_and_invalid_sequences_without_panic() {
+    assert_eq!(percent_decode("JEI%20%5B1.20.1%5D.jar"), "JEI [1.20.1].jar");
+    assert_eq!(percent_decode("a+b"), "a b");
+    // "%" seguido de caractere multibyte: antes fatiava o &str no meio do caractere (panic)
+    assert_eq!(percent_decode("%aé"), "%aé");
+    assert_eq!(percent_decode("%é1"), "%é1");
+    assert_eq!(percent_decode("100%"), "100%");
+    assert_eq!(percent_decode("%zz"), "%zz");
+    assert_eq!(percent_decode("%c3%a9"), "é");
+}
