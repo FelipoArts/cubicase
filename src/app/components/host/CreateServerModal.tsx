@@ -23,6 +23,7 @@ import {
   type PaperBuild,
 } from "@/lib/server";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { EulaConsentBox, useEulaConsent } from "@/app/components/EulaConsent";
 import { useT } from "@/i18n";
 
 // ============================================================
@@ -217,9 +218,12 @@ export function CreateServerModal({
       ? "Paper"
       : "Vanilla";
 
+  const eula = useEulaConsent();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!serverName.trim()) return;
+    if (!serverName.trim() || !eula.ok) return;
+    eula.commit();
     const cleanName = sanitizeServerFolderName(serverName);
     const seed = serverSeed.trim() || undefined;
     if (serverType === "forge") {
@@ -699,6 +703,8 @@ export function CreateServerModal({
                   </p>
                 </div>
 
+                <EulaConsentBox consent={eula} />
+
                 {/* Botões */}
                 <div className="flex justify-end gap-3 pt-4 border-t border-theme-card">
                   <button
@@ -710,7 +716,8 @@ export function CreateServerModal({
                   </button>
                   <button
                     type="submit"
-                    className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold shadow-md shadow-theme-shadow"
+                    disabled={!eula.ok}
+                    className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold shadow-md shadow-theme-shadow disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {t("create.submit")}
                   </button>

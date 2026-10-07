@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { generateShortCode } from "@/lib/shortCode";
 import { join, documentDir } from "@tauri-apps/api/path";
 import { exists, mkdir, rename, writeTextFile, readDir, readTextFile, remove, size } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
@@ -503,7 +504,7 @@ export async function installMinecraftServer(
     // --- Aceitar EULA automaticamente ---
     onProgress({ status: tn("srv.progress.eula"), percent: 80 });
     const eulaPath = await join(serverPath, "eula.txt");
-    await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+    await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
 
     // --- Gerar server.properties ---
     onProgress({ status: tn("srv.progress.settings"), percent: 88 });
@@ -516,9 +517,7 @@ export async function installMinecraftServer(
     // shortCode: representação amigável de 6 caracteres (nunca muda, usado pelo usuário)
     const uuid = crypto.randomUUID();
     // Gera um código curto de 6 caracteres base36 (0-9, a-z)
-    const shortCode = Array.from({ length: 6 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('').toUpperCase();
+    const shortCode = generateShortCode();
 
     // --- Salvar metadados do servidor ---
     const metaPath = await join(serverPath, "cubicase-meta.json");
@@ -1006,7 +1005,7 @@ export async function installForgeServer(
     // 5. Aceitar EULA
     onProgress({ status: tn("srv.progress.eula"), percent: 85 });
     const eulaPath = await join(serverPath, "eula.txt");
-    await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+    await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
 
     // 6. Gerar server.properties
     onProgress({ status: tn("srv.progress.settings"), percent: 90 });
@@ -1019,9 +1018,7 @@ export async function installForgeServer(
 
     // 8. Gerar metadados
     const uuid = crypto.randomUUID();
-    const shortCode = Array.from({ length: 6 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('').toUpperCase();
+    const shortCode = generateShortCode();
 
     const metaPath = await join(serverPath, "cubicase-meta.json");
     await writeTextFile(metaPath, JSON.stringify({
@@ -1175,16 +1172,14 @@ export async function installFabricServer(
 
     onProgress({ status: tn("srv.progress.eula"), percent: 80 });
     const eulaPath = await join(serverPath, "eula.txt");
-    await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+    await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
 
     onProgress({ status: tn("srv.progress.settings"), percent: 88 });
     const propertiesPath = await join(serverPath, "server.properties");
     await writeTextFile(propertiesPath, generateServerProperties(mcVersion, ramGb, seed));
 
     const uuid = crypto.randomUUID();
-    const shortCode = Array.from({ length: 6 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('').toUpperCase();
+    const shortCode = generateShortCode();
 
     const metaPath = await join(serverPath, "cubicase-meta.json");
     await writeTextFile(metaPath, JSON.stringify({
@@ -1349,16 +1344,14 @@ export async function installPaperServer(
 
     onProgress({ status: tn("srv.progress.eula"), percent: 80 });
     const eulaPath = await join(serverPath, "eula.txt");
-    await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+    await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
 
     onProgress({ status: tn("srv.progress.settings"), percent: 88 });
     const propertiesPath = await join(serverPath, "server.properties");
     await writeTextFile(propertiesPath, generateServerProperties(mcVersion, ramGb, seed));
 
     const uuid = crypto.randomUUID();
-    const shortCode = Array.from({ length: 6 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('').toUpperCase();
+    const shortCode = generateShortCode();
 
     const metaPath = await join(serverPath, "cubicase-meta.json");
     await writeTextFile(metaPath, JSON.stringify({
@@ -1463,15 +1456,15 @@ export async function acceptEula(serverPath: string): Promise<void> {
       }
       // Se não encontrou nenhuma linha eula=, adiciona no final
       if (!modified && !lines.some(l => /^eula\s*=\s*true\s*$/i.test(l.trim()))) {
-        await writeTextFile(eulaPath, content.trimEnd() + "\n# Aceito automaticamente pelo Cubicase\neula=true\n");
+        await writeTextFile(eulaPath, content.trimEnd() + "\n# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
       }
     } catch {
       // Se falhou ler, sobrescreve
-      await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+      await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
     }
   } else {
     // Arquivo não existe: criar
-    await writeTextFile(eulaPath, "# Aceito automaticamente pelo Cubicase\neula=true\n");
+    await writeTextFile(eulaPath, "# Aceito pelo usuário no Cubicase (EULA da Mojang: https://aka.ms/MinecraftEULA)\neula=true\n");
   }
 }
 
@@ -1552,9 +1545,7 @@ export async function importExistingServer(path: string): Promise<ServerInfo> {
     uuid = crypto.randomUUID();
   }
   if (!shortCode) {
-    shortCode = Array.from({ length: 6 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
-    ).join('').toUpperCase();
+    shortCode = generateShortCode();
   }
 
   // Salvar/atualizar metadados

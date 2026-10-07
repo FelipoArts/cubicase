@@ -15,6 +15,7 @@
 // ============================================================
 
 import { fetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "@/lib/supabaseClient";
 import { getLocale, t } from "@/i18n";
 
@@ -61,6 +62,8 @@ async function authedSlugFetch(shortCode: string, method: "PUT" | "DELETE", body
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${session.access_token}`,
+      // shortCode é público: as rotas de dono exigem o segredo do servidor (guardado pelo Rust).
+      "X-Owner-Secret": await invoke<string>("get_owner_secret", { shortCode }),
       "Accept-Language": getLocale(),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,

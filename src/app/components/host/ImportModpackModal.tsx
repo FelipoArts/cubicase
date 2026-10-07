@@ -8,6 +8,7 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { parseModpack, type ParsedModpack, type ModpackInstallProgress } from "@/lib/modpackImport";
 import { sanitizeServerFolderName } from "@/lib/server";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { EulaConsentBox, useEulaConsent } from "@/app/components/EulaConsent";
 import { useT } from "@/i18n";
 
 // ============================================================
@@ -76,9 +77,12 @@ export function ImportModpackModal({ isOpen, onClose, onImport, installProgress,
     }
   };
 
+  const eula = useEulaConsent();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!parsed || !serverName.trim()) return;
+    if (!parsed || !serverName.trim() || !eula.ok) return;
+    eula.commit();
     const cleanName = sanitizeServerFolderName(serverName);
     await onImport(cleanName, parsed, serverRam);
   };
@@ -241,6 +245,8 @@ export function ImportModpackModal({ isOpen, onClose, onImport, installProgress,
                   </div>
                 </div>
 
+                <EulaConsentBox consent={eula} />
+
                 <div className="flex justify-end gap-3 pt-4 border-t border-theme-card">
                   <button
                     type="button"
@@ -251,7 +257,8 @@ export function ImportModpackModal({ isOpen, onClose, onImport, installProgress,
                   </button>
                   <button
                     type="submit"
-                    className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold shadow-md shadow-theme-shadow"
+                    disabled={!eula.ok}
+                    className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold shadow-md shadow-theme-shadow disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {t("modpack.import")}
                   </button>

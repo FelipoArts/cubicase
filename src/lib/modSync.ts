@@ -3,6 +3,7 @@ import { fetch } from "@tauri-apps/plugin-http";
 import { exists, readDir } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import { t } from "@/i18n";
+import { lookupModrinthByHashes } from "@/lib/modrinth";
 
 // ============================================================
 // modSync — sincronização de mods do CLIENTE do convidado com o que o
@@ -58,6 +59,45 @@ export interface ModSyncPlan {
   remoteMods: RemoteModEntry[];
 }
 
+// A lista de mods vem do HOST — qualquer pessoa que tenha o código de um
+// servidor pode hospedar algo malicioso. Nada nela é confiável: o nome do arquivo
+// vira caminho no disco do convidado, e hash/URL são dados do próprio host.
+const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/** Nome de arquivo de mod aceitável: um único componente, sem separadores/".."/caracteres reservados do Windows, terminado em .jar. */
+export function isSafeModFilename(name: unknown): name is string {
+  if (typeof name !== "string" || name.length === 0 || name.length > 200) return false;
+  if (/[\\/:*?"<>|\u0000-\u001f]/.test(name)) return false;
+  if (name.includes("..") || /[ .]$/.test(name)) return false;
+  if (!/\.jar$/i.test(name)) return false;
+  return !RESERVED_WINDOWS_NAMES.test(name.slice(0, -4));
+}
+
+/** Descarta (e registra) entradas malformadas ou perigosas vindas do host. */
+export function sanitizeRemoteMods(raw: unknown): RemoteModEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RemoteModEntry[] = [];
+  for (const m of raw as Record<string, unknown>[]) {
+    const ok =
+      m &&
+      isSafeModFilename(m.filename) &&
+      typeof m.sha1 === "string" && /^[0-9a-f]{40}$/i.test(m.sha1) &&
+      typeof m.size_bytes === "number" && Number.isFinite(m.size_bytes) && m.size_bytes >= 0;
+    if (!ok) {
+      console.warn("[modSync] entrada de mod rejeitada (nome/hash inválido):", m?.filename);
+      continue;
+    }
+    out.push({
+      filename: m.filename as string,
+      size_bytes: m.size_bytes as number,
+      sha1: (m.sha1 as string).toLowerCase(),
+      source: m.source === "modrinth" ? "modrinth" : "unknown",
+      url: null, // ignorado de propósito: a URL real vem da própria Modrinth, pelo hash (ver runModSync)
+    });
+  }
+  return out;
+}
+
 /** Busca, pela mesh, a lista de mods que o servidor hospedado precisa agora. Lança se o host não responder. */
 export async function fetchRemoteModsList(shortCode: string): Promise<RemoteModEntry[]> {
   let res: Response;
@@ -72,7 +112,7 @@ export async function fetchRemoteModsList(shortCode: string): Promise<RemoteModE
   if (!res.ok) {
     throw new Error(`O host respondeu com erro ao listar os mods (HTTP ${res.status}).`);
   }
-  return (await res.json()) as RemoteModEntry[];
+  return sanitizeRemoteMods(await res.json().catch(() => []));
 }
 
 /** Mapa nome-do-arquivo -> sha1 dos .jar já presentes na pasta mods/ da instância isolada local. */
@@ -120,7 +160,7 @@ function buildSyncPlan(
     entries.push({
       filename: mod.filename,
       sizeBytes: mod.size_bytes,
-      source: preferModrinth && mod.source === "modrinth" && mod.url ? "modrinth" : fallbackSource,
+      source: preferModrinth && mod.source === "modrinth" ? "modrinth" : fallbackSource,
       status: "pending",
     });
     totalBytesToDownload += mod.size_bytes;
@@ -146,7 +186,7 @@ export async function planModSync(shortCode: string, instanceModsDir: string): P
 
 /** Busca, direto no disco (sem mesh), a lista de mods da pasta mods/ de um servidor local — usado quando o próprio host quer jogar no seu servidor. */
 export async function fetchLocalServerMods(serverDir: string): Promise<RemoteModEntry[]> {
-  return await invoke<RemoteModEntry[]>("list_local_server_mods", { serverDir });
+  return sanitizeRemoteMods(await invoke<RemoteModEntry[]>("list_local_server_mods", { serverDir }));
 }
 
 /** Mesmo papel de planModSync, mas para o servidor do próprio host: lê a lista de mods direto da pasta do servidor no disco, sem passar pela mesh. */
@@ -178,9 +218,18 @@ export async function runModSync(opts: RunModSyncOptions): Promise<void> {
   const { shortCode, instanceModsDir, remoteMods, entries, onProgress } = opts;
   const byFilename = new Map(remoteMods.map((m) => [m.filename, m]));
 
+  // A URL de download de mods "modrinth" NÃO vem do host: consulta a própria
+  // Modrinth pelo SHA-1 (hash igual = arquivo idêntico) e usa o link que ela devolve.
+  // Quem não for achado lá cai para o download direto do host pela mesh.
+  const modrinthHashes = entries
+    .filter((e) => e.source === "modrinth")
+    .map((e) => byFilename.get(e.filename)?.sha1)
+    .filter((h): h is string => !!h);
+  const verifiedUrls = modrinthHashes.length > 0 ? await lookupModrinthByHashes(modrinthHashes) : new Map();
+
   for (const entry of entries) {
     const mod = byFilename.get(entry.filename);
-    if (!mod) {
+    if (!mod || !isSafeModFilename(entry.filename)) {
       entry.status = "failed";
       entry.error = t("modsync.removedFromHost");
       onProgress([...entries]);
@@ -191,10 +240,8 @@ export async function runModSync(opts: RunModSyncOptions): Promise<void> {
     onProgress([...entries]);
 
     const destPath = await join(instanceModsDir, entry.filename);
-    const url =
-      entry.source === "modrinth" && mod.url
-        ? mod.url
-        : `${MODS_PROXY_BASE}/mods/file?code=${encodeURIComponent(shortCode)}&name=${encodeURIComponent(entry.filename)}`;
+    const verified = entry.source === "modrinth" ? verifiedUrls.get(mod.sha1.toLowerCase()) : undefined;
+    const url = verified?.url ?? `${MODS_PROXY_BASE}/mods/file?code=${encodeURIComponent(shortCode)}&name=${encodeURIComponent(entry.filename)}`;
 
     try {
       await invoke("download_mod_file", { url, destPath, expectedSha1: mod.sha1 });
@@ -227,7 +274,7 @@ export async function runLocalModSync(opts: RunLocalModSyncOptions): Promise<voi
 
   for (const entry of entries) {
     const mod = byFilename.get(entry.filename);
-    if (!mod) {
+    if (!mod || !isSafeModFilename(entry.filename)) {
       entry.status = "failed";
       entry.error = t("modsync.removedFromFolder");
       onProgress([...entries]);

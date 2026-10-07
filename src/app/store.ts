@@ -84,6 +84,9 @@ interface AppSettings {
   // Backup automático do mundo (parada/crash/sessão longa — ver
   // src/lib/autoBackup.ts). Preferência do usuário, então persistida.
   autoBackupEnabled: boolean;
+  // Quando o usuário aceitou o EULA do Minecraft (ISO). null = ainda não aceitou: a
+  // criação/importação de servidor pede o aceite antes de gravar eula=true.
+  eulaAcceptedAt: string | null;
   backupRetentionCount: number;
   // Intervalo (em horas) do backup de segurança para sessões longas que
   // nunca são paradas manualmente — ver uso em page.tsx.
@@ -146,6 +149,7 @@ interface AppSettings {
   setInitialized: (val: boolean) => void;
   setMinecraftPort: (port: number) => void;
   setAutoBackupEnabled: (enabled: boolean) => void;
+  acceptEula: () => void;
   setBackupRetentionCount: (count: number) => void;
   setBackupSafetyNetIntervalHours: (hours: number) => void;
   setSelectedServer: (name: string | null) => void;
@@ -182,6 +186,7 @@ export const useAppStore = create<AppSettings>()(
       hasInitialized: false,
       minecraftPort: 25565,
       autoBackupEnabled: true,
+      eulaAcceptedAt: null,
       backupRetentionCount: 10,
       backupSafetyNetIntervalHours: 6,
       selectedServer: null,
@@ -204,6 +209,7 @@ export const useAppStore = create<AppSettings>()(
       setInitialized: (val) => set({ hasInitialized: val }),
       setMinecraftPort: (port) => set({ minecraftPort: port }),
       setAutoBackupEnabled: (enabled) => set({ autoBackupEnabled: enabled }),
+      acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
       setBackupSafetyNetIntervalHours: (hours) => set({ backupSafetyNetIntervalHours: hours }),
       setSelectedServer: (name) => set({ selectedServer: name }),
@@ -300,6 +306,7 @@ export const useAppStore = create<AppSettings>()(
         hasInitialized: state.hasInitialized,
         minecraftPort: state.minecraftPort,
         autoBackupEnabled: state.autoBackupEnabled,
+        eulaAcceptedAt: state.eulaAcceptedAt,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,
         selectedServer: state.selectedServer,

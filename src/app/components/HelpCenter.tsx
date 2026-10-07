@@ -7,7 +7,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { getLocale, useT, type TKey } from "@/i18n";
-import { tutorialUrl } from "@/lib/help";
+import { legalUrl, tutorialUrl } from "@/lib/help";
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_LIMITS,
@@ -357,6 +357,18 @@ export function HelpCenter({ isOpen, onClose }: HelpCenterProps) {
                 >
                   {t("help.guides.all")} <ExternalLink className="w-3.5 h-3.5" />
                 </button>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 text-[11px] text-theme-secondary">
+                  {(["privacy", "terms", "licenses"] as const).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => openExternal(legalUrl(getLocale(), page)).catch(() => {})}
+                      className="underline hover:text-theme-primary cursor-pointer"
+                    >
+                      {t(`help.legal.${page}`)}
+                    </button>
+                  ))}
+                </div>
               </aside>
             </div>
           </motion.div>

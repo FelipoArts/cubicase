@@ -27,28 +27,67 @@ import { getLocale } from "@/i18n";
 const LOGIN_URL = "https://cubicase.net/entrar/";
 const REQUIRE_AUTH_TIMEOUT_MS = 5 * 60_000;
 
+// Proteção contra "login CSRF": qualquer página web consegue abrir
+// cubicase://auth-callback#access_token=...; sem isto, o app aplicaria tokens de um
+// atacante e a vítima passaria a usar (e pagar/parear dispositivo na) conta dele.
+// O login só vale se a URL de volta trouxer o `state` aleatório que ESTE app gerou ao
+// abrir o navegador (a página /entrar/ o devolve no deep link). Guardado em
+// localStorage com validade, para sobreviver ao app ser aberto pelo próprio deep link.
+const PENDING_STATE_KEY = "cubicase-auth-pending";
+
+function newAuthState(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function savePendingState(state: string): void {
+  try {
+    localStorage.setItem(PENDING_STATE_KEY, JSON.stringify({ state, exp: Date.now() + REQUIRE_AUTH_TIMEOUT_MS }));
+  } catch { /* storage indisponível: o login falha fechado (sem state válido) */ }
+}
+
+/** Consome o state pendente: true só se bater e estiver dentro da validade. Uso único. */
+export function consumePendingState(received: string | null): boolean {
+  let ok = false;
+  try {
+    const raw = localStorage.getItem(PENDING_STATE_KEY);
+    if (raw && received) {
+      const pending = JSON.parse(raw) as { state: string; exp: number };
+      ok = pending.state === received && Date.now() < pending.exp;
+    }
+    if (ok) localStorage.removeItem(PENDING_STATE_KEY);
+  } catch { ok = false; }
+  return ok;
+}
+
 function toAuthUser(user: { id: string; email?: string | null }): AuthUser {
   return { id: user.id, email: user.email ?? "" };
 }
 
-function parseTokensFromDeepLink(url: string): { access_token: string; refresh_token: string } | null {
+export function parseTokensFromDeepLink(url: string): { access_token: string; refresh_token: string; state: string | null } | null {
   const hashIndex = url.indexOf("#");
   if (hashIndex === -1) return null;
   const params = new URLSearchParams(url.slice(hashIndex + 1));
   const access_token = params.get("access_token");
   const refresh_token = params.get("refresh_token");
   if (!access_token || !refresh_token) return null;
-  return { access_token, refresh_token };
+  return { access_token, refresh_token, state: params.get("state") };
 }
 
 async function handleAuthCallbackUrl(url: string): Promise<void> {
   if (!url.startsWith("cubicase://auth-callback")) return;
   const tokens = parseTokensFromDeepLink(url);
   if (!tokens) {
-    console.error("[auth] Deep link de login sem os tokens esperados:", url);
+    // Nunca logar a URL: ela carrega tokens de sessão.
+    console.error("[auth] Deep link de login sem os tokens esperados.");
     return;
   }
-  const { error } = await supabase.auth.setSession(tokens);
+  if (!consumePendingState(tokens.state)) {
+    console.warn("[auth] Deep link de login ignorado: não corresponde a um login iniciado por este app.");
+    return;
+  }
+  const { error } = await supabase.auth.setSession({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
   if (error) console.error("[auth] Falha ao aplicar sessão recebida do deep link:", error);
 }
 
@@ -126,7 +165,9 @@ export function requireAuth(): Promise<AuthUser> {
 
       try {
         // ?lang faz a página de login abrir no idioma escolhido no app (ver docs/assets/i18n.js).
-        await open(`${LOGIN_URL}?lang=${getLocale() === "en" ? "en" : "pt"}`);
+        const state = newAuthState();
+        savePendingState(state);
+        await open(`${LOGIN_URL}?lang=${getLocale() === "en" ? "en" : "pt"}&state=${state}`);
       } catch (err) {
         clearTimeout(timer);
         sub.subscription.unsubscribe();

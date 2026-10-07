@@ -54,6 +54,7 @@ import {
 } from "@/lib/server";
 import type { ResourceSnapshot } from "@/lib/resourceDiagnostics";
 import { getServerSlug, defaultSlugFor, inviteLinkUrl } from "@/lib/inviteLink";
+import { carryCustomNamesToNewCode } from "@/lib/codeRotation";
 import { installModpack, type ParsedModpack } from "@/lib/modpackImport";
 import { ServerConfigModal } from "@/app/ServerConfigModal";
 import { ConsolePanel } from "./ConsolePanel";
@@ -252,6 +253,24 @@ export function HostView({
     });
     return () => { unlisten.then((f) => f()); };
   }, []);
+
+  // A API não confirmou o dono do código antigo e o app emitiu um código novo
+  // (ver ensure_server_ownership no Rust): reflete na lista e avisa o usuário.
+  useEffect(() => {
+    const unlisten = listen<{ serverDir: string; oldCode: string; newCode: string }>("server-code-rotated", (event) => {
+      const { serverDir, newCode } = event.payload;
+      onSetLocalServers(localServers.map((s) => (s.path === serverDir ? { ...s, shortCode: newCode } : s)));
+      pushDiagnostic({ level: "warning", source: tn("diag.source.server"), title: tn("host.codeRotated.title"), message: tn("host.codeRotated.message", { code: newCode }) });
+      // Link de convite / endereço personalizados (Plus) iam parar de funcionar: leva junto.
+      void carryCustomNamesToNewCode(event.payload.oldCode, newCode).then((r) => {
+        if (!r.hadCustomNames) return;
+        pushDiagnostic(r.failed
+          ? { level: "warning", source: tn("diag.source.server"), title: tn("host.codeRotated.customFailed.title"), message: tn("host.codeRotated.customFailed.message") }
+          : { level: "info", source: tn("diag.source.server"), title: tn("host.codeRotated.customMoved.title"), message: tn("host.codeRotated.customMoved.message") });
+      });
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [localServers, onSetLocalServers]);
 
   const handleCancelIdleShutdown = async () => {
     setIdleShutdownWarning(null);

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PackageOpen, X, Loader2, AlertTriangle, CheckCircle2, FileArchive, ShieldAlert } from "lucide-react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { EulaConsentBox, useEulaConsent } from "@/app/components/EulaConsent";
 import { formatBytes } from "@/lib/modSync";
 import {
   inspectPack,
@@ -102,8 +103,11 @@ function ImportPackModalBody({ onClose, existingNames, onImported }: ImportPackM
   const nameTooLong = name.trim().length > nameMax;
   const nameInvalid = !name.trim() || nameTaken || nameTooLong;
 
+  const eula = useEulaConsent();
+
   const handleImport = async () => {
-    if (!packPath || !inspection || nameInvalid || busyRef.current) return;
+    if (!packPath || !inspection || nameInvalid || !eula.ok || busyRef.current) return;
+    eula.commit();
     busyRef.current = true;
     setStep("running");
     setProgress({ phase: "reading", percent: 0, current: "", doneFiles: 0, totalFiles: 0 });
@@ -256,6 +260,8 @@ function ImportPackModalBody({ onClose, existingNames, onImported }: ImportPackM
                   {nameTaken && <p className="text-[11px] font-semibold text-rose-600">{t("pack.import.nameTaken")}</p>}
                 </div>
 
+                <EulaConsentBox consent={eula} />
+
                 <div className="flex justify-end gap-3 pt-3 border-t border-theme-card">
                   <button type="button" onClick={() => setStep("pick")} className="px-5 h-12 rounded-2xl text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors text-sm font-semibold">
                     {t("pack.import.back")}
@@ -263,7 +269,7 @@ function ImportPackModalBody({ onClose, existingNames, onImported }: ImportPackM
                   <button
                     type="button"
                     onClick={handleImport}
-                    disabled={nameInvalid}
+                    disabled={nameInvalid || !eula.ok}
                     className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold shadow-md shadow-theme-shadow disabled:opacity-40 cursor-pointer"
                   >
                     {t("pack.import.run")}

@@ -1,5 +1,6 @@
 "use client";
 
+import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
@@ -367,9 +368,7 @@ export default function Home() {
             if (serverInfo && serverInfo.shortCode) {
               registerServerWithCentral(serverInfo);
             } else {
-              const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-              let code = "";
-              for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+              const code = generateShortCode();
               serverShortCodeRef.current = code;
               setShortCode(code);
               setLogs(prev => [...prev, t("app.log.localCode", { code })]);

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { generateShortCode as generateSecureShortCode } from "@/lib/shortCode";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { documentDir, join } from "@tauri-apps/api/path";
@@ -209,7 +210,9 @@ export function buildImportedMeta(
   };
 }
 
-export function generateShortCode(random: () => number = Math.random): string {
+/** Código curto novo (criptográfico). `random` só existe para testes determinísticos. */
+export function generateShortCode(random?: () => number): string {
+  if (!random) return generateSecureShortCode();
   return Array.from({ length: 6 }, () => Math.floor(random() * 36).toString(36)).join("").toUpperCase();
 }
 
