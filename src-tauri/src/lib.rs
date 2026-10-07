@@ -147,6 +147,10 @@ struct AppState {
     minecraft_process: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
     minecraft_stdin: Mutex<Option<Box<dyn std::io::Write + Send>>>,
     
+    // Transporte de rede usado quando ESTE app hospeda: "tailscale" (padrão) ou "link" (P2P, beta).
+    // O convidado não escolhe: segue o que o host publica (ver start_network_node).
+    network_transport: Mutex<String>,
+
     // Flag atômica para saber se a parada foi solicitada pelo usuário
     // (diferencia parada limpa de crash). Usamos AtomicBool em vez de Mutex<bool>
     // para evitar qualquer potencial deadlock com o lock de minecraft_process.
@@ -289,10 +293,30 @@ struct NetworkStatusPayload {
     ip: Option<String>,
 }
 
+/// Tipo de caminho da conexão P2P (direct-v4, direct-v6, punched, relay) e latência em ms.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct NetworkPathPayload {
+    path: String,
+    rtt_ms: Option<i64>,
+}
+
 #[derive(Serialize, Clone)]
 struct NetworkLogPayload {
     message: String,
     is_error: bool,
+}
+
+/// Linhas `{"info":"..."}` do sidecar viram só o texto; qualquer outra linha passa como veio.
+fn friendly_sidecar_line(line: &str) -> String {
+    if line.starts_with('{') && line.contains("\"info\"") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(msg) = v.get("info").and_then(|m| m.as_str()) {
+                return msg.to_string();
+            }
+        }
+    }
+    line.to_string()
 }
 
 /// Traduz o código de erro estruturado emitido pelo sidecar Go (ver main.go,
@@ -310,6 +334,7 @@ fn map_sidecar_error_code(code: &str, detail: &str) -> (String, String) {
             tr!("sidecar.listenLocal.title"),
             tr!("sidecar.listenLocal.message", detail = detail),
         ),
+        "room_full" => (tr!("sidecar.roomFull.title"), tr!("sidecar.roomFull.message")),
         other => (
             tr!("sidecar.other.title"),
             if detail.is_empty() {
@@ -330,6 +355,9 @@ fn map_sidecar_warning_code(code: &str, detail: &str) -> (String, String) {
             tr!("sidecar.hostUnreachable.title"),
             tr!("sidecar.hostUnreachable.message"),
         ),
+        "signal_unreachable" | "signal_lost" => (tr!("sidecar.signal.title"), tr!("sidecar.signal.message")),
+        "connection_lost" | "peer_failed" => (tr!("sidecar.connLost.title"), tr!("sidecar.connLost.message")),
+        "mods_proxy_unavailable" => (tr!("sidecar.modsProxy.title"), tr!("sidecar.modsProxy.message")),
         other => (
             tr!("sidecar.warn.title"),
             if detail.is_empty() {
@@ -366,6 +394,7 @@ async fn start_network_node_impl(
     short_code: String,
     target_ip: Option<String>,
     local_port: u16,
+    launcher: Option<String>,
 ) -> Result<(), String> {
     log_to_file(&app, &format!("=== INÍCIO DE CONEXÃO (Modo: {}, shortCode: {}, Porta Local: {}, IP Alvo: {:?}) ===", mode, short_code, local_port, target_ip));
 
@@ -459,11 +488,24 @@ async fn start_network_node_impl(
     *state.active_session_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(session_manager.clone());
 
     log_to_file(&app, "[start_network_node] Solicitando ConnectionSession à API central...");
-    let session_resp = session_manager.start(&short_code, &mode, local_port).await.map_err(|e| {
+    // Transporte: o host usa a preferência do app; o convidado segue o que o host publica
+    // (a descoberta devolve o launcher do host — host e convidado precisam falar o mesmo).
+    let want_link = if mode == "host" {
+        state.network_transport.lock().unwrap_or_else(|e| e.into_inner()).as_str() == "link"
+    } else {
+        launcher.as_deref() == Some("link-v1")
+    };
+    let session_resp = session_manager.start_with(&short_code, &mode, local_port, if want_link { Some("link-v1") } else { None }).await.map_err(|e| {
         let err_msg = tr!("net.credentialsFailed", error = e);
         log_to_file(&app, &err_msg);
         err_msg
     })?;
+    if want_link && session_resp.launcher != "link-v1" && mode == "guest" {
+        // O host usa o P2P mas a API devolveu outro provedor (versão antiga do servidor): não há como conectar.
+        let msg = tr!("net.link.unsupported");
+        log_to_file(&app, &msg);
+        return Err(msg);
+    }
     session_manager.set_waiting_provider().map_err(|e| {
         log_to_file(&app, &format!("Erro interno de estado da sessão: {}", e));
         e
@@ -504,6 +546,19 @@ async fn start_network_node_impl(
                         
                         log_to_file(&app_clone, &format!("[Sidecar-Stdout] {}", trimmed));
                         
+                        // Tipo de caminho da conexão P2P (direto/relay) + latência: vai para a UI, não para o log cru.
+                        if trimmed.starts_with('{') && trimmed.contains("\"path\"") {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                                if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                    let _ = app_clone.emit("network-path", NetworkPathPayload {
+                                        path: path.to_string(),
+                                        rtt_ms: v.get("rttMs").and_then(|r| r.as_i64()),
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
+
                         // Parsear status do sidecar Go
                         if trimmed.starts_with('{') && trimmed.contains("\"status\"") {
                             if let Ok(status_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
@@ -529,6 +584,14 @@ async fn start_network_node_impl(
                                             let sm = session_manager_events.clone();
                                             let app_for_hb = app_clone.clone();
                                             tauri::async_runtime::spawn(async move {
+                                                // Transporte P2P: a presença do host é a própria sala de sinalização — sem PATCH de
+                                                // hostIp nem heartbeats de 60 s para a API (só o estado local avança para Online).
+                                                if sm.is_link() {
+                                                    if let Err(e) = sm.set_online_local() {
+                                                        log_to_file(&app_for_hb, &format!("[SessionManager] Estado local da sessão P2P: {}", e));
+                                                    }
+                                                    return;
+                                                }
                                                 if let Err(e) = sm.set_online(&ip).await {
                                                     log_to_file(&app_for_hb, &format!("[SessionManager] Falha ao reportar online: {}", e));
                                                 }
@@ -624,7 +687,7 @@ async fn start_network_node_impl(
                             // Suprime logs muito detalhados de debug do Tailscale
                             "".to_string()
                         } else {
-                            trimmed.to_string()
+                            friendly_sidecar_line(trimmed)
                         };
 
                         if !display_message.is_empty() {
@@ -733,12 +796,13 @@ async fn start_network_node_with_retry(
     short_code: String,
     target_ip: Option<String>,
     local_port: u16,
+    launcher: Option<String>,
 ) -> Result<(), String> {
     let mut result: Result<(), String> = Err(tr!("err.neverTried"));
     for attempt in 1..=NETWORK_MAX_ATTEMPTS {
         result = match tokio::time::timeout(
             NETWORK_TIMEOUT,
-            start_network_node_impl(app.clone(), app.state::<AppState>(), mode.clone(), short_code.clone(), target_ip.clone(), local_port),
+            start_network_node_impl(app.clone(), app.state::<AppState>(), mode.clone(), short_code.clone(), target_ip.clone(), local_port, launcher.clone()),
         ).await {
             Ok(inner_result) => inner_result,
             Err(_) => Err(tr!("err.networkTimeout", seconds = NETWORK_TIMEOUT.as_secs(), attempt = attempt, max = NETWORK_MAX_ATTEMPTS)),
@@ -792,8 +856,19 @@ async fn start_network_node(
     short_code: String,
     target_ip: Option<String>,
     local_port: u16,
+    launcher: Option<String>,
 ) -> Result<(), String> {
-    start_network_node_with_retry(app, mode, short_code, target_ip, local_port).await
+    start_network_node_with_retry(app, mode, short_code, target_ip, local_port, launcher).await
+}
+
+/// Define o transporte de rede usado quando este app hospeda: "tailscale" (padrão) ou "link" (P2P, beta).
+#[tauri::command]
+fn set_network_transport(state: tauri::State<'_, AppState>, transport: String) -> Result<(), String> {
+    if transport != "tailscale" && transport != "link" {
+        return Err(format!("transporte inválido: {}", transport));
+    }
+    *state.network_transport.lock().unwrap_or_else(|e| e.into_inner()) = transport;
+    Ok(())
 }
 
 /// Opt-in de desenvolvimento: procura um `network_session.json` local (cwd,
@@ -6419,6 +6494,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
        set_locale,
        start_network_node,
+       set_network_transport,
        stop_network_node,
        add_minecraft_server_entry,
        find_installed_minecraft_versions,

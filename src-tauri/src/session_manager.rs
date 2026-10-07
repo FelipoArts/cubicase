@@ -192,6 +192,11 @@ impl SessionManager {
     // ============================================================
 
     pub async fn start(&self, short_code: &str, mode: &str, local_port: u16) -> Result<ConnectionSessionResponse, String> {
+        self.start_with(short_code, mode, local_port, None).await
+    }
+
+    /// Como `start`, escolhendo o transporte: `Some("link-v1")` pede o P2P (cubicase-link).
+    pub async fn start_with(&self, short_code: &str, mode: &str, local_port: u16, launcher: Option<&str>) -> Result<ConnectionSessionResponse, String> {
         // Verificar concorrência
         {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -218,7 +223,7 @@ impl SessionManager {
         }
 
         // Chamar API para criar sessão
-        let result = self.api.create_connection_session(short_code, mode).await;
+        let result = self.api.create_connection_session(short_code, mode, launcher).await;
 
         match result {
             Ok(session) => {
@@ -261,6 +266,22 @@ impl SessionManager {
     // ============================================================
     // Notificar que o sidecar conectou (ONLINE)
     // ============================================================
+
+    /// A sessão usa o transporte P2P (a presença do host é a própria sala de sinalização:
+    /// não há PATCH de hostIp nem heartbeat para a API).
+    pub fn is_link(&self) -> bool {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).provider.as_deref() == Some("link-v1")
+    }
+
+    /// WaitingProvider → Online sem falar com a API (transporte P2P).
+    pub fn set_online_local(&self) -> Result<(), String> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        Self::validate_transition(&state.status, &SessionStatus::Online)?;
+        state.status = SessionStatus::Online;
+        state.timing.provider_wait_ms = Some(state.timing.started_at.elapsed().as_millis() as u64);
+        state.timing.total_elapsed_ms = state.timing.provider_wait_ms;
+        Ok(())
+    }
 
     pub async fn set_online(&self, host_ip: &str) -> Result<(), String> {
         let session_id;
@@ -633,5 +654,64 @@ mod tests {
 
         assert_eq!(sm.get_status(), SessionStatus::Online);
         assert_eq!(sm.get_session_id(), Some("sess-3".to_string()));
+    }
+}
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+    use crate::api_client::{ApiConfig, ApiError, ApiRequest, ApiResponse, ApiTransport};
+    use async_trait::async_trait;
+    use std::sync::Mutex as StdMutex;
+
+    /// Grava os pedidos e responde sempre com uma sessão `link-v1`.
+    struct Recorder {
+        seen: Arc<StdMutex<Vec<ApiRequest>>>,
+    }
+
+    #[async_trait]
+    impl ApiTransport for Recorder {
+        async fn send(&self, request: ApiRequest) -> Result<ApiResponse, ApiError> {
+            self.seen.lock().unwrap().push(request);
+            Ok(ApiResponse {
+                success: true, code: "SUCCESS".into(), message: "ok".into(),
+                data: Some(serde_json::json!({
+                    "sessionId": "sess-link", "launcher": "link-v1", "launcherVersion": 1, "protocolVersion": 1,
+                    "credentials": { "signalUrl": "wss://x/ws", "signalToken": "t", "peerId": "sess-link" },
+                    "leaseDurationMs": 86400000, "expiresAt": "2026-01-02T00:00:00Z",
+                })),
+                details: None, technical_id: None, timestamp: "2026-01-01T00:00:00Z".into(), request_id: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn link_session_requests_the_launcher_and_goes_online_without_calling_the_api() {
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        let client = ApiClient::with_transport(Box::new(Recorder { seen: seen.clone() }), ApiConfig::default());
+        let sm = SessionManager::new(Arc::new(client));
+
+        let resp = sm.start_with("ABCDEF", "guest", 25565, Some("link-v1")).await.expect("start");
+        assert_eq!(resp.launcher, "link-v1");
+        assert!(sm.is_link());
+        {
+            let reqs = seen.lock().unwrap();
+            assert_eq!(reqs.len(), 1);
+            assert_eq!(reqs[0].body.as_ref().unwrap()["launcher"], "link-v1");
+        }
+
+        sm.set_waiting_provider().unwrap();
+        sm.set_online_local().expect("P2P fica online localmente");
+        assert_eq!(sm.get_status(), SessionStatus::Online);
+        // Nenhum PATCH de hostIp (a API recusaria "p2p"): só o pedido de criação existe.
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn default_start_does_not_ask_for_the_p2p_launcher() {
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        let client = ApiClient::with_transport(Box::new(Recorder { seen: seen.clone() }), ApiConfig::default());
+        let sm = SessionManager::new(Arc::new(client));
+        let _ = sm.start("ABCDEF", "host", 25565).await;
+        assert!(seen.lock().unwrap()[0].body.as_ref().unwrap().get("launcher").is_none());
     }
 }

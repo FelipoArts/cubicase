@@ -61,6 +61,14 @@ export interface KnownServer {
   modLoaderVersion: string | null;
 }
 
+export type NetworkTransport = "tailscale" | "link";
+
+/** Caminho da conexão P2P: direct-v4/direct-v6/punched/relay (ver cubicase-link). */
+export interface NetworkPathInfo {
+  path: string;
+  rttMs: number | null;
+}
+
 interface AppSettings {
   // Configurações persistidas
   serverDir: string | null;
@@ -87,6 +95,11 @@ interface AppSettings {
   // Quando o usuário aceitou o EULA do Minecraft (ISO). null = ainda não aceitou: a
   // criação/importação de servidor pede o aceite antes de gravar eula=true.
   eulaAcceptedAt: string | null;
+  // Transporte de rede usado quando ESTE app hospeda: "tailscale" (padrão) ou "link" (conexão
+  // direta P2P, beta). O convidado não escolhe: segue o que o host publica.
+  networkTransport: NetworkTransport;
+  // Tipo de caminho da conexão P2P atual (direto/relay) e latência — runtime, não persistido.
+  networkPath: NetworkPathInfo | null;
   backupRetentionCount: number;
   // Intervalo (em horas) do backup de segurança para sessões longas que
   // nunca são paradas manualmente — ver uso em page.tsx.
@@ -150,6 +163,8 @@ interface AppSettings {
   setMinecraftPort: (port: number) => void;
   setAutoBackupEnabled: (enabled: boolean) => void;
   acceptEula: () => void;
+  setNetworkTransport: (t: NetworkTransport) => void;
+  setNetworkPath: (p: NetworkPathInfo | null) => void;
   setBackupRetentionCount: (count: number) => void;
   setBackupSafetyNetIntervalHours: (hours: number) => void;
   setSelectedServer: (name: string | null) => void;
@@ -187,6 +202,8 @@ export const useAppStore = create<AppSettings>()(
       minecraftPort: 25565,
       autoBackupEnabled: true,
       eulaAcceptedAt: null,
+      networkTransport: "tailscale",
+      networkPath: null,
       backupRetentionCount: 10,
       backupSafetyNetIntervalHours: 6,
       selectedServer: null,
@@ -210,6 +227,8 @@ export const useAppStore = create<AppSettings>()(
       setMinecraftPort: (port) => set({ minecraftPort: port }),
       setAutoBackupEnabled: (enabled) => set({ autoBackupEnabled: enabled }),
       acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
+      setNetworkTransport: (t) => set({ networkTransport: t }),
+      setNetworkPath: (p) => set({ networkPath: p }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
       setBackupSafetyNetIntervalHours: (hours) => set({ backupSafetyNetIntervalHours: hours }),
       setSelectedServer: (name) => set({ selectedServer: name }),
@@ -307,6 +326,7 @@ export const useAppStore = create<AppSettings>()(
         minecraftPort: state.minecraftPort,
         autoBackupEnabled: state.autoBackupEnabled,
         eulaAcceptedAt: state.eulaAcceptedAt,
+        networkTransport: state.networkTransport,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,
         selectedServer: state.selectedServer,

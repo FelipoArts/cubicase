@@ -1,5 +1,6 @@
 "use client";
 
+import { guestRouteFromDiscovery, pathLabelKey } from "@/lib/networkTransport";
 import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
@@ -334,6 +335,7 @@ export default function Home() {
   // --- Listeners Tauri (registrados UMA vez no page.tsx) ---
   useEffect(() => {
     let unlistenStatus: (() => void) | null = null;
+    let unlistenPath: (() => void) | null = null;
     let unlistenLogs: (() => void) | null = null;
     let unlistenMcStatus: (() => void) | null = null;
     let unlistenMcLogs: (() => void) | null = null;
@@ -353,9 +355,20 @@ export default function Home() {
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
 
+      const unPath = await listen<{ path: string; rttMs: number | null }>("network-path", (event) => {
+        const prev = useAppStore.getState().networkPath;
+        useAppStore.getState().setNetworkPath({ path: event.payload.path, rttMs: event.payload.rttMs ?? null });
+        if (prev?.path !== event.payload.path) {
+          const rtt = event.payload.rttMs != null ? ` · ${event.payload.rttMs} ms` : "";
+          setLogs((logs) => [...logs, t("net.path.log", { label: t(pathLabelKey(event.payload.path)), rtt })]);
+        }
+      });
+      if (cancelled) unPath(); else unlistenPath = unPath;
+
       const unStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
         const newNetStatus = event.payload.status === "online" ? "online" : "offline";
         setNetStatus(newNetStatus);
+        if (event.payload.status !== "online") useAppStore.getState().setNetworkPath(null);
 
         if (event.payload.status === "online") {
           setNetIp(event.payload.ip);
@@ -668,6 +681,7 @@ export default function Home() {
     return () => {
       cancelled = true;
       unlistenStatus?.();
+      unlistenPath?.();
       unlistenLogs?.();
       unlistenMcStatus?.();
       unlistenMcLogs?.();
@@ -798,6 +812,12 @@ export default function Home() {
     };
   }, []);
 
+  // Transporte de rede preferido (quando este app HOSPEDA): o Rust lê isto ao subir a rede.
+  const networkTransport = useAppStore((s) => s.networkTransport);
+  useEffect(() => {
+    invoke("set_network_transport", { transport: networkTransport }).catch((err) => console.warn("[rede] set_network_transport falhou:", err));
+  }, [networkTransport]);
+
   // Link de convite (cubicase://join/<shortCode>, ver play.cubicase.net/<slug>)
   // — mesmo padrão do listener de login acima, ver src/lib/joinDeepLink.ts.
   useEffect(() => {
@@ -858,7 +878,8 @@ export default function Home() {
     // A descoberta agora é obrigatória: é dela que vem o IP de malha real do
     // host (session.hostIp) — sem isso não tem pra onde discar. O código de
     // convite sozinho (CF-XXXXXX) só carrega o shortCode, nunca um IP.
-    let hostIp: string | null = null;
+    let found = false;
+    let discoverySession: { provider?: string | null; hostIp?: string | null } | null = null;
     // Endereço de conexão personalizado (Cubicase Plus) — null se o host
     // nunca configurou um, e aí connectAddressFor cai pro padrão grátis
     // derivado do próprio shortCode.
@@ -878,14 +899,17 @@ export default function Home() {
           description: server.description,
         });
         discoveredName = server.name ?? null;
-        hostIp = session.hostIp ?? null;
+        found = true;
+        discoverySession = session;
         connectName = server.connectName ?? null;
       }
     } catch {
       // tratado abaixo pelo `!hostIp`
     }
 
-    if (!hostIp) {
+    // Host P2P (link-v1): o convidado só precisa do código; host antigo (Tailscale): precisa do IP.
+    const route = guestRouteFromDiscovery(found, discoverySession);
+    if (!route) {
       setNetStatus("offline");
       setNetMode(null);
       useAppStore.getState().setGuestConnectedShortCode(null);
@@ -903,8 +927,9 @@ export default function Home() {
       await invoke("start_network_node", {
         mode: "guest",
         shortCode: shortCodeClean,
-        targetIp: hostIp,
+        targetIp: route.targetIp,
         localPort: minecraftPort,
+        launcher: route.launcher,
       });
       setNetStatus("online");
       setNetMode("guest");

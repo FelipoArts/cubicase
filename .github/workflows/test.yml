@@ -41,6 +41,11 @@ jobs:
         working-directory: src-tauri/sidecars/cubicase-link
         run: go test ./... -count=1 -timeout 300s
 
+      - name: Build cubicase-link sidecar
+        working-directory: src-tauri/sidecars/cubicase-link
+        shell: pwsh
+        run: go build -o ../../binaries/cubicase-link-x86_64-pc-windows-msvc.exe .
+
       - name: Install frontend dependencies
         run: npm ci
 

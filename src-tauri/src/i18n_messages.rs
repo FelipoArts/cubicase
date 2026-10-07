@@ -56,6 +56,26 @@ messages! {
         "Não estamos conseguindo alcançar o host na rede mesh há um tempo — a conexão pode ter caído ou o host pode ter ficado offline. O túnel continua tentando se recuperar sozinho; se persistir, peça para o host verificar a rede mesh dele.",
         "We haven't been able to reach the host on the mesh network for a while — the connection may have dropped or the host may have gone offline. The tunnel keeps trying to recover on its own; if it persists, ask the host to check their mesh network."
     ),
+    "sidecar.roomFull.title" => ("Servidor lotado", "Server is full"),
+    "sidecar.roomFull.message" => (
+        "O host atingiu o limite de convidados conectados ao mesmo tempo. Tente de novo quando alguém sair.",
+        "The host has reached the limit of guests connected at the same time. Try again when someone leaves."
+    ),
+    "sidecar.signal.title" => ("Conexão com o Cubicase instável", "Unstable connection to Cubicase"),
+    "sidecar.signal.message" => (
+        "Não estamos conseguindo falar com o servidor do Cubicase para organizar novas conexões. Quem já está jogando não é afetado; o app tenta reconectar sozinho.",
+        "We can't reach the Cubicase server to set up new connections. Players already connected aren't affected; the app keeps trying to reconnect on its own."
+    ),
+    "sidecar.connLost.title" => ("Conexão com o host caiu", "Connection to the host dropped"),
+    "sidecar.connLost.message" => (
+        "A conexão direta com o outro computador caiu. O app tenta restabelecê-la automaticamente; se não voltar em alguns segundos, entre de novo.",
+        "The direct connection to the other computer dropped. The app tries to restore it automatically; if it doesn't come back in a few seconds, join again."
+    ),
+    "sidecar.modsProxy.title" => ("Sincronização de mods indisponível", "Mod sync unavailable"),
+    "sidecar.modsProxy.message" => (
+        "Não foi possível abrir a porta local usada para sincronizar mods (provavelmente em uso por outro programa). O jogo em si não é afetado.",
+        "Couldn't open the local port used to sync mods (probably in use by another program). The game itself is not affected."
+    ),
     "sidecar.warn.title" => ("Aviso na rede mesh", "Mesh network warning"),
 
     // ---------- Rede ----------
@@ -66,6 +86,11 @@ messages! {
     "net.role.host" => ("Host", "Host"),
     "net.role.guest" => ("Convidado", "Guest"),
     "net.credentialsFailed" => ("Não foi possível obter credenciais de rede: {error}", "Couldn't get network credentials: {error}"),
+    "net.link.unsupported" => (
+        "O host usa a nova conexão direta (P2P), mas o servidor do Cubicase ainda não oferece esse modo. Peça ao host para voltar ao modo padrão nas Configurações.",
+        "The host uses the new direct (P2P) connection, but the Cubicase server doesn't offer that mode yet. Ask the host to switch back to the standard mode in Settings."
+    ),
+    "provider.link.incomplete" => ("As credenciais da conexão P2P vieram incompletas. Tente novamente.", "The P2P connection credentials came back incomplete. Try again."),
     "net.hostReconnected" => ("Conexão com o host da malha restabelecida.", "Connection to the mesh host restored."),
     "net.meshDisconnected" => ("Rede mesh desconectada.", "Mesh network disconnected."),
     "net.closed" => ("Conexão de rede encerrada: {title} (ver Central de Diagnósticos)", "Network connection closed: {title} (see the Diagnostics Center)"),

@@ -37,6 +37,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path ../../binaries | Out-Null
           go build -o ../../binaries/tsnet-node-x86_64-pc-windows-msvc.exe .
 
+      - name: Build cubicase-link sidecar
+        working-directory: src-tauri/sidecars/cubicase-link
+        shell: pwsh
+        run: go build -o ../../binaries/cubicase-link-x86_64-pc-windows-msvc.exe .
+
       - name: Install frontend dependencies
         run: npm ci
 

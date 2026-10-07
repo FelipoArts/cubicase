@@ -10,6 +10,7 @@ import { spawn } from "node:child_process";
 import { createServer as createTcp, connect } from "node:net";
 import { createServer as createHttp } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
+import * as fs from "node:fs";
 import { writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -85,9 +86,14 @@ async function main() {
   writeFileSync(hostCfg, JSON.stringify(cfg("host", hostSess, { localPort: mcPort, registryPort: regPort })));
   writeFileSync(guestCfg, JSON.stringify(cfg("guest", guestSess, { localPort: gamePort, modsPort })));
 
+  // LINK_STDIN=1: entrega a configuração pelo stdin (como o app faz) e mantém o pipe aberto.
+  const viaStdin = process.env.LINK_STDIN === "1";
   const events = { host: [], guest: [] };
   const run = (role, file) => {
-    const p = spawn(BIN, ["--config", file], { stdio: ["pipe", "pipe", "inherit"] });
+    const p = viaStdin
+      ? spawn(BIN, ["--stdin"], { stdio: ["pipe", "pipe", "inherit"] })
+      : spawn(BIN, ["--config", file], { stdio: ["pipe", "pipe", "inherit"] });
+    if (viaStdin) p.stdin.write(fs.readFileSync(file, "utf8").trim() + "\n");
     procs.push(p);
     lines(p, (l) => { try { events[role].push(JSON.parse(l)); } catch { /* ignora */ } });
     return p;
@@ -125,7 +131,13 @@ async function main() {
 main()
   .catch((e) => { failed = true; console.error("✗", e.message); })
   .finally(() => {
-    for (const p of procs) { try { p.kill(); } catch { /* já saiu */ } }
+    for (const p of procs) {
+      try {
+        // No Windows o wrangler roda dentro de um shell (npx): mata a ÁRVORE, senão sobra um processo na porta.
+        if (process.platform === "win32" && p.pid) spawn("taskkill", ["/PID", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+        else p.kill();
+      } catch { /* já saiu */ }
+    }
     // Limpeza depois de matar os processos (o wrangler segura arquivos por um instante; falhar aqui não importa).
     setTimeout(() => {
       try { if (tmpDir) rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* ignora */ }

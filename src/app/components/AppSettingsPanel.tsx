@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, X, Archive, Palette, User as UserIcon, Sparkles, Home, Monitor, Globe } from "lucide-react";
+import { Settings, X, Archive, Palette, User as UserIcon, Sparkles, Home, Monitor, Globe, Network } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { join } from "@tauri-apps/api/path";
@@ -36,10 +36,11 @@ const DEFAULT_IDLE_TIMEOUT_MINUTES = 15;
 // direto na store a cada mudança (sem botão "Salvar").
 // ============================================================
 
-export type SettingsCategory = "inicio" | "backups" | "tema" | "conta" | "assinatura";
+export type SettingsCategory = "inicio" | "rede" | "backups" | "tema" | "conta" | "assinatura";
 
 const CATEGORIES: { id: SettingsCategory; labelKey: TKey; icon: typeof Archive }[] = [
   { id: "inicio", labelKey: "settings.cat.home", icon: Home },
+  { id: "rede", labelKey: "settings.cat.network", icon: Network },
   { id: "backups", labelKey: "settings.cat.backups", icon: Archive },
   { id: "tema", labelKey: "settings.cat.theme", icon: Palette },
   { id: "conta", labelKey: "settings.cat.account", icon: UserIcon },
@@ -70,6 +71,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
   }, []);
 
   const defaultTab = useAppStore((s) => s.defaultTab);
+  const networkTransport = useAppStore((s) => s.networkTransport);
+  const setNetworkTransport = useAppStore((s) => s.setNetworkTransport);
   const setDefaultTab = useAppStore((s) => s.setDefaultTab);
 
   const autoBackupEnabled = useAppStore((s) => s.autoBackupEnabled);
@@ -370,6 +373,35 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
                         <div className="text-[10px] text-theme-secondary">{t("settings.home.guestDesc")}</div>
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {category === "rede" && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-theme-secondary uppercase tracking-wide">{t("settings.network.label")}</label>
+                    <p className="text-[10px] text-theme-secondary pb-1">{t("settings.network.hint")}</p>
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      {(["tailscale", "link"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setNetworkTransport(mode)}
+                          className={cn(
+                            "text-left p-4 rounded-2xl border transition-colors cursor-pointer",
+                            networkTransport === mode
+                              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
+                              : "border-theme-card hover:bg-theme-muted"
+                          )}
+                        >
+                          <Network className="w-4.5 h-4.5 text-indigo-600 mb-2" />
+                          <div className="text-sm font-bold text-theme-primary">{t(mode === "link" ? "settings.network.link" : "settings.network.standard")}</div>
+                          <div className="text-[10px] text-theme-secondary">{t(mode === "link" ? "settings.network.linkDesc" : "settings.network.standardDesc")}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {networkTransport === "link" && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-2">{t("settings.network.betaNote")}</p>
+                    )}
                   </div>
                 )}
 

@@ -745,6 +745,7 @@ fn spawn_network_task(app: &tauri::AppHandle, generation: u64) {
             cfg.short_code.clone(),
             None,
             port,
+            None, // host: o transporte vem da preferência do app (AppState::network_transport)
         )
         .await;
         let state = app2.state::<AppState>();

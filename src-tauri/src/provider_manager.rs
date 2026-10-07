@@ -27,6 +27,9 @@ impl ProviderManager {
             "tsnet-v1" => {
                 self.start_tsnet(app, &session.credentials, mode, local_port, &session.session_id, target_ip).await
             }
+            "link-v1" => {
+                self.start_link(app, &session.credentials, mode, local_port).await
+            }
             "mock-v1" => {
                 self.start_mock(app, &session.credentials, mode, local_port).await
             }
@@ -89,6 +92,31 @@ impl ProviderManager {
         Ok((child, rx))
     }
 
+    /// Inicia o sidecar do transporte P2P (cubicase-link). A configuração (que inclui o token da
+    /// sala e as credenciais do relay) vai pelo STDIN do processo — nunca para um arquivo em disco.
+    /// O sidecar sai sozinho se o stdin fechar, então o `CommandChild` precisa continuar vivo no
+    /// estado do app enquanto a rede estiver de pé (já é assim para todo provedor).
+    async fn start_link(
+        &self,
+        app: &AppHandle,
+        credentials: &serde_json::Value,
+        mode: &str,
+        local_port: u16,
+    ) -> Result<(CommandChild, mpsc::Receiver<CommandEvent>), String> {
+        let cfg = build_link_config(credentials, mode, local_port)?;
+        let line = format!("{}\n", serde_json::to_string(&cfg).map_err(|e| tr!("provider.serializeConfig", error = e))?);
+
+        let (rx, mut child) = app
+            .shell()
+            .sidecar("cubicase-link")
+            .map_err(|e| tr!("provider.createSidecar", error = e))?
+            .args(["--stdin"])
+            .spawn()
+            .map_err(|e| tr!("provider.spawnSidecar", error = e))?;
+        child.write(line.as_bytes()).map_err(|e| tr!("provider.writeConfig", error = e))?;
+        Ok((child, rx))
+    }
+
     /// Inicia o provider Mock (para desenvolvimento offline)
     async fn start_mock(
         &self,
@@ -104,5 +132,58 @@ impl ProviderManager {
         // Mock não precisa de sidecar real
         // Para simplificar, retornamos erro indicando que o mock deve ser tratado separadamente
         Err(tr!("provider.mockNoSidecar"))
+    }
+}
+/// Monta a configuração do cubicase-link a partir das credenciais opacas da sessão `link-v1`
+/// (ver buildLinkCredentials no Worker e Config em sidecars/cubicase-link/config.go).
+pub fn build_link_config(credentials: &serde_json::Value, mode: &str, local_port: u16) -> Result<serde_json::Value, String> {
+    let get = |k: &str| credentials.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty());
+    let signal_url = get("signalUrl").ok_or_else(|| tr!("provider.link.incomplete"))?;
+    let signal_token = get("signalToken").ok_or_else(|| tr!("provider.link.incomplete"))?;
+    let peer_id = get("peerId").ok_or_else(|| tr!("provider.link.incomplete"))?;
+    Ok(serde_json::json!({
+        "mode": mode,
+        "peerId": peer_id,
+        "signalUrl": signal_url,
+        "signalToken": signal_token,
+        "ice": credentials.get("ice").cloned().unwrap_or_else(|| serde_json::json!({ "stunUrls": [] })),
+        "relayOnly": credentials.get("relayOnly").and_then(|v| v.as_bool()).unwrap_or(false),
+        "localPort": local_port,
+        // Servidor HTTP local do app (lista/arquivos de mods) e proxy de mods do convidado.
+        "registryPort": 25567,
+        "modsPort": 25568,
+        "maxGuests": 20,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_config_maps_session_credentials_and_fixed_ports() {
+        let creds = serde_json::json!({
+            "signalUrl": "wss://api.example/api/v1/link/ws/ABC123",
+            "signalToken": "tok", "peerId": "sess-1", "relayOnly": true,
+            "ice": { "stunUrls": ["stun:x:1"], "turn": { "urls": ["turn:t:3478"], "username": "u", "credential": "c" } },
+        });
+        let cfg = build_link_config(&creds, "host", 25565).unwrap();
+        assert_eq!(cfg["mode"], "host");
+        assert_eq!(cfg["peerId"], "sess-1");
+        assert_eq!(cfg["signalToken"], "tok");
+        assert_eq!(cfg["relayOnly"], true);
+        assert_eq!(cfg["ice"]["turn"]["username"], "u");
+        assert_eq!((cfg["localPort"].as_u64(), cfg["registryPort"].as_u64(), cfg["modsPort"].as_u64()), (Some(25565), Some(25567), Some(25568)));
+    }
+
+    #[test]
+    fn link_config_rejects_incomplete_credentials() {
+        for creds in [
+            serde_json::json!({}),
+            serde_json::json!({ "signalUrl": "wss://x", "peerId": "p" }),
+            serde_json::json!({ "signalUrl": "", "signalToken": "t", "peerId": "p" }),
+        ] {
+            assert!(build_link_config(&creds, "guest", 25565).is_err(), "{creds}");
+        }
     }
 }

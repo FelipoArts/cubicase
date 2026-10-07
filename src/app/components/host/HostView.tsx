@@ -55,6 +55,7 @@ import {
 import type { ResourceSnapshot } from "@/lib/resourceDiagnostics";
 import { getServerSlug, defaultSlugFor, inviteLinkUrl } from "@/lib/inviteLink";
 import { carryCustomNamesToNewCode } from "@/lib/codeRotation";
+import { pathLabelKey } from "@/lib/networkTransport";
 import { installModpack, type ParsedModpack } from "@/lib/modpackImport";
 import { ServerConfigModal } from "@/app/ServerConfigModal";
 import { ConsolePanel } from "./ConsolePanel";
@@ -253,6 +254,8 @@ export function HostView({
     });
     return () => { unlisten.then((f) => f()); };
   }, []);
+
+  const networkPath = useAppStore((s) => s.networkPath);
 
   // A API não confirmou o dono do código antigo e o app emitiu um código novo
   // (ver ensure_server_ownership no Rust): reflete na lista e avisa o usuário.
@@ -1155,7 +1158,7 @@ export function HostView({
                 </div>
                 <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
                   <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.meshAddress")}</p>
-                  <p className="text-sm font-bold text-theme-primary mt-1">{(hosting.ip ?? netIp) || t("host.net.inactive")}</p>
+                  <p className="text-sm font-bold text-theme-primary mt-1">{meshAddressLabel(hosting.ip ?? netIp, networkPath, t) || t("host.net.inactive")}</p>
                 </div>
                 <div className="bg-theme-muted p-4 rounded-2xl border border-theme-card">
                   <p className="text-[10px] font-bold text-theme-secondary uppercase tracking-wider">{t("host.net.interface")}</p>
@@ -1469,3 +1472,13 @@ export function HostView({
 
 // Import necessário para AnimatePresence
 import { AnimatePresence } from "framer-motion";
+
+/**
+ * Mostra o "endereço" da rede: no modelo antigo é o IP virtual; no P2P ("p2p") não existe IP,
+ * então mostra o tipo de caminho (conexão direta / via relay) e a latência, quando conhecidos.
+ */
+function meshAddressLabel(ip: string | null, path: { path: string; rttMs: number | null } | null, t: (k: any, v?: any) => string): string {
+  if (ip !== "p2p") return ip ?? "";
+  if (!path) return t("net.path.connecting");
+  return t(pathLabelKey(path.path)) + (path.rttMs != null ? ` · ${path.rttMs} ms` : "");
+}

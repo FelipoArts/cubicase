@@ -302,19 +302,26 @@ impl ApiClient {
         &self,
         short_code: &str,
         mode: &str,
+        launcher: Option<&str>,
     ) -> Result<ConnectionSessionResponse, ApiError> {
         let (request_id, correlation_id) = self.generate_ids();
+
+        let mut body = serde_json::json!({
+            "requestId": request_id,
+            "correlationId": correlation_id,
+            "installationId": self.config.installation_id,
+            "clientVersion": self.config.client_version,
+            "mode": mode,
+        });
+        // Transporte P2P (cubicase-link): sem isto a API continua devolvendo o Tailscale.
+        if let Some(l) = launcher {
+            body["launcher"] = serde_json::Value::String(l.to_string());
+        }
 
         let req = ApiRequest {
             method: "POST".into(),
             path: format!("/api/v1/servers/{}/connection-sessions", short_code.to_uppercase()),
-            body: Some(serde_json::json!({
-                "requestId": request_id,
-                "correlationId": correlation_id,
-                "installationId": self.config.installation_id,
-                "clientVersion": self.config.client_version,
-                "mode": mode,
-            })),
+            body: Some(body),
             request_id,
             correlation_id,
         };
