@@ -2,7 +2,9 @@ import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from '
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { localizeResponse } from './i18n';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
+import { buildLinkCredentials, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
+export { LinkRoom } from './durable-objects/link-room';
 
 const LEASE_DURATION_MS = 90_000;  // 90s lease
 const SESSION_TTL_SECONDS = 90;    // 90s TTL (em vez de 14400s = 4h)
@@ -16,7 +18,7 @@ const HEARTBEAT_RENEW_MS = 180_000;
 const AUTH_KEY_EXPIRY_MS = 300_000;
 const REQUEST_ID_CACHE_TTL = 300;
 
-interface Env {
+interface Env extends LinkEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
   SERVER_TTL_SECONDS: string;
   HEARTBEAT_TIMEOUT_SECONDS: string;
@@ -52,6 +54,9 @@ interface Env {
   // desktop e roteia mensagens para o(s) painel(is) web logados no mesmo
   // usuário. Ver durable-objects/host-channel.ts e plans/remote-web-panel-plan.md.
   HOST_CHANNEL: DurableObjectNamespace;
+  // Sala de sinalização do transporte P2P (cubicase-link) — um DO por servidor (shortCode).
+  // Ver durable-objects/link-room.ts e plans/p2p-link-transport-plan.md.
+  LINK_ROOM: DurableObjectNamespace;
   // Central de ajuda (POST /api/v1/feedback) — envio por e-mail via Resend.
   // Nunca em wrangler.toml. Configurar com:
   //   wrangler secret put RESEND_API_KEY
@@ -173,6 +178,7 @@ const CONNECT_NAME_RATE_LIMIT = 5;  // definir/trocar endereço de conexão: mes
 const SLUG_RESOLVE_RATE_LIMIT = 20; // resolver slug->shortCode: chamado pela página de convite (uma vez por visita) — folgado o bastante pra não incomodar visitas legítimas, apertado o bastante pra desanimar varredura de slugs
 const FEEDBACK_RATE_LIMIT = 3;      // central de ajuda: por IP/min — relato é ação manual e rara; barra spam e duplo clique em cascata
 const FEEDBACK_DEDUPE_SECONDS = 3600; // o mesmo relato (mesmo e-mail/assunto/texto) só passa uma vez por hora
+const LINK_WS_RATE_LIMIT = 120;       // conexões à sala P2P por IP/min: reconexões legítimas cabem; barra varredura
 const PANEL_TICKET_RATE_LIMIT = 20; // painel web (Cubicase Plus): um ticket por tentativa de conexão/reconexão — folgado o bastante para quedas de rede legítimas
 
 function clientIp(req: Request): string {
@@ -567,6 +573,10 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
  * válido e qualquer sessão presa a ele precisa cair.
  */
 async function terminateActiveSessionsForShortCode(env: Env, shortCode: string): Promise<void> {
+  // Transporte P2P: derruba quem está na sala (o código antigo deixou de valer).
+  try {
+    await env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode)).fetch('https://link-room.internal/close', { method: 'POST' });
+  } catch { /* melhor esforço */ }
   const slots = [`csession-by-shortcode:${shortCode}:host`];
   // Convidados: uma sessão por instalação (vários amigos ao mesmo tempo) — lista todas.
   const listed = await env.CUBEFORGE_REGISTRY.list({ prefix: `csession-by-install:${shortCode}:` });
@@ -718,9 +728,24 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (typeof body.installationId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(body.installationId)) {
     return json(fail(ResponseCodes.VALIDATION_ERROR, 'installationId inválido.'), 400, cors);
   }
+  // Transporte P2P (cubicase-link): o cliente pede launcher "link-v1"; sem isso segue o Tailscale.
+  const isLink = body.launcher === 'link-v1';
+  if (isLink) {
+    if (!env.LINK_TOKEN_SECRET) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O transporte P2P não está configurado neste servidor.'), 503, cors);
+    // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus.
+    if (body.relayOnly === true) {
+      const userId = await resolveSupabaseUserId(req);
+      if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+      if (!(await userHasActiveSubscription(env, userId))) {
+        return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'O modo privado é um recurso do Cubicase Plus.'), 403, cors);
+      }
+    }
+  }
   const slotKey = sessionSlotKey(shortCode, mode, body.installationId);
   const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
   if (existingSessionId) await revokeConnectionSession(env, existingSessionId);
+
+  if (isLink) return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors);
 
   const sid = uuid(); const now = new Date(); const exp = new Date(now.getTime() + cfg.leaseTtlSeconds * 1000);
   const tag = mode === 'host' ? 'tag:cf-host' : 'tag:cf-guest';
@@ -746,6 +771,34 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   await env.CUBEFORGE_REGISTRY.put(`csession:${sid}`, JSON.stringify(session), { expirationTtl: cfg.leaseTtlSeconds });
   await env.CUBEFORGE_REGISTRY.put(slotKey, sid);
   const payload = ok(ResponseCodes.CONNECTION_SESSION_CREATED, 'Sessão criada.', { sessionId: sid, launcher: 'tsnet-v1', launcherVersion: 1, protocolVersion: 1, credentials: session.credentials, leaseDurationMs: LEASE_DURATION_MS, expiresAt: exp.toISOString() }, body.requestId);
+  await env.CUBEFORGE_REGISTRY.put(`requestId:${body.requestId}`, JSON.stringify({ ...payload, _status: 201 }), { expirationTtl: REQUEST_ID_CACHE_TTL });
+  return json(payload, 201, cors);
+}
+
+/**
+ * Sessão do transporte P2P: em vez de mintar uma key do Tailscale, emite o token da sala de
+ * sinalização e as credenciais ICE (STUN/TURN). Não há heartbeat: a presença do host é o
+ * próprio WebSocket da sala (ver link-room.ts), então a sessão vive 24 h no KV.
+ */
+async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body: any, req: Request, env: Env, slotKey: string, cors: Record<string, string>): Promise<Response> {
+  const sid = uuid(); const now = new Date();
+  const ttl = 24 * 3600;
+  const exp = new Date(now.getTime() + ttl * 1000);
+  const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true });
+
+  const session: ConnectionSessionEntity = {
+    sessionId: sid, shortCode, launcher: 'link-v1', launcherVersion: 1, protocolVersion: 1,
+    // Só a referência fica no KV; o token e as credenciais TURN vão apenas na resposta.
+    credentials: { peerId: sid }, hostIp: null, port: 25565, status: 'creating', revision: 1,
+    terminationReason: null, currentPlayers: 0, maxPlayers: 20, memoryUsageMb: null, mcVersion: null,
+    lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString(),
+    timing: { apiCallMs: null, providerStartMs: null, providerWaitMs: null, totalElapsedMs: null },
+    retries: 0, heartbeatCount: 0, clientVersion: body.clientVersion, installationId: body.installationId, correlationId: body.correlationId,
+    mode, tailscaleKeyId: null, tailscaleDeviceId: null,
+  };
+  await env.CUBEFORGE_REGISTRY.put(`csession:${sid}`, JSON.stringify(session), { expirationTtl: ttl });
+  await env.CUBEFORGE_REGISTRY.put(slotKey, sid, { expirationTtl: ttl });
+  const payload = ok(ResponseCodes.CONNECTION_SESSION_CREATED, 'Sessão criada.', { sessionId: sid, launcher: 'link-v1', launcherVersion: 1, protocolVersion: 1, credentials: link, leaseDurationMs: ttl * 1000, expiresAt: exp.toISOString() }, body.requestId);
   await env.CUBEFORGE_REGISTRY.put(`requestId:${body.requestId}`, JSON.stringify({ ...payload, _status: 201 }), { expirationTtl: REQUEST_ID_CACHE_TTL });
   return json(payload, 201, cors);
 }
@@ -1718,6 +1771,13 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
           m, p, url,
         );
         if (result) return panelJson(result, cors);
+      }
+
+      // GET /api/v1/link/ws/{sc} — sala de sinalização do transporte P2P (o token é verificado dentro da sala)
+      const mLink = p.match(/^\/api\/v1\/link\/ws\/([A-Za-z0-9]+)$/);
+      if (m === 'GET' && mLink && req.headers.get('Upgrade') === 'websocket') {
+        if (!(await checkRateLimit(env, 'link-ws', clientIp(req), LINK_WS_RATE_LIMIT))) return rateLimitedResponse(cors);
+        return await env.LINK_ROOM.get(env.LINK_ROOM.idFromName(mLink[1].toUpperCase())).fetch(req);
       }
 
       // GET /panel/ws/{deviceId} — upgrade de WebSocket (app desktop com device_token, ou painel web com ticket)

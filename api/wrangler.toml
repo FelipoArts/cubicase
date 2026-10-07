@@ -20,6 +20,20 @@ class_name = "HostChannel"
 tag = "v1"
 new_sqlite_classes = ["HostChannel"]
 
+# Sala de sinalização do transporte P2P (cubicase-link): um DO por servidor, ver
+# src/durable-objects/link-room.ts e plans/p2p-link-transport-plan.md. Segredos:
+#   wrangler secret put LINK_TOKEN_SECRET   (HMAC dos tokens de sinalização)
+#   wrangler secret put TURN_SECRET         (mesmo segredo do coturn, use-auth-secret)
+# Variáveis opcionais (wrangler.toml [vars] ou dashboard): TURN_URLS, STUN_URLS, LINK_MAX_GUESTS,
+# TURN_DISABLED=1 (corta a emissão de credenciais do relay na hora — freio de custo).
+[[durable_objects.bindings]]
+name = "LINK_ROOM"
+class_name = "LinkRoom"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LinkRoom"]
+
 # Environment variables (configurable)
 [vars]
 SERVER_TTL_SECONDS = "14400"

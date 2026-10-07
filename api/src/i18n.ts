@@ -50,6 +50,8 @@ export const EN_MESSAGES: Record<string, string> = {
   'status inválido.': 'Invalid status.',
   'hostIp inválido.': 'Invalid hostIp.',
   'installationId inválido.': 'Invalid installationId.',
+  'O transporte P2P não está configurado neste servidor.': 'The P2P transport is not configured on this server.',
+  'O modo privado é um recurso do Cubicase Plus.': 'Private mode is a Cubicase Plus feature.',
   'hostIp não corresponde ao dispositivo desta sessão.': 'hostIp does not match this session device.',
   'Sessão já ativa para este servidor.': 'A session is already active for this server.',
   'Não foi possível gerar as credenciais de rede. Tente novamente em instantes.': "Couldn't generate the network credentials. Please try again in a moment.",
