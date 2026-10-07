@@ -58,8 +58,24 @@ export class LinkRoom {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/close') return this.handleClose();
+    if (request.method === 'GET' && url.pathname === '/presence') return this.handlePresence();
     if (request.headers.get('Upgrade') === 'websocket') return this.handleUpgrade(request, url);
     return new Response('Not found', { status: 404 });
+  }
+
+  /**
+   * Presença AGORA, com consistência forte (a sala é a fonte da verdade). A descoberta usa isto
+   * em vez de esperar o KV: ele é eventualmente consistente e a presença publicada nele podia
+   * levar quase 1 minuto para aparecer em outra região (medido em produção: 48 s).
+   */
+  private handlePresence(): Response {
+    const host = this.ctx.getWebSockets('host')[0];
+    const att = host?.deserializeAttachment() as Attachment | null;
+    return Response.json({
+      hostOnline: !!host,
+      hostSession: att?.pid ?? null,
+      guests: this.ctx.getWebSockets('guest').length,
+    });
   }
 
   /** Chamado pelo Worker quando o servidor é apagado ou o código regenerado: derruba todo mundo. */

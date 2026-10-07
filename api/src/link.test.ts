@@ -362,3 +362,21 @@ describe("sala de sinalização: presença e ciclo de vida", () => {
   });
 });
 
+
+describe("descoberta lê a presença direto da sala (sem esperar o KV)", () => {
+  it("host conectado aparece online com provider link-v1 NA HORA; ao sair deixa de aparecer", async () => {
+    const { shortCode, host } = await room();
+    // Apaga o que o KV teria publicado: a descoberta precisa depender só da sala.
+    await env.CUBEFORGE_REGISTRY.delete(`csession-by-shortcode:${shortCode}:host`);
+    const discover = async () => ((await (await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`)).json()) as any).data.session;
+
+    expect((await discover()).networkStatus).toBeNull();
+    const h = asConn(await connect(shortCode, host.credentials.signalToken));
+    const d1 = await discover(); // sem espera: a sala é consistente
+    expect(d1).toMatchObject({ networkStatus: "online", provider: "link-v1", hostIp: "" });
+
+    h.ws.close(1000, "fim");
+    for (let i = 0; i < 100 && (await discover()).networkStatus === "online"; i++) await new Promise((r) => setTimeout(r, 20));
+    expect((await discover()).networkStatus).not.toBe("online");
+  });
+});

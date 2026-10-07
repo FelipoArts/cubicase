@@ -19,10 +19,13 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BIN = process.env.LINK_BIN || path.join(ROOT, "src-tauri", "binaries", "cubicase-link-x86_64-pc-windows-msvc.exe");
 const PORT = 8799;
-const API = `http://127.0.0.1:${PORT}`;
+// LINK_API=https://... testa contra um Worker já publicado (cria um servidor de teste e apaga no fim).
+const REMOTE = process.env.LINK_API ? process.env.LINK_API.replace(/\/$/, "") : null;
+const API = REMOTE ?? `http://127.0.0.1:${PORT}`;
 const procs = [];
 let failed = false;
 let tmpDir = null;
+let remoteCleanup = null; // apaga o servidor de teste quando o Worker é o publicado
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function log(...a) { console.log("•", ...a); }
@@ -47,8 +50,10 @@ async function main() {
   if (!existsSync(BIN)) throw new Error(`binário do sidecar não encontrado: ${BIN}`);
   const tmp = (tmpDir = mkdtempSync(path.join(tmpdir(), "link-e2e-")));
 
+  let wr = null;
+  if (!REMOTE) {
   log("subindo o Worker local (wrangler dev)…");
-  const wr = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--ip", "127.0.0.1",
+  wr = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--ip", "127.0.0.1",
     "--var", "LINK_TOKEN_SECRET:segredo-e2e-local-0123456789abcdef", "--persist-to", path.join(tmp, "state")],
   { cwd: path.join(ROOT, "api"), shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"] });
   procs.push(wr);
@@ -56,6 +61,7 @@ async function main() {
   wr.stdout.on("data", (d) => { if (String(d).includes("Ready on")) ready = true; });
   wr.stderr.on("data", () => {});
   await waitFor(() => ready, 90_000, "wrangler dev pronto");
+  } else log("testando contra o Worker publicado:", API);
 
   const post = async (url, body, headers = {}) => {
     const r = await fetch(API + url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -64,6 +70,7 @@ async function main() {
   const srv = await post("/api/v1/servers", { name: "E2E", version: "1.20.1", serverType: "vanilla" });
   const code = srv.body.data.shortCode;
   const owner = { "X-Owner-Secret": srv.body.data.ownerSecret };
+  if (REMOTE) remoteCleanup = () => fetch(`${API}/api/v1/servers/${code}`, { method: "DELETE", headers: owner }).then((r) => log("servidor de teste apagado:", r.status)).catch(() => {});
   const sess = (mode, install, headers) => post(`/api/v1/servers/${code}/connection-sessions`, {
     requestId: randomUUID(), correlationId: "e2e", clientVersion: "e2e", installationId: install, mode, launcher: "link-v1",
   }, headers);
@@ -122,15 +129,24 @@ async function main() {
   check(["direct-v4", "direct-v6", "punched"].includes(pathEv.path), `caminho reportado: ${pathEv.path}${pathEv.rttMs != null ? ` (${pathEv.rttMs} ms)` : ""}`);
 
   // presença na descoberta
-  const disc = await (await fetch(`${API}/api/v1/servers/${code}`)).json();
-  check(disc.data.session.networkStatus === "online", "a descoberta mostra o host online (presença vinda da sala)");
+  // KV é eventualmente consistente: com o Worker publicado, a presença pode levar até ~1 min para aparecer em outra região.
+  const t0 = Date.now();
+  let netStatus = null;
+  while (Date.now() - t0 < (REMOTE ? 90_000 : 5_000)) {
+    const disc = await (await fetch(`${API}/api/v1/servers/${code}`)).json();
+    netStatus = disc.data.session.networkStatus;
+    if (netStatus === "online") break;
+    await sleep(2000);
+  }
+  check(netStatus === "online", `a descoberta mostra o host online (presença da sala) — demorou ${Math.round((Date.now() - t0) / 1000)} s`);
 
   mc.close(); reg.close();
 }
 
 main()
   .catch((e) => { failed = true; console.error("✗", e.message); })
-  .finally(() => {
+  .finally(async () => {
+    if (remoteCleanup) await remoteCleanup();
     for (const p of procs) {
       try {
         // No Windows o wrangler roda dentro de um shell (npx): mata a ÁRVORE, senão sobra um processo na porta.

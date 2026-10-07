@@ -539,6 +539,20 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
     }
   }
 
+  // Transporte P2P: a presença vem DIRETO da sala de sinalização (consistência forte). O KV
+  // acima leva até ~1 min para propagar entre regiões, e um convidado que entrasse logo depois
+  // de o host iniciar via "servidor não encontrado". A sala é consultada sempre: é barato e
+  // também corrige o contrário (host que acabou de sair não aparece mais como online).
+  try {
+    const r = await env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode)).fetch('https://link-room.internal/presence');
+    const presence = (await r.json()) as { hostOnline?: boolean; guests?: number };
+    if (presence.hostOnline) {
+      networkStatus = 'online'; provider = 'link-v1'; hostIp = '';
+    } else if (provider === 'link-v1' && networkStatus === 'online') {
+      networkStatus = 'stopped';
+    }
+  } catch { /* sem a sala, segue com o que o KV disse */ }
+
   // Minecraft: vem do heartbeat leve por shortCode (ver handleHeartbeat), que o host
   // manda independente da rede mesh estar ligada — é o que permite dizer "servidor
   // rodando, mas sem malha" ou "malha pronta, servidor desligado" em vez de um
