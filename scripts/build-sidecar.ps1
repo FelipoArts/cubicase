@@ -15,7 +15,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $sidecarDir = Join-Path $root "src-tauri\sidecars\tsnet-node"
 $binariesDir = Join-Path $root "src-tauri\binaries"
 $target = Join-Path $binariesDir "tsnet-node-x86_64-pc-windows-msvc.exe"
-$linkDir = Join-Path $root "src-taurisidecarscubicase-link"
+$linkDir = Join-Path $root "src-tauri\sidecars\cubicase-link"
 $linkTarget = Join-Path $binariesDir "cubicase-link-x86_64-pc-windows-msvc.exe"
 
 New-Item -ItemType Directory -Force -Path $binariesDir | Out-Null
