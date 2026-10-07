@@ -103,6 +103,9 @@ const ResponseCodes = {
   SUBSCRIPTION_REQUIRED: 'SUBSCRIPTION_REQUIRED', FORBIDDEN: 'FORBIDDEN',
 } as const;
 
+const SESSION_STATUSES = new Set<string>(['creating', 'starting_provider', 'waiting_provider', 'online', 'degraded', 'stopping', 'stopped', 'failed', 'cancelled']);
+const TAILSCALE_IP_RE = /^(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|fd7a:115c:a1e0:[0-9a-f:]+)$/i;
+
 const SHORT_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 // ============================================================
@@ -156,7 +159,7 @@ const CONNECT_NAME_DOMAIN = 'link.cubicase.net';
 // automatizado, não dar uma garantia forte contra um atacante distribuído
 // (isso já é papel de uma regra de rate-limit no dashboard da Cloudflare).
 const RATE_LIMIT_WINDOW_SECONDS = 60;
-const JOIN_RATE_LIMIT = 10;      // connection-sessions: minta uma authKey Tailscale de verdade, mais sensível
+const JOIN_RATE_LIMIT = 30;      // connection-sessions: minta uma authKey Tailscale de verdade, mais sensível
 const REGEN_CODE_RATE_LIMIT = 5; // regenerar código: ação manual e rara, sem motivo legítimo pra repetir muitas vezes por minuto
 const SUB_CHECKOUT_RATE_LIMIT = 5;  // assinar: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const SUB_PORTAL_RATE_LIMIT = 10;   // gerenciar assinatura: pode ser reaberto ao focar o painel de configurações
@@ -187,6 +190,75 @@ async function checkRateLimit(env: Env, bucket: string, ip: string, limit: numbe
 
 function rateLimitedResponse(cors: Record<string, string>): Response {
   return json(fail(ResponseCodes.RATE_LIMITED, 'Muitas tentativas. Aguarde um minuto e tente de novo.'), 429, cors);
+}
+
+// ============================================================
+// SEGREDO DO DONO — o shortCode é público (todo convidado o tem), então NÃO
+// pode autorizar ações de dono. Cada servidor tem um segredo gerado no
+// desktop (ou, se o cliente não mandar, aqui no Worker e devolvido uma única
+// vez no cadastro); guardamos só o hash SHA-256 em `owner:<shortCode>`.
+// Servidores antigos, sem hash gravado, são "reivindicados" pela primeira
+// chamada de dono que trouxer um segredo (trust-on-first-use) — migração sem
+// quebrar quem já cadastrou servidor antes desta versão.
+// ============================================================
+const OWNER_SECRET_HEADER = 'X-Owner-Secret';
+const OWNER_SECRET_RE = /^[A-Za-z0-9_-]{24,128}$/;
+const SHORT_CODE_RE = /^[A-Z0-9]{4,12}$/;
+const MAX_NAME_LEN = 100;
+const MAX_FIELD_LEN = 64;
+const MAX_DESCRIPTION_LEN = 500;
+
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function readOwnerSecret(req: Request): string | null {
+  const v = req.headers.get(OWNER_SECRET_HEADER);
+  return v && OWNER_SECRET_RE.test(v) ? v : null;
+}
+
+function newOwnerSecret(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Grava o hash do segredo de um servidor (cadastro, TOFU ou troca de código). */
+async function bindOwnerSecret(env: Env, shortCode: string, secret: string): Promise<void> {
+  await env.CUBEFORGE_REGISTRY.put(`owner:${shortCode}`, await sha256Hex(secret));
+}
+
+/**
+ * Confere o segredo de dono de `shortCode`. Devolve null se autorizado, ou a
+ * Response de erro (401 sem segredo, 403 segredo errado, 404 sem servidor).
+ * O servidor precisa existir — ninguém pré-reivindica códigos inexistentes.
+ */
+async function requireOwner(req: Request, env: Env, shortCode: string, cors: Record<string, string>): Promise<Response | null> {
+  const secret = readOwnerSecret(req);
+  if (!secret) return json(fail(ResponseCodes.FORBIDDEN, 'Segredo do dono ausente ou inválido.'), 401, cors);
+  if (!(await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`))) {
+    return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  }
+  const stored = await env.CUBEFORGE_REGISTRY.get(`owner:${shortCode}`);
+  const given = await sha256Hex(secret);
+  if (!stored) {
+    await env.CUBEFORGE_REGISTRY.put(`owner:${shortCode}`, given);
+    return null;
+  }
+  if (!timingSafeEqualStr(stored, given)) {
+    return json(fail(ResponseCodes.FORBIDDEN, 'Você não é o dono deste servidor.'), 403, cors);
+  }
+  return null;
 }
 
 let technicalIdCounter = 0;
@@ -293,14 +365,25 @@ async function deleteTailscaleDevice(env: Env, deviceId: string): Promise<void> 
 }
 
 /** Resolve o deviceId do Tailscale a partir do IP de malha (100.x.x.x) que o nó recebeu, para permitir revogação forte depois. */
-async function findTailscaleDeviceByIp(env: Env, tailscaleIp: string): Promise<string | null> {
+async function findTailscaleDeviceByIp(env: Env, tailscaleIp: string, expectedHostname: string): Promise<string | null> {
   try {
     const token = await getTailscaleAccessToken(env);
     const resp = await fetch(`${TAILSCALE_API_BASE}/tailnet/-/devices?fields=all`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      // Provável causa: o cliente OAuth não tem o escopo de LEITURA de dispositivos
+      // (devices:core:read). Sem isso a revogação forte (apagar o dispositivo ao
+      // encerrar a sessão) não funciona e só sobra a limpeza automática de efêmeros.
+      console.error(`Tailscale: listar dispositivos falhou (HTTP ${resp.status}) — confira o escopo devices:core:read do cliente OAuth.`);
+      return null;
+    }
     const data: any = await resp.json().catch(() => null);
     const devices: any[] = data?.devices || [];
-    const match = devices.find((d) => Array.isArray(d.addresses) && d.addresses.includes(tailscaleIp));
+    // O IP sozinho não prova nada (é público e vem do cliente): o dispositivo
+    // precisa também ter o hostname que ESTA sessão recebeu ao mintar a key.
+    const match = devices.find((d) =>
+      Array.isArray(d.addresses) && d.addresses.includes(tailscaleIp) &&
+      (d.hostname === expectedHostname || (typeof d.name === 'string' && d.name.split('.')[0] === expectedHostname)));
+    if (!match) console.error(`Tailscale: nenhum dispositivo com hostname "${expectedHostname}" e IP ${tailscaleIp} entre ${devices.length} dispositivos.`);
     return match?.id ?? null;
   } catch (e) { console.error('Falha ao resolver deviceId do Tailscale:', e); return null; }
 }
@@ -310,6 +393,8 @@ async function findTailscaleDeviceByIp(env: Env, tailscaleIp: string): Promise<s
 // ============================================================
 
 async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: { ttlSeconds: number }, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
   let body: any; try { body = await req.json(); } catch { body = {}; }
   const now = new Date(); const exp = new Date(now.getTime() + cfg.ttlSeconds * 1000);
   const key = `session:${shortCode}`;
@@ -341,7 +426,19 @@ async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: {
 
 async function handleCreateServer(req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+  if (!body || typeof body !== 'object') return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors);
   if (!body.name || !body.version || !body.serverType) return json(fail(ResponseCodes.VALIDATION_ERROR, 'name, version, serverType obrigatórios.'), 400, cors);
+  const str = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
+  if (!str(body.name, MAX_NAME_LEN) || !str(body.version, MAX_FIELD_LEN) || !str(body.serverType, MAX_FIELD_LEN)
+    || (body.description != null && !str(body.description, MAX_DESCRIPTION_LEN))
+    || (body.forgeVersion != null && !str(body.forgeVersion, MAX_FIELD_LEN))
+    || (body.modLoaderVersion != null && !str(body.modLoaderVersion, MAX_FIELD_LEN))) {
+    return json(fail(ResponseCodes.VALIDATION_ERROR, 'Campos inválidos ou grandes demais.'), 400, cors);
+  }
+  if (body.shortCode != null) {
+    body.shortCode = typeof body.shortCode === 'string' ? body.shortCode.toUpperCase() : '';
+    if (!SHORT_CODE_RE.test(body.shortCode)) return json(fail(ResponseCodes.VALIDATION_ERROR, 'shortCode inválido.'), 400, cors);
+  }
 
   // Se o cliente já manda um shortCode que existe, isto é um RETRY (o cliente
   // não recebeu a resposta do POST anterior, mas ele já tinha sido aplicado —
@@ -352,6 +449,10 @@ async function handleCreateServer(req: Request, env: Env, cors: Record<string, s
   if (body.shortCode) {
     const existingJson = await env.CUBEFORGE_REGISTRY.get(`server:${body.shortCode}`);
     if (existingJson) {
+      // Sobrescrever um servidor existente só vale para o dono (segredo) — antes,
+      // qualquer um com o código (público) trocava nome/versão de qualquer servidor.
+      const denied = await requireOwner(req, env, body.shortCode, cors);
+      if (denied) return denied;
       const existing: ServerEntity = JSON.parse(existingJson);
       const updated: ServerEntity = {
         ...existing,
@@ -373,7 +474,11 @@ async function handleCreateServer(req: Request, env: Env, cors: Record<string, s
   const sv: ServerEntity = { shortCode: sc, uuid: id, name: body.name, version: body.version, serverType: body.serverType, description: body.description || '', owner: body.owner || id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), forgeVersion: body.forgeVersion ?? null, modLoaderVersion: body.modLoaderVersion ?? null };
   await env.CUBEFORGE_REGISTRY.put(`server:${sc}`, JSON.stringify(sv));
   await env.CUBEFORGE_REGISTRY.put(`shortCode:${id}`, sc);
-  return json(ok(ResponseCodes.SERVER_CREATED, 'Servidor criado.', sv), 201, cors);
+  // Segredo de dono: o do cliente, se mandou; senão gera aqui e devolve UMA vez.
+  const clientSecret = readOwnerSecret(req);
+  const ownerSecret = clientSecret ?? newOwnerSecret();
+  await bindOwnerSecret(env, sc, ownerSecret);
+  return json(ok(ResponseCodes.SERVER_CREATED, 'Servidor criado.', clientSecret ? sv : { ...sv, ownerSecret }), 201, cors);
 }
 
 /** PATCH /api/v1/servers/{sc} — atualiza metadados mutáveis (nome/versão/descrição/
@@ -385,6 +490,8 @@ async function handleCreateServer(req: Request, env: Env, cors: Record<string, s
  * servidor 404ava, ficava só na fila de sync local até esgotar as 5
  * tentativas, e nunca chegava a aplicar no lado da API Central. */
 async function handleUpdateServer(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   const key = `server:${shortCode}`;
   const existingJson = await env.CUBEFORGE_REGISTRY.get(key);
@@ -460,28 +567,44 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
  * válido e qualquer sessão presa a ele precisa cair.
  */
 async function terminateActiveSessionsForShortCode(env: Env, shortCode: string): Promise<void> {
-  for (const m of ['host', 'guest'] as const) {
-    const csid = await env.CUBEFORGE_REGISTRY.get(`csession-by-shortcode:${shortCode}:${m}`);
-    if (!csid) continue;
-    const csj = await env.CUBEFORGE_REGISTRY.get(`csession:${csid}`);
-    if (csj) {
-      const cs: ConnectionSessionEntity = JSON.parse(csj);
-      if (cs.tailscaleDeviceId) await deleteTailscaleDevice(env, cs.tailscaleDeviceId);
-      else if (cs.tailscaleKeyId) await revokeTailscaleKey(env, cs.tailscaleKeyId);
-    }
-    await env.CUBEFORGE_REGISTRY.delete(`csession:${csid}`);
-    await env.CUBEFORGE_REGISTRY.delete(`csession-by-shortcode:${shortCode}:${m}`);
+  const slots = [`csession-by-shortcode:${shortCode}:host`];
+  // Convidados: uma sessão por instalação (vários amigos ao mesmo tempo) — lista todas.
+  const listed = await env.CUBEFORGE_REGISTRY.list({ prefix: `csession-by-install:${shortCode}:` });
+  for (const k of listed.keys) slots.push(k.name);
+  for (const slot of slots) {
+    const csid = await env.CUBEFORGE_REGISTRY.get(slot);
+    if (csid) await revokeConnectionSession(env, csid);
+    await env.CUBEFORGE_REGISTRY.delete(slot);
   }
 }
 
-async function handleDeleteServer(shortCode: string, env: Env, cors: Record<string, string>): Promise<Response> {
+/** Chave "vaga" da sessão: o host é único por servidor; cada convidado tem a sua, por instalação. */
+function sessionSlotKey(shortCode: string, mode: 'host' | 'guest', installationId: string): string {
+  return mode === 'host' ? `csession-by-shortcode:${shortCode}:host` : `csession-by-install:${shortCode}:${installationId}`;
+}
+
+/** Revoga de verdade (dispositivo/key no Tailscale) e apaga a ConnectionSession. */
+async function revokeConnectionSession(env: Env, sessionId: string): Promise<void> {
+  const csj = await env.CUBEFORGE_REGISTRY.get(`csession:${sessionId}`);
+  if (csj) {
+    const cs: ConnectionSessionEntity = JSON.parse(csj);
+    if (cs.tailscaleDeviceId) await deleteTailscaleDevice(env, cs.tailscaleDeviceId);
+    else if (cs.tailscaleKeyId) await revokeTailscaleKey(env, cs.tailscaleKeyId);
+  }
+  await env.CUBEFORGE_REGISTRY.delete(`csession:${sessionId}`);
+}
+
+async function handleDeleteServer(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
   const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
   if (sj) {
     const sv: ServerEntity = JSON.parse(sj);
     await env.CUBEFORGE_REGISTRY.delete(`server:${shortCode}`);
     await env.CUBEFORGE_REGISTRY.delete(`shortCode:${sv.uuid}`);
-    if (sv.slug) await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`);
-    if (sv.connectName) await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`);
+    await env.CUBEFORGE_REGISTRY.delete(`owner:${shortCode}`);
+    if (sv.slug) { await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`); await env.CUBEFORGE_REGISTRY.delete(`slugowner:${sv.slug}`); }
+    if (sv.connectName) { await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`); await env.CUBEFORGE_REGISTRY.delete(`connectowner:${sv.connectName}`); }
   }
   await terminateActiveSessionsForShortCode(env, shortCode);
   await env.CUBEFORGE_REGISTRY.delete(`session:${shortCode}`);
@@ -503,7 +626,9 @@ async function handleDeleteServer(shortCode: string, env: Env, cors: Record<stri
 // na malha, cai na hora. O host precisa reconectar/reiniciar a hospedagem
 // depois, o que já re-registra tudo do zero com o código novo.
 
-async function handleRegenerateCode(oldShortCode: string, env: Env, cfg: { shortCodeLength: number }, cors: Record<string, string>): Promise<Response> {
+async function handleRegenerateCode(oldShortCode: string, req: Request, env: Env, cfg: { shortCodeLength: number }, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, oldShortCode, cors);
+  if (denied) return denied;
   const sj = await env.CUBEFORGE_REGISTRY.get(`server:${oldShortCode}`);
   if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
   const sv: ServerEntity = JSON.parse(sj);
@@ -514,6 +639,10 @@ async function handleRegenerateCode(oldShortCode: string, env: Env, cfg: { short
   await env.CUBEFORGE_REGISTRY.put(`server:${newShortCode}`, JSON.stringify(updated));
   await env.CUBEFORGE_REGISTRY.put(`shortCode:${sv.uuid}`, newShortCode);
   await env.CUBEFORGE_REGISTRY.delete(`server:${oldShortCode}`);
+  // O segredo do dono acompanha o servidor para o código novo.
+  const ownerHash = await env.CUBEFORGE_REGISTRY.get(`owner:${oldShortCode}`);
+  if (ownerHash) await env.CUBEFORGE_REGISTRY.put(`owner:${newShortCode}`, ownerHash);
+  await env.CUBEFORGE_REGISTRY.delete(`owner:${oldShortCode}`);
   // O link de convite e o endereço de conexão personalizados (se houver)
   // sobrevivem à troca de código — reapontar as reverse-lookups pro
   // shortCode novo, senão ficavam resolvendo pro código antigo (que acabou
@@ -565,6 +694,12 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   if (!body.requestId) return json(fail(ResponseCodes.VALIDATION_ERROR, 'requestId obrigatório.'), 400, cors);
+  // Hospedar exige ser o dono (segredo) — antes, qualquer um com o código mintava
+  // uma key tag:cf-host, prendia a vaga do host e podia se passar por ele.
+  if (body.mode === 'host') {
+    const denied = await requireOwner(req, env, shortCode, cors);
+    if (denied) return denied;
+  }
   const cached = await env.CUBEFORGE_REGISTRY.get(`requestId:${body.requestId}`);
   if (cached) { const c = JSON.parse(cached); return json(c, c._status || 201, cors); }
   if (!body.correlationId || !body.clientVersion || !body.installationId) return json(fail(ResponseCodes.VALIDATION_ERROR, 'correlationId, clientVersion, installationId obrigatórios.'), 400, cors);
@@ -575,11 +710,17 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   // ":mode" aqui, a sessão do host (sempre ativa enquanto a rede mesh dele
   // estiver de pé) bloqueava todo guest que tentasse entrar com 409
   // OPERATION_IN_PROGRESS, achando que era uma segunda criação duplicada.
-  const existingSessionId = await env.CUBEFORGE_REGISTRY.get(`csession-by-shortcode:${shortCode}:${mode}`);
-  if (existingSessionId) {
-    const esj = await env.CUBEFORGE_REGISTRY.get(`csession:${existingSessionId}`);
-    if (esj) { const es: ConnectionSessionEntity = JSON.parse(esj); if (es.status === 'online' || es.status === 'starting_provider' || es.status === 'waiting_provider') return json(fail(ResponseCodes.OPERATION_IN_PROGRESS, 'Sessão já ativa para este servidor.', { existingSessionId, status: es.status }), 409, cors); }
+  // A vaga é por papel: UM host por servidor (e só o dono chega aqui, já
+  // autenticado) e UM convidado por INSTALAÇÃO — vários amigos entram ao mesmo
+  // tempo. Se a mesma vaga já tem sessão (app que caiu e reabriu, clique duplo),
+  // a antiga é revogada e substituída em vez de dar 409: antes o segundo amigo
+  // (ou quem reconectava depois de uma queda) ficava barrado por minutos.
+  if (typeof body.installationId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(body.installationId)) {
+    return json(fail(ResponseCodes.VALIDATION_ERROR, 'installationId inválido.'), 400, cors);
   }
+  const slotKey = sessionSlotKey(shortCode, mode, body.installationId);
+  const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
+  if (existingSessionId) await revokeConnectionSession(env, existingSessionId);
 
   const sid = uuid(); const now = new Date(); const exp = new Date(now.getTime() + cfg.leaseTtlSeconds * 1000);
   const tag = mode === 'host' ? 'tag:cf-host' : 'tag:cf-guest';
@@ -603,7 +744,7 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
     mode, tailscaleKeyId: minted.keyId, tailscaleDeviceId: null,
   };
   await env.CUBEFORGE_REGISTRY.put(`csession:${sid}`, JSON.stringify(session), { expirationTtl: cfg.leaseTtlSeconds });
-  await env.CUBEFORGE_REGISTRY.put(`csession-by-shortcode:${shortCode}:${mode}`, sid);
+  await env.CUBEFORGE_REGISTRY.put(slotKey, sid);
   const payload = ok(ResponseCodes.CONNECTION_SESSION_CREATED, 'Sessão criada.', { sessionId: sid, launcher: 'tsnet-v1', launcherVersion: 1, protocolVersion: 1, credentials: session.credentials, leaseDurationMs: LEASE_DURATION_MS, expiresAt: exp.toISOString() }, body.requestId);
   await env.CUBEFORGE_REGISTRY.put(`requestId:${body.requestId}`, JSON.stringify({ ...payload, _status: 201 }), { expirationTtl: REQUEST_ID_CACHE_TTL });
   return json(payload, 201, cors);
@@ -623,17 +764,33 @@ async function handleUpdateConnectionSession(sessionId: string, req: Request, en
   if (typeof body.revision === 'number' && body.revision < session.revision) {
     return json(fail(ResponseCodes.STALE_WRITE, 'Revisão desatualizada.', { currentRevision: session.revision }), 409, cors);
   }
-  if (body.status) session.status = body.status;
-  if (body.hostIp) {
-    session.hostIp = body.hostIp;
-    // Assim que soubermos o IP de malha real do host, resolvemos o deviceId
-    // correspondente — necessário pra poder revogar de verdade (DELETE device)
-    // quando a sessão terminar, em vez de só esperar a limpeza automática.
-    if (!session.tailscaleDeviceId) {
-      session.tailscaleDeviceId = await findTailscaleDeviceByIp(env, body.hostIp);
-    }
+  if (body.status !== undefined) {
+    if (!SESSION_STATUSES.has(body.status)) return json(fail(ResponseCodes.VALIDATION_ERROR, 'status inválido.'), 400, cors);
+    session.status = body.status;
   }
-  if (body.metrics?.currentPlayers !== undefined) session.currentPlayers = body.metrics.currentPlayers;
+  if (body.hostIp !== undefined && body.hostIp !== null) {
+    if (typeof body.hostIp !== 'string' || !TAILSCALE_IP_RE.test(body.hostIp)) {
+      return json(fail(ResponseCodes.VALIDATION_ERROR, 'hostIp inválido.'), 400, cors);
+    }
+    // O IP vem do cliente e é público (aparece no discover): só vale se o
+    // dispositivo com esse IP for o que ESTA sessão registrou (hostname
+    // cf-<papel>-<id> da key mintada). Sem essa checagem, um convidado
+    // mandava o IP do host e, ao encerrar a própria sessão, o Worker apagava
+    // o dispositivo do host (ou de qualquer outro), e um impostor apontava
+    // o discover para si.
+    const expectedHostname = String(session.credentials?.hostname ?? '');
+    const deviceId = expectedHostname ? await findTailscaleDeviceByIp(env, body.hostIp, expectedHostname) : null;
+    // Só o tailscaleDeviceId (que decide QUAL dispositivo será apagado ao encerrar)
+    // exige a confirmação por hostname. O hostIp em si vem de quem possui o
+    // sessionId (segredo da sessão; a de host só nasce com o segredo de dono) e
+    // já passou na checagem de formato — não pode travar o host se a lista do
+    // Tailscale estiver indisponível ou atrasada.
+    if (deviceId) session.tailscaleDeviceId = deviceId;
+    // Convidado: o IP dele não é usado na descoberta (só sessões de host são lidas
+    // lá); gravamos só para diagnóstico.
+    session.hostIp = body.hostIp;
+  }
+  if (typeof body.metrics?.currentPlayers === 'number' && Number.isFinite(body.metrics.currentPlayers)) session.currentPlayers = Math.max(0, Math.min(10000, Math.floor(body.metrics.currentPlayers)));
   if (body.timing) session.timing = { ...session.timing, ...body.timing };
   if (typeof body.retries === 'number') session.retries = body.retries;
   if (body.terminationReason) session.terminationReason = body.terminationReason;
@@ -673,7 +830,7 @@ async function handleDeleteConnectionSession(sessionId: string, env: Env, cors: 
   else if (session.tailscaleKeyId) await revokeTailscaleKey(env, session.tailscaleKeyId);
 
   await env.CUBEFORGE_REGISTRY.delete(key);
-  const shortcodeKey = `csession-by-shortcode:${session.shortCode}:${session.mode}`;
+  const shortcodeKey = sessionSlotKey(session.shortCode, session.mode, session.installationId);
   const csid = await env.CUBEFORGE_REGISTRY.get(shortcodeKey);
   if (csid === sessionId) await env.CUBEFORGE_REGISTRY.delete(shortcodeKey);
   return json(ok(ResponseCodes.SESSION_DELETED, 'Sessão encerrada.'), 200, cors);
@@ -1152,6 +1309,8 @@ async function handleSetServerSlug(shortCode: string, req: Request, env: Env, co
   if (!(await userHasActiveSubscription(env, userId))) {
     return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'Assine o Cubicase Plus para usar um link de convite personalizado.'), 403, cors);
   }
+  const notOwner = await requireOwner(req, env, shortCode, cors);
+  if (notOwner) return notOwner;
 
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   const slug = typeof body.slug === 'string' ? body.slug.trim().toLowerCase() : '';
@@ -1165,7 +1324,17 @@ async function handleSetServerSlug(shortCode: string, req: Request, env: Env, co
 
   const existingOwner = await env.CUBEFORGE_REGISTRY.get(`slug:${slug}`);
   if (existingOwner && existingOwner !== shortCode) {
-    return json(fail(ResponseCodes.CONFLICT, 'Esse link já está em uso. Escolha outro.'), 409, cors);
+    // Só a MESMA conta que o criou pode mover o nome para outro servidor dela (ex.:
+    // o código do servidor mudou porque o segredo de dono se perdeu — ver
+    // ensure_server_ownership no app): o recurso pago não some do nada.
+    if ((await env.CUBEFORGE_REGISTRY.get(`slugowner:${slug}`)) !== userId) {
+      return json(fail(ResponseCodes.CONFLICT, 'Esse link já está em uso. Escolha outro.'), 409, cors);
+    }
+    const previousJson = await env.CUBEFORGE_REGISTRY.get(`server:${existingOwner}`);
+    if (previousJson) {
+      const previous: ServerEntity = JSON.parse(previousJson);
+      await env.CUBEFORGE_REGISTRY.put(`server:${existingOwner}`, JSON.stringify({ ...previous, slug: null, updatedAt: new Date().toISOString() }));
+    }
   }
   // Todo servidor já responde de graça em play.cubicase.net/<próprio shortCode
   // em minúsculas> (ver handleResolveSlug) — sem isso, alguém poderia "roubar"
@@ -1178,8 +1347,12 @@ async function handleSetServerSlug(shortCode: string, req: Request, env: Env, co
     if (clashingServer) return json(fail(ResponseCodes.CONFLICT, 'Esse link já está em uso. Escolha outro.'), 409, cors);
   }
 
-  if (sv.slug && sv.slug !== slug) await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`);
+  if (sv.slug && sv.slug !== slug) {
+    await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`);
+    await env.CUBEFORGE_REGISTRY.delete(`slugowner:${sv.slug}`);
+  }
   await env.CUBEFORGE_REGISTRY.put(`slug:${slug}`, shortCode);
+  await env.CUBEFORGE_REGISTRY.put(`slugowner:${slug}`, userId);
   const updated: ServerEntity = { ...sv, slug, updatedAt: new Date().toISOString() };
   await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify(updated));
 
@@ -1190,6 +1363,8 @@ async function handleSetServerSlug(shortCode: string, req: Request, env: Env, co
 async function handleDeleteServerSlug(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
   const userId = await resolveSupabaseUserId(req);
   if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+  const notOwner = await requireOwner(req, env, shortCode, cors);
+  if (notOwner) return notOwner;
 
   const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
   if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
@@ -1197,6 +1372,7 @@ async function handleDeleteServerSlug(shortCode: string, req: Request, env: Env,
 
   if (sv.slug) {
     await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`);
+    await env.CUBEFORGE_REGISTRY.delete(`slugowner:${sv.slug}`);
     const updated: ServerEntity = { ...sv, slug: null, updatedAt: new Date().toISOString() };
     await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify(updated));
   }
@@ -1214,6 +1390,8 @@ async function handleSetConnectName(shortCode: string, req: Request, env: Env, c
   if (!(await userHasActiveSubscription(env, userId))) {
     return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'Assine o Cubicase Plus para usar um endereço de conexão personalizado.'), 403, cors);
   }
+  const notOwner = await requireOwner(req, env, shortCode, cors);
+  if (notOwner) return notOwner;
 
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   const name = typeof body.connectName === 'string' ? body.connectName.trim().toLowerCase() : '';
@@ -1227,7 +1405,17 @@ async function handleSetConnectName(shortCode: string, req: Request, env: Env, c
 
   const existingOwner = await env.CUBEFORGE_REGISTRY.get(`connect:${name}`);
   if (existingOwner && existingOwner !== shortCode) {
-    return json(fail(ResponseCodes.CONFLICT, 'Esse endereço já está em uso. Escolha outro.'), 409, cors);
+    // Só a MESMA conta que o criou pode mover o nome para outro servidor dela (ex.:
+    // o código do servidor mudou porque o segredo de dono se perdeu — ver
+    // ensure_server_ownership no app): o recurso pago não some do nada.
+    if ((await env.CUBEFORGE_REGISTRY.get(`connectowner:${name}`)) !== userId) {
+      return json(fail(ResponseCodes.CONFLICT, 'Esse endereço já está em uso. Escolha outro.'), 409, cors);
+    }
+    const previousJson = await env.CUBEFORGE_REGISTRY.get(`server:${existingOwner}`);
+    if (previousJson) {
+      const previous: ServerEntity = JSON.parse(previousJson);
+      await env.CUBEFORGE_REGISTRY.put(`server:${existingOwner}`, JSON.stringify({ ...previous, connectName: null, updatedAt: new Date().toISOString() }));
+    }
   }
   // Mesma proteção anti-sequestro do slug (ver handleSetServerSlug): não
   // deixa ninguém escolher um nome igual ao shortCode em minúsculas de OUTRO
@@ -1237,8 +1425,12 @@ async function handleSetConnectName(shortCode: string, req: Request, env: Env, c
     if (clashingServer) return json(fail(ResponseCodes.CONFLICT, 'Esse endereço já está em uso. Escolha outro.'), 409, cors);
   }
 
-  if (sv.connectName && sv.connectName !== name) await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`);
+  if (sv.connectName && sv.connectName !== name) {
+    await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`);
+    await env.CUBEFORGE_REGISTRY.delete(`connectowner:${sv.connectName}`);
+  }
   await env.CUBEFORGE_REGISTRY.put(`connect:${name}`, shortCode);
+  await env.CUBEFORGE_REGISTRY.put(`connectowner:${name}`, userId);
   const updated: ServerEntity = { ...sv, connectName: name, updatedAt: new Date().toISOString() };
   await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify(updated));
 
@@ -1249,6 +1441,8 @@ async function handleSetConnectName(shortCode: string, req: Request, env: Env, c
 async function handleRemoveConnectName(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
   const userId = await resolveSupabaseUserId(req);
   if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+  const notOwner = await requireOwner(req, env, shortCode, cors);
+  if (notOwner) return notOwner;
 
   const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
   if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
@@ -1256,6 +1450,7 @@ async function handleRemoveConnectName(shortCode: string, req: Request, env: Env
 
   if (sv.connectName) {
     await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`);
+    await env.CUBEFORGE_REGISTRY.delete(`connectowner:${sv.connectName}`);
     const updated: ServerEntity = { ...sv, connectName: null, updatedAt: new Date().toISOString() };
     await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify(updated));
   }
@@ -1371,7 +1566,7 @@ export default {
 
 async function handleRequest(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url); const m = req.method; const p = url.pathname;
-    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-CubeCase-Version' };
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-CubeCase-Version, X-Owner-Secret' };
     if (m === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       const cfg = { ttlSeconds: SESSION_TTL_SECONDS, leaseTtlSeconds: Math.ceil(LEASE_DURATION_MS / 1000), shortCodeLength: parseInt(env.SHORT_CODE_LENGTH || '6') };
@@ -1393,7 +1588,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       const m1r = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/regenerate-code$/);
       if (m === 'POST' && m1r) {
         if (!(await checkRateLimit(env, 'regen', clientIp(req), REGEN_CODE_RATE_LIMIT))) return rateLimitedResponse(cors);
-        return await handleRegenerateCode(m1r[1].toUpperCase(), env, cfg, cors);
+        return await handleRegenerateCode(m1r[1].toUpperCase(), req, env, cfg, cors);
       }
 
       // POST /api/v1/servers/{sc}/wake — acordar servidor em espera (wake-on-demand)
@@ -1457,7 +1652,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       }
 
       // DELETE /api/v1/servers/{sc}
-      if (m === 'DELETE' && m3) return await handleDeleteServer(m3[1].toUpperCase(), env, cors);
+      if (m === 'DELETE' && m3) return await handleDeleteServer(m3[1].toUpperCase(), req, env, cors);
 
       // PATCH /api/v1/servers/{sc} — atualizar nome/versão/descrição/loader
       if (m === 'PATCH' && m3) return await handleUpdateServer(m3[1].toUpperCase(), req, env, cors);
@@ -1467,7 +1662,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (m === 'GET' && m4) {
         return await handleLegacyDiscover(m4[1].toUpperCase(), env, cors);
       }
-      if (m === 'DELETE' && m4) return await handleDeleteServer(m4[1].toUpperCase(), env, cors);
+      if (m === 'DELETE' && m4) return await handleDeleteServer(m4[1].toUpperCase(), req, env, cors);
 
       // LEGADO: POST /api/servers/{sc}/heartbeat
       const m5 = p.match(/^\/api\/servers\/([A-Za-z0-9]+)\/heartbeat$/);
@@ -1478,6 +1673,8 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (m === 'PATCH' && m6) {
         let body: any; try { body = await req.json(); } catch { body = {}; }
         const sc = m6[1].toUpperCase();
+        const deniedLegacy = await requireOwner(req, env, sc, cors);
+        if (deniedLegacy) return deniedLegacy;
         const sj = await env.CUBEFORGE_REGISTRY.get(`session:${sc}`);
         if (sj && body.status) { const s: SessionEntity = JSON.parse(sj); s.status = body.status; if (body.currentPlayers !== undefined) s.currentPlayers = body.currentPlayers; s.lastHeartbeat = new Date().toISOString(); s.expiresAt = new Date(Date.now() + cfg.ttlSeconds * 1000).toISOString(); await env.CUBEFORGE_REGISTRY.put(`session:${sc}`, JSON.stringify(s), { expirationTtl: cfg.ttlSeconds }); }
         return new Response(JSON.stringify({ status: 'updated' }), { status: 200, headers: { 'Content-Type': 'application/json', ...cors } });
