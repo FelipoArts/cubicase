@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Política de Privacidade — Cubicase</title>
+  <meta name="description" content="Quais dados o Cubicase trata, para quê, com quem são compartilhados e como exercer seus direitos (LGPD)." />
+  <link rel="icon" type="image/png" href="/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/assets/icon.png" />
+  <meta property="og:title" content="Política de Privacidade — Cubicase" />
+  <meta property="og:description" content="Quais dados o Cubicase trata, para quê, com quem são compartilhados e como exercer seus direitos (LGPD)." />
+  <meta property="og:image" content="/assets/logo.png" />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="alternate" hreflang="pt-BR" href="/privacidade/" />
+  <link rel="alternate" hreflang="en" href="/en/privacy/" />
+  <link rel="alternate" hreflang="x-default" href="/privacidade/" />
+  <script src="/assets/i18n/en.js"></script>
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="/" class="nav-brand">
+        <img src="/assets/logo-dark.png" alt="Cubicase" />
+      </a>
+      <div class="nav-links" data-nav-links>
+        <a href="/#recursos">Recursos</a>
+        <a href="/#como-funciona">Como funciona</a>
+        <a href="/tutorial/">Tutorial</a>
+        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <div class="lang-switch" data-lang-switch></div>
+        <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>Entrar</a>
+        <div class="nav-cta">
+          <a class="btn btn-primary" href="/download/">Baixar</a>
+        </div>
+      </div>
+      <button class="nav-toggle" data-nav-toggle aria-label="Abrir menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <header class="download-hero legal-hero">
+    <div class="container">
+      <h1>Política de Privacidade</h1>
+      <p class="legal-updated">Atualizado em: 6 de outubro de 2026</p>
+    </div>
+  </header>
+
+  <main class="container legal">
+    <p class="legal-lead">Resumo: o Cubicase funciona sem conta, não tem anúncios e não usa ferramentas de análise de comportamento. Seu servidor e seus mundos ficam no seu computador. Abaixo está tudo o que passa pela nossa infraestrutura, e por quê.</p>
+      <section class="legal-section">
+        <h2>1. Quem é o responsável</h2>
+        <p>O <strong>Cubicase</strong> é um projeto independente, desenvolvido e operado no Brasil (“nós”). Somos o controlador dos dados descritos aqui, nos termos da Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018).</p>
+        <p>Contato sobre privacidade e exercício de direitos: pela <strong>Central de Ajuda dentro do app</strong> (Ajuda → Enviar mensagem) ou pelo e-mail <a href="mailto:felipe@cubicase.net">felipe@cubicase.net</a>.</p>
+      </section>
+      <section class="legal-section">
+        <h2>2. O que fica só no seu computador</h2>
+        <p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, Documentos/CubicaseBackups e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>
+      </section>
+      <section class="legal-section">
+        <h2>3. Dados que tratamos e por quê</h2>
+        <table>
+        <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
+        <tbody>
+        <tr><td><strong>Usar o app (sem conta)</strong></td><td>Um identificador aleatório da instalação (não é seu nome nem e-mail); versão do app; o endereço IP da sua conexão (visto pela infraestrutura, usado por até ~1 minuto para limitar abuso).</td><td>Fazer o serviço funcionar e protegê-lo contra abuso.</td></tr>
+        <tr><td><strong>Registrar um servidor para convidar amigos</strong></td><td>Código de convite, nome do servidor, versão do Minecraft, tipo/loader, descrição, estado (online/offline), quantidade de jogadores online, e o endereço IP virtual da rede enquanto você hospeda. O segredo de dono é guardado só como <em>hash</em>.</td><td>Permitir que seus amigos encontrem e entrem no servidor.</td></tr>
+        <tr><td><strong>Entrar como convidado</strong></td><td>O código digitado; identificador da instalação; credencial temporária de rede (válida por poucos minutos) e um nome de dispositivo temporário.</td><td>Conectar você ao servidor do host.</td></tr>
+        <tr><td><strong>Conta (opcional)</strong></td><td>E-mail e, se você entrar com Google ou Discord, o nome e a foto do perfil informados por eles.</td><td>Autenticar e liberar recursos da conta.</td></tr>
+        <tr><td><strong>Cubicase Plus</strong></td><td>Identificador do cliente e da assinatura na Stripe, plano, situação e data de renovação. <strong>Não recebemos nem guardamos dados de cartão</strong>; o pagamento é feito na página da Stripe.</td><td>Cobrar e liberar os recursos pagos.</td></tr>
+        <tr><td><strong>Painel web remoto (Plus)</strong></td><td>Nome do computador, token do dispositivo, último acesso, contas convidadas e permissões. Enquanto o app está conectado: estado do servidor, lista de servidores, jogadores online, métricas de uso do computador e as últimas ~200 linhas do console, além dos comandos enviados pelo painel. Esse conteúdo temporário é apagado quando o app se desconecta.</td><td>Controlar o servidor pelo navegador.</td></tr>
+        <tr><td><strong>Link e endereço personalizados (Plus)</strong></td><td>O nome escolhido, associado ao seu servidor e à sua conta.</td><td>Exibir o link/endereço que você configurou.</td></tr>
+        <tr><td><strong>Central de Ajuda</strong></td><td>O e-mail, o assunto e a mensagem que você escrever, mais a versão do app e o sistema operacional.</td><td>Responder ao seu pedido.</td></tr>
+        <tr><td><strong>Doações</strong></td><td>Valor e moeda confirmados pela Stripe. Não guardamos seus dados de pagamento.</td><td>Registrar o apoio recebido.</td></tr>
+        </tbody></table>
+      </section>
+      <section class="legal-section">
+        <h2>4. Com quem compartilhamos (operadores e terceiros)</h2>
+        <p>Não vendemos dados e não exibimos publicidade. Usamos estes prestadores para entregar o serviço; cada um trata os dados conforme a própria política:</p>
+        <ul>
+        <li><strong>Cloudflare</strong> — API do Cubicase, armazenamento dos registros de servidor e do painel remoto.</li>
+        <li><strong>Supabase</strong> — contas, assinaturas e dados do painel remoto.</li>
+        <li><strong>Stripe</strong> — pagamentos (assinaturas e doações).</li>
+        <li><strong>Resend</strong> — envio dos e-mails da Central de Ajuda até nós.</li>
+        <li><strong>Tailscale</strong> — rede que conecta host e convidados (dispositivos temporários e endereços virtuais). Este provedor poderá ser substituído por outro, e esta política será atualizada.</li>
+        <li><strong>GitHub</strong> — hospedagem do site e dos instaladores/atualizações do app (o app consulta as versões publicadas).</li>
+        <li><strong>Mojang/Microsoft, Adoptium, PaperMC, Forge/NeoForge, Fabric</strong> — de onde o app baixa o servidor, o Java e os instaladores; eles enxergam o IP de quem baixa.</li>
+        <li><strong>Modrinth e CurseForge</strong> — busca e download de mods; recebem os termos pesquisados e, para identificar mods, o código hash dos arquivos (nunca os arquivos).</li>
+        <li><strong>Google Fonts</strong> — fontes das páginas do site (o Google vê o IP de quem abre as páginas).</li>
+        </ul>
+        <p>Também podemos divulgar dados se houver obrigação legal ou ordem de autoridade competente.</p>
+      </section>
+      <section class="legal-section">
+        <h2>5. Bases legais (LGPD, art. 7º)</h2>
+        <p><strong>Execução de contrato</strong> (fornecer o app e os recursos que você pediu, inclusive a assinatura), <strong>legítimo interesse</strong> (segurança, prevenção de abuso e fraude, e o funcionamento básico da rede) e <strong>cumprimento de obrigação legal</strong> (por exemplo, registros fiscais da assinatura). Quando exigido, pedimos o seu <strong>consentimento</strong>, que você pode revogar a qualquer momento.</p>
+      </section>
+      <section class="legal-section">
+        <h2>6. Por quanto tempo guardamos</h2>
+        <ul>
+        <li>Credenciais e sessões de rede: expiram em poucos minutos.</li>
+        <li>Contadores anti-abuso por IP: cerca de 1 minuto.</li>
+        <li>Registro do servidor: até você apagar o servidor no app ou pedir a remoção.</li>
+        <li>Conta: enquanto existir; você pode pedir a exclusão.</li>
+        <li>Dados da assinatura: enquanto a assinatura existir e pelo prazo exigido por lei para registros fiscais.</li>
+        <li>Painel remoto: o conteúdo temporário do console some quando o app desconecta; o cadastro do dispositivo fica até você removê-lo.</li>
+        <li>Mensagens da Central de Ajuda: pelo tempo necessário para atender e documentar o pedido.</li>
+        </ul>
+      </section>
+      <section class="legal-section">
+        <h2>7. Transferência internacional</h2>
+        <p>Os prestadores acima operam servidores fora do Brasil. Ao usar o serviço, seus dados podem ser tratados em outros países, com salvaguardas contratuais dos próprios prestadores e conforme a LGPD (art. 33).</p>
+      </section>
+      <section class="legal-section">
+        <h2>8. Segurança</h2>
+        <p>Usamos conexões criptografadas (HTTPS e criptografia da rede), guardamos o segredo de dono de cada servidor apenas como hash, limitamos o acesso a credenciais e aplicamos limites de uso contra abuso. Nenhum sistema é totalmente seguro; se houver um incidente que possa afetar você, avisaremos como a lei exige.</p>
+      </section>
+      <section class="legal-section">
+        <h2>9. Seus direitos</h2>
+        <p>Você pode pedir: confirmação de que tratamos seus dados; acesso; correção; anonimização, bloqueio ou eliminação de dados desnecessários ou tratados em desacordo com a lei; portabilidade; informação sobre com quem compartilhamos; eliminação de dados tratados com consentimento; e a revogação do consentimento. Também pode peticionar à Autoridade Nacional de Proteção de Dados (ANPD). Use os contatos da seção 1; podemos pedir uma confirmação de identidade.</p>
+      </section>
+      <section class="legal-section">
+        <h2>10. Crianças e adolescentes</h2>
+        <p>O uso básico do app não exige dados pessoais. Contas, assinaturas e o painel remoto são destinados a maiores de 18 anos; menores devem usá-los com a participação e a autorização de um responsável legal. Não coletamos conscientemente dados pessoais de crianças além do necessário para o funcionamento; se você é responsável por uma criança e acredita que ela nos enviou dados, entre em contato para que possamos removê-los.</p>
+      </section>
+      <section class="legal-section">
+        <h2>11. Alterações desta política</h2>
+        <p>Podemos atualizar esta política. A data de atualização fica no topo; mudanças relevantes serão destacadas no app ou no site.</p>
+      </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/assets/icon-dark.png" alt="" width="18" height="18" />
+        © 2026 Cubicase
+      </div>
+      <div class="footer-links">
+        <a href="/">Início</a>
+        <a href="/tutorial/">Tutorial</a>
+        <a href="/privacidade/">Privacidade</a>
+        <a href="/termos/">Termos</a>
+        <a href="/licencas/">Licenças</a>
+        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+    <div class="container footer-disclaimer">O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft nem pela Tailscale. Minecraft é uma marca registrada da Mojang Synergies AB.</div>
+  </footer>
+
+  <script src="/assets/site.js"></script>
+</body>
+</html>

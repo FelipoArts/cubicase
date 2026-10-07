@@ -975,3 +975,30 @@ footer {
 .lang-switch-link:hover { color: var(--accent-hover); }
 /* Páginas traduzidas em runtime: esconde o corpo até a tradução ser aplicada (evita flash em pt-BR). */
 .i18n-pending body { visibility: hidden; }
+
+/* ============================================================
+   Páginas legais (privacidade, termos, licenças)
+   ============================================================ */
+.legal-hero { padding: 64px 0 8px; }
+.legal-updated { margin: 10px 0 0; color: var(--text-muted); font-size: 14px; }
+.legal { max-width: 800px; padding-bottom: 72px; }
+.legal-lead {
+  font-size: 17px; line-height: 1.7; color: var(--text-secondary);
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 20px 24px; margin: 24px 0 8px;
+}
+.legal-section { margin-top: 36px; }
+.legal-section h2 { font-family: "Space Grotesk", "Inter", sans-serif; font-size: 22px; margin: 0 0 12px; color: var(--text-primary); }
+.legal-section p, .legal-section li { color: var(--text-secondary); line-height: 1.75; font-size: 15.5px; }
+.legal-section ul { padding-left: 22px; margin: 10px 0; }
+.legal-section li { margin: 6px 0; }
+.legal-section a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.legal-section code { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 13.5px; }
+.legal-section pre {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary); white-space: pre-wrap;
+}
+.legal-section table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14.5px; display: block; overflow-x: auto; }
+.legal-section th, .legal-section td { text-align: left; vertical-align: top; padding: 12px 14px; border: 1px solid var(--border); color: var(--text-secondary); line-height: 1.6; }
+.legal-section th { background: var(--bg-elevated); color: var(--text-primary); font-weight: 600; }
+.footer-disclaimer { padding: 0 0 28px; color: var(--text-muted); font-size: 12.5px; line-height: 1.6; text-align: center; }

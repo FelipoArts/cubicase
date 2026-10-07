@@ -63,6 +63,10 @@
             <button type="submit" class="btn btn-primary btn-block" style="margin-top: 14px;">Enviar link mágico</button>
           </form>
 
+          <p class="login-status" style="margin-top: 14px;">
+            Ao entrar, você concorda com os <a href="/termos/" style="color: var(--accent);">Termos de Uso</a> e a <a href="/privacidade/" style="color: var(--accent);">Política de Privacidade</a>.
+          </p>
+
           <p id="login-status" class="login-status" hidden></p>
         </div>
 
@@ -111,6 +115,21 @@
 
     let handled = false;
 
+    // `state` aleatório gerado pelo app ao abrir esta página: precisa voltar no deep link,
+    // senão o app ignora o login (proteção contra login forjado por outra página). Fica
+    // em localStorage porque o login por OAuth/e-mail recarrega a página (e o link do
+    // e-mail abre em outra aba do mesmo navegador).
+    const STATE_KEY = "cubicase-login-state";
+    (function captureState() {
+      const fromUrl = new URLSearchParams(location.search).get("state");
+      if (fromUrl && /^[A-Za-z0-9_-]{16,128}$/.test(fromUrl)) {
+        try { localStorage.setItem(STATE_KEY, fromUrl); } catch (e) { /* sem storage */ }
+      }
+    })();
+    function currentState() {
+      try { return localStorage.getItem(STATE_KEY) || ""; } catch (e) { return ""; }
+    }
+
     function showStatus(message, isError = false) {
       statusEl.textContent = message;
       statusEl.hidden = false;
@@ -123,6 +142,8 @@
         refresh_token: session.refresh_token,
         token_type: session.token_type || "bearer",
       });
+      const state = currentState();
+      if (state) params.set("state", state);
       return `cubicase://auth-callback#${params.toString()}`;
     }
 

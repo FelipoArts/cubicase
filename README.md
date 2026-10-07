@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cubicase
 
-## Getting Started
+Crie e compartilhe servidores de Minecraft Java **no seu próprio computador**, sem abrir portas no roteador e sem configurar nada de rede.
+*Create and share Minecraft Java servers on your own PC — no port forwarding, no networking setup.*
 
-First, run the development server:
+Site: <https://cubicase.net> · Tutorial: <https://cubicase.net/tutorial/> · English: <https://cubicase.net/en/>
+
+> O Cubicase é um projeto independente. Não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft nem pela Tailscale. Minecraft é uma marca registrada da Mojang Synergies AB.
+
+## O que faz
+
+- Cria servidores Vanilla, Paper, Fabric, Forge e NeoForge em poucos cliques (baixa o servidor e o Java certos).
+- Convida amigos por um **código curto** (ou link), sem port forwarding.
+- Gerencia mundo (backups automáticos, restaurar), jogadores (whitelist, ops, bans), mods e modpacks (Modrinth + CurseForge).
+- Exporta/importa servidores como pacote `.cubicase`.
+- **Cubicase Plus** (opcional, assinatura): painel web remoto, servidor que acorda sob demanda, link e endereço de conexão personalizados.
+
+## Como funciona (resumo)
+
+| Peça | Tecnologia |
+|---|---|
+| App desktop | Tauri v2 (Rust) + Next.js (exportação estática) + React 19 + TypeScript + Zustand + Tailwind v4 |
+| Rede host ⇄ convidado | sidecar em Go (`src-tauri/sidecars/tsnet-node`, Tailscale tsnet) — em migração para um transporte P2P próprio, ver `plans/p2p-link-transport-plan.md` |
+| API central | Cloudflare Worker (`api/`): registro de servidores, sessões de rede, painel remoto (Durable Objects), assinaturas (Stripe) |
+| Contas | Supabase |
+| Site | `docs/` (estático, GitHub Pages) |
+
+## Desenvolvimento
+
+Pré-requisitos: Node 20+, Rust (stable), Go 1.22+, Visual Studio Build Tools (C++) e WebView2 no Windows. Detalhes em [`SETUP.md`](SETUP.md).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run build:sidecar     # compila o sidecar de rede (Windows)
+npm run tauri dev         # app completo
+npm run dev               # só a interface (sem recursos nativos)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Testes (rodam no CI a cada push):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test                  # backend (cargo) + frontend (vitest) + API (vitest/miniflare)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+API (Cloudflare Worker):
 
-## Learn More
+```bash
+cd api
+npx wrangler dev          # local
+npx wrangler deploy       # publicar (segredos via `wrangler secret put`)
+```
 
-To learn more about Next.js, take a look at the following resources:
+Site e páginas legais:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run site:i18n                      # valida o dicionário e gera as páginas /en/ de index e download
+node scripts/build-legal-pages.mjs     # gera privacidade, termos e licenças (PT e EN)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Segurança
 
-## Deploy on Vercel
+Para reportar uma vulnerabilidade, **não abra uma issue pública**: escreva para felipe@cubicase.net ou use a Central de Ajuda dentro do app (tipo "Problema"), descrevendo só o suficiente para entrarmos em contato.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Privacidade e termos
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Política de Privacidade](https://cubicase.net/privacidade/) · [Termos de Uso](https://cubicase.net/termos/) · [Licenças de terceiros](https://cubicase.net/licencas/)
+
+## Licença
+
+A licença do código do Cubicase ainda será definida pelo autor. Até lá, todos os direitos são reservados. Os componentes de terceiros mantêm suas próprias licenças (ver página de licenças acima).

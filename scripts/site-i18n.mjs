@@ -17,6 +17,9 @@ const DOCS = path.join(ROOT, "docs");
 export const STATIC_PAGES = ["index.html", "download/index.html"];
 export const RUNTIME_PAGES = ["entrar/index.html", "obrigado/index.html", "assinatura/sucesso/index.html", "painel/index.html"];
 
+// Páginas legais têm texto próprio em inglês (geradas por scripts/build-legal-pages.mjs), em outra URL.
+const LEGAL_EN = { "privacidade/": "privacy/", "termos/": "terms/", "licencas/": "licenses/" };
+
 const ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&hellip;": "…", "&nbsp;": " ", "&#10;": "\n", "&mdash;": "—" };
 const decode = (s) => s.replace(/&(?:#\d+|\w+);/g, (m) => ENTITIES[m] ?? m);
 const norm = (s) => s.replace(/\s+/g, " ").trim();
@@ -95,7 +98,7 @@ function buildEnglishPage(html, dict, page) {
   // idioma, links internos e og:locale
   out = out.replace('<html lang="pt-BR">', '<html lang="en">');
   // Só links <a> de navegação: os <link rel="alternate" hreflang> já apontam para o par pt-BR/en certo.
-  out = out.replace(/<a\b[^>]*>/g, (tag) => tag.replace(/href="\/([^"]*)"/, (m, rest) => (rest === "" || rest === "download/" || rest === "tutorial/" ? `href="/en/${rest}"` : m)));
+  out = out.replace(/<a\b[^>]*>/g, (tag) => tag.replace(/href="\/([^"]*)"/, (m, rest) => (rest === "" || rest === "download/" || rest === "tutorial/" ? `href="/en/${rest}"` : LEGAL_EN[rest] ? `href="/en/${LEGAL_EN[rest]}"` : m)));
   out = out.replace(/(<meta property="og:type"[^>]*>)/, `$1\n  <meta property="og:locale" content="en_US" />`);
   return out;
 }
