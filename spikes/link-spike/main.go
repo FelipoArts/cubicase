@@ -380,7 +380,7 @@ func readLine(prompt string) string {
 	return strings.TrimSpace(line)
 }
 
-func runRemote(role string, o netOpts, mb int) {
+func runRemote(role string, o netOpts, mb int, soak time.Duration) {
 	pc := newPC(o)
 	opened := make(chan io.ReadWriteCloser, 2)
 	if role == "guest" {
@@ -444,6 +444,9 @@ func runRemote(role string, o netOpts, mb int) {
 		_, _ = io.Copy(chans["echo"], chans["echo"])
 	}
 	report(rs)
+	if soak > 0 {
+		soakTest(role, chans["echo"], soak, pathOf(pc))
+	}
 	time.Sleep(2 * time.Second)
 }
 
@@ -460,6 +463,7 @@ func main() {
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	o := netOpts{}
 	mb := fs.Int("mb", 100, "MiB por teste de vazão")
+	soak := fs.Duration("soak", 0, "depois dos testes, mantém a conexão por este tempo pingando (ex.: 8m)")
 	fs.StringVar(&o.stun, "stun", "stun:stun.l.google.com:19302", "URLs STUN separadas por vírgula (vazio = nenhum)")
 	fs.StringVar(&o.turn, "turn", "", "url,usuario,senha do TURN")
 	fs.BoolVar(&o.relayOnly, "relay", false, "forçar uso do relay")
@@ -468,7 +472,7 @@ func main() {
 	case "loopback":
 		runLoopback(*mb)
 	case "host", "guest":
-		runRemote(os.Args[1], o, *mb)
+		runRemote(os.Args[1], o, *mb, *soak)
 	default:
 		fmt.Println("modo desconhecido:", os.Args[1])
 		os.Exit(2)
