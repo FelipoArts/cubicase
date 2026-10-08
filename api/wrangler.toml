@@ -41,6 +41,9 @@ HEARTBEAT_TIMEOUT_SECONDS = "300"
 HEARTBEAT_EXPIRE_SECONDS = "600"
 SHORT_CODE_LENGTH = "6"
 API_BASE_URL = "https://api.cubeforge.dev"
+# Relay TURN (coturn na VM da Oracle, ver infra/relay/). Só passa a ser usado quando o segredo TURN_SECRET existe
+# (wrangler secret put TURN_SECRET); TURN_DISABLED=1 (secret) corta o relay na hora.
+TURN_URLS = "turn:turn.cubicase.net:3478,turn:turn.cubicase.net:3478?transport=tcp,turns:turn.cubicase.net:443?transport=tcp"
 
 # Link de convite personalizado (Cubicase Plus) — play.cubicase.net/<slug>.
 # A zona DNS de cubicase.net está no HostGator (e-mail e outras coisas
