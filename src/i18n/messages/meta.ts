@@ -6,10 +6,10 @@ import { defineMessages } from "./define";
 export default defineMessages({
   "pt-BR": {
     "meta.title": "Cubicase — Servidor Minecraft Simplificado",
-    "meta.description": "Crie, gerencie e compartilhe servidores Minecraft com amigos. Rede mesh privada, sem abrir portas, sem configuração técnica.",
+    "meta.description": "Crie, gerencie e compartilhe servidores Minecraft com amigos. Sem abrir portas no roteador e sem configuração técnica.",
   },
   en: {
     "meta.title": "Cubicase — Minecraft Servers Made Simple",
-    "meta.description": "Create, manage and share Minecraft servers with friends. Private mesh network, no port forwarding, no technical setup.",
+    "meta.description": "Create, manage and share Minecraft servers with friends. No router port forwarding and no technical setup.",
   },
 });

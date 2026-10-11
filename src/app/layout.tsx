@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cubicase — Servidor Minecraft Simplificado",
-  description: "Crie, gerencie e compartilhe servidores Minecraft com amigos. Rede mesh privada, sem abrir portas, sem configuração técnica.",
+  description: "Crie, gerencie e compartilhe servidores Minecraft com amigos. Sem abrir portas no roteador e sem configuração técnica.",
   icons: {
     icon: [
       { url: "/icon.png", type: "image/png" },

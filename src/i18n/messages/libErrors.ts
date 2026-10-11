@@ -24,7 +24,7 @@ export default defineMessages({
     "modpack.nameExists": "Já existe um servidor com o nome \"{name}\".",
     "modpack.motd": "Servidor Cubicase [{pack}] - {name}",
 
-    "modsync.hostUnreachable": "Não foi possível falar com o host para checar os mods — a rede mesh pode estar instável ou o host offline.",
+    "modsync.hostUnreachable": "Não foi possível falar com o host para checar os mods — a conexão pode estar instável ou o host offline.",
     "modsync.notHosting": "O host não está hospedando este servidor agora (ou você já não está mais conectado a ele).",
     "modsync.removedFromHost": "Mod não está mais na lista do host (pode ter sido removido durante a sincronização).",
     "modsync.removedFromFolder": "Mod não está mais na pasta do servidor (pode ter sido removido durante a sincronização).",
@@ -57,7 +57,7 @@ export default defineMessages({
     "modpack.nameExists": "A server named \"{name}\" already exists.",
     "modpack.motd": "Cubicase Server [{pack}] - {name}",
 
-    "modsync.hostUnreachable": "Couldn't reach the host to check the mods — the mesh network may be unstable or the host offline.",
+    "modsync.hostUnreachable": "Couldn't reach the host to check the mods — the connection may be unstable or the host offline.",
     "modsync.notHosting": "The host isn't hosting this server right now (or you're no longer connected to it).",
     "modsync.removedFromHost": "Mod is no longer on the host's list (it may have been removed during syncing).",
     "modsync.removedFromFolder": "Mod is no longer in the server folder (it may have been removed during syncing).",

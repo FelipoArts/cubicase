@@ -69,6 +69,7 @@ if [[ -n "$PUBLIC_IP" && "$DNS_IP" == "$PUBLIC_IP" ]]; then
   fi
   if [[ -d /etc/letsencrypt/live/$DOMAIN ]]; then
     mkdir -p "$CERT_DIR" /etc/letsencrypt/renewal-hooks/deploy
+    chmod 711 "$(dirname "$CERT_DIR")"   # o usuário turnserver precisa atravessar /etc/coturn para ler os certificados
     cat > /etc/letsencrypt/renewal-hooks/deploy/coturn.sh <<HOOK
 #!/usr/bin/env bash
 install -d -o turnserver -g turnserver -m 750 $CERT_DIR
