@@ -382,12 +382,18 @@ func readLine(prompt string) string {
 
 func runRemote(role string, o netOpts, mb int, soak time.Duration) {
 	pc := newPC(o)
-	opened := make(chan io.ReadWriteCloser, 2)
+	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) { fmt.Fprintf(os.Stderr, "[ice] %v\n", s) })
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c != nil {
+			fmt.Fprintf(os.Stderr, "[candidato local] %s %s:%d\n", c.Typ, c.Address, c.Port)
+		}
+	})
+	opened := make(chan *labeled, 2)
 	if role == "guest" {
 		for _, l := range []string{"bulk", "echo"} {
 			dc, err := pc.CreateDataChannel(l, nil)
 			must(err)
-			dc.OnOpen(func() { rwc, err := dc.Detach(); must(err); opened <- rwc })
+			dc.OnOpen(func() { rwc, err := dc.Detach(); must(err); opened <- &labeled{rwc, dc.Label()} })
 		}
 		offer, _ := pc.CreateOffer(nil)
 		must(pc.SetLocalDescription(offer))
@@ -409,19 +415,9 @@ func runRemote(role string, o netOpts, mb int, soak time.Duration) {
 	for len(chans) < 2 {
 		select {
 		case c := <-opened:
-			if role == "guest" {
-				// guest não sabe o rótulo de cada um; ordem de abertura é bulk, echo na prática
-				if _, ok := chans["bulk"]; !ok {
-					chans["bulk"] = c
-				} else {
-					chans["echo"] = c
-				}
-			} else {
-				l := c.(*labeled)
-				chans[l.label] = l.ReadWriteCloser
-			}
-		case <-time.After(30 * time.Second):
-			must(fmt.Errorf("timeout: o caminho ICE não conectou em 30 s (firewall/NAT simétrico? tente -turn)"))
+			chans[c.label] = c.ReadWriteCloser
+		case <-time.After(3 * time.Minute):
+			must(fmt.Errorf("timeout: o caminho ICE não conectou em 3 min (veja as linhas [ice]/[candidato local] acima; firewall/NAT simétrico? tente -relay -turn)"))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "conectado em %v — caminho: %s\n", time.Since(t0).Round(time.Millisecond), pathOf(pc))
@@ -429,14 +425,22 @@ func runRemote(role string, o netOpts, mb int, soak time.Duration) {
 	var rs []result
 	rs = append(rs, result{"caminho ICE", pathOf(pc)})
 	if role == "guest" {
+		// espera o "pronto" do host: mensagens enviadas antes de o host puxar o canal se perdem
+		ready := make([]byte, 64*1024)
+		if _, err := chans["bulk"].Read(ready); err != nil {
+			must(fmt.Errorf("sincronia inicial: %w", err))
+		}
 		sendBulk(chans["bulk"], mb) // guest→host
-		b := make([]byte, 1)
-		_, _ = io.ReadFull(chans["bulk"], b) // espera o host terminar de receber
+		sync := make([]byte, 64*1024) // byte de sincronia do host (o canal entrega mensagens inteiras)
+		if _, err := chans["bulk"].Read(sync); err != nil {
+			must(fmt.Errorf("sincronia: %w", err))
+		}
 		d := recvBulk(chans["bulk"], mb)      // host→guest
 		rs = append(rs, result{"vazão host→convidado", mbps(mb, d)})
 		p50, p99 := pingPong(chans["echo"], 300)
 		rs = append(rs, result{"latência ida-e-volta p50/p99", fmt.Sprintf("%v / %v", p50.Round(100*time.Microsecond), p99.Round(100*time.Microsecond))})
 	} else {
+		_, _ = chans["bulk"].Write([]byte{1}) // pronto: já estou lendo
 		d := recvBulk(chans["bulk"], mb)
 		rs = append(rs, result{"vazão convidado→host", mbps(mb, d)})
 		_, _ = chans["bulk"].Write([]byte{1})
