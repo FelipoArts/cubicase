@@ -98,6 +98,9 @@ max-port=${MAX_PORT}
 realm=${DOMAIN}
 server-name=${DOMAIN}
 fingerprint
+# Nível de log "info": é ele que registra o consumo (linhas "usage:") de cada alocação, que o medidor
+# (relay-usage-reporter.py) reporta ao Worker para a cota mensal de relay. Sem isto não há medição.
+verbose
 
 # Credenciais efêmeras emitidas pelo Worker (esquema REST: usuário = expiração:id).
 use-auth-secret
@@ -158,6 +161,37 @@ systemctl enable coturn
 systemctl restart coturn
 sleep 2
 systemctl --no-pager --lines=8 status coturn || true
+
+say "Medidor de consumo (cota mensal de relay)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$HERE/relay-usage-reporter.py" ]]; then
+  install -m 755 "$HERE/relay-usage-reporter.py" /usr/local/bin/relay-usage-reporter.py
+  sed -i 's/\r$//' /usr/local/bin/relay-usage-reporter.py
+  cat > /etc/systemd/system/relay-usage-reporter.service <<UNIT
+[Unit]
+Description=Cubicase - medidor de consumo do relay
+After=coturn.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/relay-usage-reporter.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now relay-usage-reporter
+  systemctl --no-pager --lines=3 status relay-usage-reporter || true
+else
+  echo "AVISO: relay-usage-reporter.py não está ao lado deste script — a cota mensal não será medida."
+  echo "       Copie-o junto (scp) e rode este script de novo."
+fi
 
 say "PRONTO"
 cat <<DONE

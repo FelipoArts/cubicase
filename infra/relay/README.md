@@ -74,6 +74,22 @@ cd spikes/link-spike
 ```
 O bloco final deve mostrar `relay` no caminho ICE. Isso prova o relay, o firewall e as credenciais.
 
+## Cota mensal e medidor de consumo
+Servidores **sem Cubicase Plus** têm uma cota mensal de relay (padrão **5 GiB** de saída da VM; mude com a
+variável `RELAY_FREE_MONTHLY_BYTES` no `api/wrangler.toml`). Passou disso, o Worker deixa de emitir credenciais
+do relay para aquele servidor até o mês virar: a conexão direta segue livre e o app mostra o plano B (Radmin VPN).
+Hosts logados com Plus marcam o servidor como Plus (`linkplus:<código>`, 25 h) e ficam sem cota.
+
+Quem mede é o próprio coturn: com `verbose` ele registra o total de cada alocação ao terminar, e o serviço
+`relay-usage-reporter` (neste diretório; instalado pelo `setup-coturn.sh` se o `.py` estiver ao lado) lê o
+journal e envia lotes assinados (HMAC-SHA256 com o `TURN_SECRET`) para `POST /api/v1/internal/relay-usage`.
+- Ver o medidor: `sudo systemctl status relay-usage-reporter` e `sudo journalctl -u relay-usage-reporter -n 30`.
+- Falha de rede não perde dados: o lote fica na fila e é reenviado. Linhas `falha ao reportar` repetidas = o Worker
+  não está publicado com o endpoint novo, ou o `TURN_SECRET` do Worker difere do da VM.
+- O consumo só é gravado quando a alocação termina (o cliente fecha ou a alocação expira, em até 10 min).
+- Testes do medidor: `python3 -m unittest test_relay_usage_reporter` (na pasta `infra/relay`).
+- Zerar a cota de um servidor (suporte): apague a chave `relayuse:<CÓDIGO>:<AAAA-MM>` do KV.
+
 ## Operação
 - **Cortar o relay na hora (custo):** `npx wrangler secret put TURN_DISABLED` com o valor `1`; apague o segredo
   (`wrangler secret delete TURN_DISABLED`) para voltar.
