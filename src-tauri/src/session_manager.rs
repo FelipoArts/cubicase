@@ -197,6 +197,11 @@ impl SessionManager {
 
     /// Como `start`, escolhendo o transporte: `Some("link-v1")` pede o P2P (cubicase-link).
     pub async fn start_with(&self, short_code: &str, mode: &str, local_port: u16, launcher: Option<&str>) -> Result<ConnectionSessionResponse, String> {
+        self.start_with_relay(short_code, mode, local_port, launcher, false).await
+    }
+
+    /// Como `start_with`; `relay_only` liga o modo privado (só vale com o P2P).
+    pub async fn start_with_relay(&self, short_code: &str, mode: &str, local_port: u16, launcher: Option<&str>, relay_only: bool) -> Result<ConnectionSessionResponse, String> {
         // Verificar concorrência
         {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -223,7 +228,7 @@ impl SessionManager {
         }
 
         // Chamar API para criar sessão
-        let result = self.api.create_connection_session(short_code, mode, launcher).await;
+        let result = self.api.create_connection_session_with(short_code, mode, launcher, relay_only).await;
 
         match result {
             Ok(session) => {
@@ -704,6 +709,29 @@ mod link_tests {
         assert_eq!(sm.get_status(), SessionStatus::Online);
         // Nenhum PATCH de hostIp (a API recusaria "p2p"): só o pedido de criação existe.
         assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn private_mode_sends_relay_only_only_with_the_p2p_launcher() {
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        let client = ApiClient::with_transport(Box::new(Recorder { seen: seen.clone() }), ApiConfig::default());
+        let sm = SessionManager::new(Arc::new(client));
+        let _ = sm.start_with_relay("ABCDEF", "host", 25565, Some("link-v1"), true).await.expect("start");
+        assert_eq!(seen.lock().unwrap()[0].body.as_ref().unwrap()["relayOnly"], true);
+
+        // Sem o P2P (Tailscale) o modo privado não existe: nada de relayOnly no pedido.
+        let seen2 = Arc::new(StdMutex::new(Vec::new()));
+        let client2 = ApiClient::with_transport(Box::new(Recorder { seen: seen2.clone() }), ApiConfig::default());
+        let sm2 = SessionManager::new(Arc::new(client2));
+        let _ = sm2.start_with_relay("ABCDEF", "host", 25565, None, true).await;
+        assert!(seen2.lock().unwrap()[0].body.as_ref().unwrap().get("relayOnly").is_none());
+
+        // E o padrão (modo privado desligado) nunca manda a chave.
+        let seen3 = Arc::new(StdMutex::new(Vec::new()));
+        let client3 = ApiClient::with_transport(Box::new(Recorder { seen: seen3.clone() }), ApiConfig::default());
+        let sm3 = SessionManager::new(Arc::new(client3));
+        let _ = sm3.start_with("ABCDEF", "host", 25565, Some("link-v1")).await.expect("start");
+        assert!(seen3.lock().unwrap()[0].body.as_ref().unwrap().get("relayOnly").is_none());
     }
 
     #[tokio::test]

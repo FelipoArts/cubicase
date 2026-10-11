@@ -188,6 +188,10 @@ impl ApiTransport for HttpTransport {
             let code = request.path.trim_start_matches("/api/v1/servers/").split('/').next().unwrap_or("");
             if is_host && !code.is_empty() {
                 req = req.header("X-Owner-Secret", crate::owner_secret::get_or_create(code));
+                // Conta logada: a API usa para saber se o host é Cubicase Plus (modo privado e relay sem cota).
+                if let Some(token) = crate::account_auth::bearer() {
+                    req = req.header("Authorization", format!("Bearer {}", token));
+                }
             }
         }
 
@@ -304,6 +308,17 @@ impl ApiClient {
         mode: &str,
         launcher: Option<&str>,
     ) -> Result<ConnectionSessionResponse, ApiError> {
+        self.create_connection_session_with(short_code, mode, launcher, false).await
+    }
+
+    /// Como `create_connection_session`; `relay_only` pede o modo privado (só relay, esconde o IP).
+    pub async fn create_connection_session_with(
+        &self,
+        short_code: &str,
+        mode: &str,
+        launcher: Option<&str>,
+        relay_only: bool,
+    ) -> Result<ConnectionSessionResponse, ApiError> {
         let (request_id, correlation_id) = self.generate_ids();
 
         let mut body = serde_json::json!({
@@ -316,6 +331,9 @@ impl ApiClient {
         // Transporte P2P (cubicase-link): sem isto a API continua devolvendo o Tailscale.
         if let Some(l) = launcher {
             body["launcher"] = serde_json::Value::String(l.to_string());
+            if relay_only {
+                body["relayOnly"] = serde_json::Value::Bool(true);
+            }
         }
 
         let req = ApiRequest {

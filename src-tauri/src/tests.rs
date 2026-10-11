@@ -1156,3 +1156,22 @@ fn percent_decode_handles_multibyte_and_invalid_sequences_without_panic() {
     assert_eq!(percent_decode("%zz"), "%zz");
     assert_eq!(percent_decode("%c3%a9"), "é");
 }
+
+#[test]
+fn modo_privado_recusado_pela_api_e_reconhecido_nos_dois_idiomas() {
+    assert!(is_private_mode_refused("[SUBSCRIPTION_REQUIRED] O modo privado é um recurso do Cubicase Plus. (technicalId: x)"));
+    assert!(is_private_mode_refused("[BAD_REQUEST] Não autenticado. (technicalId: x)"));
+    assert!(is_private_mode_refused("[BAD_REQUEST] Not signed in. (technicalId: x)"));
+    // Outras falhas (rede, 503...) NÃO podem ser tratadas como "precisa do Plus".
+    assert!(!is_private_mode_refused("[HTTP_ERROR] connection refused (technicalId: x)"));
+    assert!(!is_private_mode_refused("[INTERNAL_ERROR] O transporte P2P não está configurado neste servidor. (technicalId: x)"));
+}
+
+#[test]
+fn estado_do_relay_vem_das_credenciais_da_sessao() {
+    let quota = serde_json::json!({ "relay": "quota", "ice": { "stunUrls": [] } });
+    assert_eq!(relay_state_from_credentials(&quota).as_deref(), Some("quota"));
+    // Servidor antigo (sem o campo) ou sessão Tailscale: nada a informar.
+    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "authKey": "k" })), None);
+    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "relay": 3 })), None);
+}

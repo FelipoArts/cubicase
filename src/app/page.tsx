@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
-import { useAppStore, type ServerStatus } from "@/app/store";
+import { useAppStore, type RelayStatus, type ServerStatus } from "@/app/store";
 import { remove } from "@tauri-apps/plugin-fs";
 import { getJREPath } from "@/lib/jre";
 import {
@@ -29,6 +29,7 @@ import { CloseAppModal } from "@/app/components/CloseAppModal";
 import { OnboardingScreen } from "@/app/components/OnboardingScreen";
 import { DiagnosticsToasts, DiagnosticsBell } from "@/app/components/DiagnosticsCenter";
 import { pushDiagnostic } from "@/app/diagnostics";
+import { supabase } from "@/lib/supabaseClient";
 import { UpdateBanner } from "@/app/components/UpdateBanner";
 import { UpdateButton } from "@/app/components/UpdateButton";
 import { HelpCenter } from "@/app/components/HelpCenter";
@@ -338,6 +339,7 @@ export default function Home() {
   useEffect(() => {
     let unlistenStatus: (() => void) | null = null;
     let unlistenPath: (() => void) | null = null;
+    let unlistenRelay: (() => void) | null = null;
     let unlistenLogs: (() => void) | null = null;
     let unlistenMcStatus: (() => void) | null = null;
     let unlistenMcLogs: (() => void) | null = null;
@@ -367,10 +369,30 @@ export default function Home() {
       });
       if (cancelled) unPath(); else unlistenPath = unPath;
 
+      // A API informa o estado do relay ao criar a sessão (cota do mês, modo privado recusado...).
+      const unRelay = await listen<{ state: RelayStatus }>("relay-status", (event) => {
+        const state = event.payload.state;
+        useAppStore.getState().setRelayStatus(state);
+        if (state === "private_locked") {
+          // O app hospedou no modo normal: desliga a chave para não parecer ativa e explica o motivo.
+          useAppStore.getState().setPrivateMode(false);
+          pushDiagnostic({
+            level: "warning",
+            source: t("diag.source.network"),
+            title: t("settings.private.fellBack.title"),
+            message: t("settings.private.fellBack.message"),
+          });
+        }
+      });
+      if (cancelled) unRelay(); else unlistenRelay = unRelay;
+
       const unStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
         const newNetStatus = event.payload.status === "online" ? "online" : "offline";
         setNetStatus(newNetStatus);
-        if (event.payload.status !== "online") useAppStore.getState().setNetworkPath(null);
+        if (event.payload.status !== "online") {
+          useAppStore.getState().setNetworkPath(null);
+          useAppStore.getState().setRelayStatus(null);
+        }
 
         if (event.payload.status === "online") {
           setNetIp(event.payload.ip);
@@ -504,7 +526,8 @@ export default function Home() {
           // o usuário sem saída. Só se nunca chegou a conectar (caminho ainda desconhecido) — uma queda
           // de conexão já estabelecida se resolve sozinha pela reconexão automática.
           if (isDirectFailureCode(event.payload.code) && useAppStore.getState().networkPath === null) {
-            useConnectionHelp.getState().showAuto("direct_failed");
+            // Sem relay neste mês: a frase da janela explica que o limite gratuito acabou.
+            useConnectionHelp.getState().showAuto(useAppStore.getState().relayStatus === "quota" ? "relay_quota" : "direct_failed");
           }
         }
       );
@@ -690,6 +713,7 @@ export default function Home() {
       cancelled = true;
       unlistenStatus?.();
       unlistenPath?.();
+      unlistenRelay?.();
       unlistenLogs?.();
       unlistenMcStatus?.();
       unlistenMcLogs?.();
@@ -825,6 +849,17 @@ export default function Home() {
   useEffect(() => {
     invoke("set_network_transport", { transport: networkTransport }).catch((err) => console.warn("[rede] set_network_transport falhou:", err));
   }, [networkTransport]);
+
+  // Modo privado: o Rust precisa da chave ligada/desligada e do token ATUAL da conta (a API confere o
+  // Cubicase Plus com ele). O token renova sozinho, então reenvia a cada mudança de sessão.
+  const privateMode = useAppStore((s) => s.privateMode);
+  useEffect(() => {
+    const push = (token: string | null) =>
+      invoke("set_private_mode", { enabled: privateMode, accessToken: token }).catch((err) => console.warn("[rede] set_private_mode falhou:", err));
+    supabase.auth.getSession().then(({ data }) => void push(data.session?.access_token ?? null)).catch(() => void push(null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => void push(session?.access_token ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, [privateMode]);
 
   // Link de convite (cubicase://join/<shortCode>, ver play.cubicase.net/<slug>)
   // — mesmo padrão do listener de login acima, ver src/lib/joinDeepLink.ts.

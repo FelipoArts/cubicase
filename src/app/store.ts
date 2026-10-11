@@ -64,6 +64,9 @@ export interface KnownServer {
 export type NetworkTransport = "tailscale" | "link";
 
 /** Caminho da conexão P2P: direct-v4/direct-v6/punched/relay (ver cubicase-link). */
+/** Estado do relay informado pela API: "ok", "quota" (cota do mês esgotada), "off" (desligado) ou "private_locked" (modo privado recusado: precisa do Plus). */
+export type RelayStatus = "ok" | "quota" | "off" | "private_locked";
+
 export interface NetworkPathInfo {
   path: string;
   rttMs: number | null;
@@ -100,6 +103,10 @@ interface AppSettings {
   networkTransport: NetworkTransport;
   // Tipo de caminho da conexão P2P atual (direto/relay) e latência — runtime, não persistido.
   networkPath: NetworkPathInfo | null;
+  // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
+  privateMode: boolean;
+  // Estado do relay informado pela API na última conexão (cota do mês esgotada, relay desligado...) — runtime.
+  relayStatus: RelayStatus | null;
   backupRetentionCount: number;
   // Intervalo (em horas) do backup de segurança para sessões longas que
   // nunca são paradas manualmente — ver uso em page.tsx.
@@ -165,6 +172,8 @@ interface AppSettings {
   acceptEula: () => void;
   setNetworkTransport: (t: NetworkTransport) => void;
   setNetworkPath: (p: NetworkPathInfo | null) => void;
+  setPrivateMode: (enabled: boolean) => void;
+  setRelayStatus: (s: RelayStatus | null) => void;
   setBackupRetentionCount: (count: number) => void;
   setBackupSafetyNetIntervalHours: (hours: number) => void;
   setSelectedServer: (name: string | null) => void;
@@ -204,6 +213,8 @@ export const useAppStore = create<AppSettings>()(
       eulaAcceptedAt: null,
       networkTransport: "tailscale",
       networkPath: null,
+      privateMode: false,
+      relayStatus: null,
       backupRetentionCount: 10,
       backupSafetyNetIntervalHours: 6,
       selectedServer: null,
@@ -229,6 +240,8 @@ export const useAppStore = create<AppSettings>()(
       acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
       setNetworkTransport: (t) => set({ networkTransport: t }),
       setNetworkPath: (p) => set({ networkPath: p }),
+      setPrivateMode: (enabled) => set({ privateMode: enabled }),
+      setRelayStatus: (s) => set({ relayStatus: s }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
       setBackupSafetyNetIntervalHours: (hours) => set({ backupSafetyNetIntervalHours: hours }),
       setSelectedServer: (name) => set({ selectedServer: name }),
@@ -327,6 +340,7 @@ export const useAppStore = create<AppSettings>()(
         autoBackupEnabled: state.autoBackupEnabled,
         eulaAcceptedAt: state.eulaAcceptedAt,
         networkTransport: state.networkTransport,
+        privateMode: state.privateMode,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,
         selectedServer: state.selectedServer,
