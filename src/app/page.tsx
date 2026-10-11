@@ -32,6 +32,8 @@ import { pushDiagnostic } from "@/app/diagnostics";
 import { UpdateBanner } from "@/app/components/UpdateBanner";
 import { UpdateButton } from "@/app/components/UpdateButton";
 import { HelpCenter } from "@/app/components/HelpCenter";
+import { ConnectionHelpModal } from "@/app/components/ConnectionHelpModal";
+import { isDirectFailureCode, useConnectionHelp } from "@/lib/connectionHelp";
 import { useUpdaterStore } from "@/app/updater";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
@@ -494,10 +496,16 @@ export default function Home() {
       );
       if (cancelled) unMcDiagnostic(); else unlistenMcDiagnostic = unMcDiagnostic;
 
-      const unNetDiagnostic = await listen<{ level: "info" | "warning" | "error" | "critical"; title: string; message: string; detail?: string }>(
+      const unNetDiagnostic = await listen<{ level: "info" | "warning" | "error" | "critical"; title: string; message: string; detail?: string; code?: string }>(
         "network-diagnostic",
         (event) => {
           pushDiagnostic({ ...event.payload, source: t("diag.source.network") });
+          // Não conseguiu ligar os dois computadores: oferece o plano B (Radmin VPN) em vez de deixar
+          // o usuário sem saída. Só se nunca chegou a conectar (caminho ainda desconhecido) — uma queda
+          // de conexão já estabelecida se resolve sozinha pela reconexão automática.
+          if (isDirectFailureCode(event.payload.code) && useAppStore.getState().networkPath === null) {
+            useConnectionHelp.getState().showAuto("direct_failed");
+          }
         }
       );
       if (cancelled) unNetDiagnostic(); else unlistenNetDiagnostic = unNetDiagnostic;
@@ -1061,6 +1069,7 @@ export default function Home() {
       </header>
 
       <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
+      <ConnectionHelpModal />
       <AppSettingsPanel
         isOpen={showAppSettings}
         onClose={() => setShowAppSettings(false)}

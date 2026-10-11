@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { HelpCircle, X, ExternalLink, Send, CheckCircle2, Loader2, BookOpen } from "lucide-react";
+import { HelpCircle, X, ExternalLink, Send, CheckCircle2, Loader2, BookOpen, LifeBuoy } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { getLocale, useT, type TKey } from "@/i18n";
 import { legalUrl, tutorialUrl } from "@/lib/help";
+import { useConnectionHelp } from "@/lib/connectionHelp";
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_LIMITS,
@@ -337,6 +338,15 @@ export function HelpCenter({ isOpen, onClose }: HelpCenterProps) {
                   </h4>
                   <p className="text-xs text-theme-secondary">{t("help.guides.hint")}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => { onClose(); useConnectionHelp.getState().show("manual"); }}
+                  title={t("connhelp.openTitle")}
+                  className="w-full flex items-center gap-2 text-left text-sm font-bold px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                >
+                  <LifeBuoy className="w-4 h-4 shrink-0" />
+                  {t("connhelp.open")}
+                </button>
                 <ul className="space-y-1">
                   {GUIDES.map(([id, key]) => (
                     <li key={id}>

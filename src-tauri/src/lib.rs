@@ -34,6 +34,7 @@ mod pack;
 mod hosting;
 mod mod_identity;
 mod owner_secret;
+mod radmin;
 #[cfg(test)]
 mod tests;
 
@@ -5773,6 +5774,13 @@ async fn sync_delete_server(
     }
 }
 
+/// IP do Radmin VPN deste computador (faixa 26.x.x.x), se estiver instalado e conectado a uma rede.
+/// Alimenta o plano B de conexão (ver radmin.rs). Roda fora da thread da UI: `ipconfig` é um processo.
+#[tauri::command]
+async fn get_radmin_address() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(radmin::detect).await.ok().flatten()
+}
+
 /// Segredo de dono do servidor, para o frontend autenticar as rotas de dono que
 /// ele mesmo chama (link de convite e endereço de conexão personalizados).
 #[tauri::command]
@@ -6570,6 +6578,7 @@ pub fn run() {
        sync_delete_server,
        regenerate_server_code,
        get_owner_secret,
+       get_radmin_address,
        arm_wake_on_demand,
        disarm_wake_on_demand,
        cancel_idle_shutdown,
