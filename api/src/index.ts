@@ -2,7 +2,7 @@ import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from '
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { localizeResponse } from './i18n';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
-import { buildLinkCredentials, type LinkEnv } from './link';
+import { buildLinkCredentials, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
 export { LinkRoom } from './durable-objects/link-room';
 
@@ -746,12 +746,17 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   const isLink = body.launcher === 'link-v1';
   if (isLink) {
     if (!env.LINK_TOKEN_SECRET) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O transporte P2P não está configurado neste servidor.'), 503, cors);
-    // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus.
-    if (body.relayOnly === true) {
+    // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus. Um host logado com
+    // Plus também marca o servidor como Plus: relay sem cota para ele e para os convidados dele.
+    if (body.relayOnly === true || (mode === 'host' && req.headers.has('Authorization'))) {
       const userId = await resolveSupabaseUserId(req);
-      if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
-      if (!(await userHasActiveSubscription(env, userId))) {
-        return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'O modo privado é um recurso do Cubicase Plus.'), 403, cors);
+      const isPlus = userId ? await userHasActiveSubscription(env, userId) : false;
+      if (body.relayOnly === true) {
+        if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+        if (!isPlus) return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'O modo privado é um recurso do Cubicase Plus.'), 403, cors);
+      }
+      if (mode === 'host' && isPlus) {
+        await env.CUBEFORGE_REGISTRY.put(linkPlusKey(shortCode), '1', { expirationTtl: LINK_PLUS_FLAG_TTL_SECONDS });
       }
     }
   }
@@ -798,7 +803,8 @@ async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body
   const sid = uuid(); const now = new Date();
   const ttl = 24 * 3600;
   const exp = new Date(now.getTime() + ttl * 1000);
-  const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true });
+  const relayAllowed = await relayWithinQuota(env, shortCode);
+  const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true, relayAllowed });
 
   const session: ConnectionSessionEntity = {
     sessionId: sid, shortCode, launcher: 'link-v1', launcherVersion: 1, protocolVersion: 1,
@@ -815,6 +821,63 @@ async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body
   const payload = ok(ResponseCodes.CONNECTION_SESSION_CREATED, 'Sessão criada.', { sessionId: sid, launcher: 'link-v1', launcherVersion: 1, protocolVersion: 1, credentials: link, leaseDurationMs: ttl * 1000, expiresAt: exp.toISOString() }, body.requestId);
   await env.CUBEFORGE_REGISTRY.put(`requestId:${body.requestId}`, JSON.stringify({ ...payload, _status: 201 }), { expirationTtl: REQUEST_ID_CACHE_TTL });
   return json(payload, 201, cors);
+}
+
+// ============================================================
+// COTA MENSAL DE RELAY
+// ============================================================
+// Servidor com Cubicase Plus (host logado marcou `linkplus:<sc>` ao hospedar nas últimas 25 h): sem cota.
+// Os demais têm RELAY_FREE_MONTHLY_BYTES por mês (padrão 5 GiB de saída do relay). Passou disso, não
+// emitimos credenciais do relay até o mês virar: a conexão direta segue livre e o app mostra o plano B.
+
+const LINK_PLUS_FLAG_TTL_SECONDS = 25 * 3600;
+const linkPlusKey = (shortCode: string) => `linkplus:${shortCode}`;
+
+async function relayWithinQuota(env: Env, shortCode: string): Promise<boolean> {
+  if (await env.CUBEFORGE_REGISTRY.get(linkPlusKey(shortCode))) return true;
+  const used = Number(await env.CUBEFORGE_REGISTRY.get(relayUsageKey(shortCode)));
+  return !(Number.isFinite(used) && used >= relayQuotaBytes(env));
+}
+
+const RELAY_USAGE_MAX_BODY_BYTES = 64 * 1024;
+const RELAY_USAGE_MAX_ENTRIES = 500;
+const RELAY_USAGE_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
+ * POST /api/v1/internal/relay-usage — o serviço medidor da VM do relay reporta quantos bytes cada
+ * alocação TURN (peerId = id da sessão) enviou. Autenticado por HMAC-SHA256 do corpo com o TURN_SECRET.
+ * Corpo: { ts: <ms>, entries: [{ peerId, bytes }] }.
+ */
+async function handleRelayUsage(req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const raw = await req.text();
+  if (raw.length > RELAY_USAGE_MAX_BODY_BYTES) return json(fail(ResponseCodes.BAD_REQUEST, 'Corpo grande demais.'), 413, cors);
+  if (!(await verifyRelayUsageSignature(env, raw, req.headers.get('X-Relay-Signature')))) {
+    return json(fail(ResponseCodes.FORBIDDEN, 'Assinatura inválida.'), 403, cors);
+  }
+  let body: any; try { body = JSON.parse(raw); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+  // O carimbo de tempo impede reaproveitar um lote capturado (replay), que inflaria a cota de alguém.
+  if (typeof body.ts !== 'number' || Math.abs(Date.now() - body.ts) > RELAY_USAGE_MAX_AGE_MS) {
+    return json(fail(ResponseCodes.BAD_REQUEST, 'ts ausente ou fora da janela.'), 400, cors);
+  }
+  if (!Array.isArray(body.entries) || body.entries.length > RELAY_USAGE_MAX_ENTRIES) {
+    return json(fail(ResponseCodes.VALIDATION_ERROR, 'entries inválido.'), 400, cors);
+  }
+  const perServer = new Map<string, number>();
+  let unknown = 0;
+  for (const e of body.entries) {
+    const bytes = typeof e?.bytes === 'number' ? e.bytes : NaN;
+    if (typeof e?.peerId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(e.peerId) || !Number.isFinite(bytes) || bytes < 0 || bytes > 1e12) { unknown++; continue; }
+    const raw = await env.CUBEFORGE_REGISTRY.get(`csession:${e.peerId}`);
+    const sc: string | undefined = raw ? JSON.parse(raw).shortCode : undefined;
+    if (!sc) { unknown++; continue; } // sessão já expirada do KV: o consumo não tem a quem ser atribuído
+    perServer.set(sc, (perServer.get(sc) ?? 0) + Math.floor(bytes));
+  }
+  for (const [sc, add] of perServer) {
+    const key = relayUsageKey(sc);
+    const cur = Number(await env.CUBEFORGE_REGISTRY.get(key));
+    await env.CUBEFORGE_REGISTRY.put(key, String((Number.isFinite(cur) ? cur : 0) + add), { expirationTtl: 40 * 24 * 3600 });
+  }
+  return json(ok(ResponseCodes.SUCCESS, 'Consumo registrado.', { servers: perServer.size, unknown }), 200, cors);
 }
 
 // ============================================================
@@ -1650,6 +1713,9 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
         if (!(await checkRateLimit(env, 'join', clientIp(req), JOIN_RATE_LIMIT))) return rateLimitedResponse(cors);
         return await handleCreateConnectionSession(m1[1].toUpperCase(), req, env, cfg, cors);
       }
+
+      // POST /api/v1/internal/relay-usage — medidor da VM do relay (HMAC com o TURN_SECRET)
+      if (m === 'POST' && p === '/api/v1/internal/relay-usage') return await handleRelayUsage(req, env, cors);
 
       // POST /api/v1/servers/{sc}/regenerate-code
       const m1r = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/regenerate-code$/);

@@ -7,7 +7,7 @@
 
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
-import { signLinkToken, verifyLinkToken, makeTurnCredentials, buildLinkCredentials, LINK_TOKEN_TTL_SECONDS } from "./link";
+import { signLinkToken, verifyLinkToken, makeTurnCredentials, buildLinkCredentials, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, signRelayUsage, verifyRelayUsageSignature } from "./link";
 
 const BASE = "https://example.com";
 const SECRET = "segredo-de-teste-do-link-0123456789";
@@ -378,5 +378,91 @@ describe("descoberta lê a presença direto da sala (sem esperar o KV)", () => {
     h.ws.close(1000, "fim");
     for (let i = 0; i < 100 && (await discover()).networkStatus === "online"; i++) await new Promise((r) => setTimeout(r, 20));
     expect((await discover()).networkStatus).not.toBe("online");
+  });
+});
+
+// ---------------- cota mensal de relay ----------------
+
+describe("cota mensal de relay", () => {
+  const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p", relayOnly: false };
+  const withRelay = { LINK_TOKEN_SECRET: SECRET, TURN_SECRET: "s", TURN_URLS: "turn:x:1" };
+
+  it("cota esgotada: não emite credenciais do relay e avisa o motivo", async () => {
+    const ok = await buildLinkCredentials(withRelay, base);
+    expect(ok.relay).toBe("ok");
+    const sem = await buildLinkCredentials(withRelay, { ...base, relayOnly: true, relayAllowed: false });
+    expect(sem.relay).toBe("quota");
+    expect(sem.ice.turn).toBeUndefined();
+    expect(sem.relayOnly).toBe(false); // relay forçado sem relay deixaria o host inalcançável
+    expect((await buildLinkCredentials({ LINK_TOKEN_SECRET: SECRET }, base)).relay).toBe("off");
+  });
+
+  it("a chave de uso muda a cada mês (UTC) e o padrão da cota é 5 GiB", () => {
+    expect(relayUsageKey("ABC123", Date.UTC(2026, 9, 31, 23, 59))).toBe("relayuse:ABC123:2026-10");
+    expect(relayUsageKey("ABC123", Date.UTC(2026, 10, 1, 0, 0))).toBe("relayuse:ABC123:2026-11");
+    expect(relayQuotaBytes({})).toBe(5 * 1024 ** 3);
+    expect(relayQuotaBytes({ RELAY_FREE_MONTHLY_BYTES: "1000" })).toBe(1000);
+    expect(relayQuotaBytes({ RELAY_FREE_MONTHLY_BYTES: "lixo" })).toBe(5 * 1024 ** 3);
+  });
+
+  it("a assinatura do medidor só vale para o corpo exato e com o segredo certo", async () => {
+    const sig = await signRelayUsage({ TURN_SECRET: "s" }, '{"a":1}');
+    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":1}', sig)).toBe(true);
+    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":2}', sig)).toBe(false);
+    expect(await verifyRelayUsageSignature({ TURN_SECRET: "outro" }, '{"a":1}', sig)).toBe(false);
+    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":1}', "zz")).toBe(false);
+    expect(await verifyRelayUsageSignature({}, '{"a":1}', sig)).toBe(false);
+  });
+
+  async function report(entries: Array<{ peerId: string; bytes: number }>, opts: { ts?: number; sign?: boolean } = {}) {
+    const raw = JSON.stringify({ ts: opts.ts ?? Date.now(), entries });
+    const sig = opts.sign === false ? "0".repeat(64) : await signRelayUsage({ TURN_SECRET: (env as any).TURN_SECRET }, raw);
+    const res = await SELF.fetch(`${BASE}/api/v1/internal/relay-usage`, { method: "POST", headers: { "X-Relay-Signature": sig }, body: raw });
+    return { status: res.status, body: (await res.json()) as any };
+  }
+  const used = async (sc: string) => Number(await env.CUBEFORGE_REGISTRY.get(relayUsageKey(sc)) ?? 0);
+
+  it("o medidor soma o consumo no servidor dono da sessão e, ao passar da cota, o relay é cortado", async () => {
+    const { shortCode } = await createServer();
+    const g = await createLinkSession(shortCode, "guest");
+    expect(g.body.data.credentials.relay).toBe("ok");
+    const peerId = g.body.data.credentials.peerId;
+
+    const r1 = await report([{ peerId, bytes: 1000 }, { peerId, bytes: 500 }, { peerId: "sessao-que-nao-existe", bytes: 99 }]);
+    expect(r1.status).toBe(200);
+    expect(r1.body.data).toMatchObject({ servers: 1, unknown: 1 });
+    expect(await used(shortCode)).toBe(1500);
+
+    await env.CUBEFORGE_REGISTRY.put(relayUsageKey(shortCode), String(5 * 1024 ** 3)); // cota cheia
+    const cheio = await createLinkSession(shortCode, "guest", { installationId: "install-outro-01" });
+    expect(cheio.status).toBe(201); // conectar continua possível (direto), só não há relay
+    expect(cheio.body.data.credentials.relay).toBe("quota");
+    expect(cheio.body.data.credentials.ice.turn).toBeUndefined();
+    expect(cheio.body.data.credentials.ice.stunUrls.length).toBeGreaterThan(0);
+  });
+
+  it("servidor de host Plus não tem cota; sem a marca volta a ter", async () => {
+    const { shortCode } = await createServer();
+    await env.CUBEFORGE_REGISTRY.put(relayUsageKey(shortCode), String(50 * 1024 ** 3));
+    expect((await createLinkSession(shortCode, "guest")).body.data.credentials.relay).toBe("quota");
+    await env.CUBEFORGE_REGISTRY.put(`linkplus:${shortCode}`, "1");
+    expect((await createLinkSession(shortCode, "guest", { installationId: "install-plus-0001" })).body.data.credentials.relay).toBe("ok");
+  });
+
+  it("recusa assinatura inválida e lote antigo (replay)", async () => {
+    const { shortCode } = await createServer();
+    const g = await createLinkSession(shortCode, "guest");
+    const peerId = g.body.data.credentials.peerId;
+    expect((await report([{ peerId, bytes: 10 }], { sign: false })).status).toBe(403);
+    expect((await report([{ peerId, bytes: 10 }], { ts: Date.now() - 11 * 60 * 1000 })).status).toBe(400);
+    expect(await used(shortCode)).toBe(0);
+  });
+
+  it("valores absurdos são ignorados em vez de corromper a contagem", async () => {
+    const { shortCode } = await createServer();
+    const peerId = (await createLinkSession(shortCode, "guest")).body.data.credentials.peerId;
+    const r = await report([{ peerId, bytes: -5 }, { peerId, bytes: 1e15 }, { peerId, bytes: Number.NaN as any }, { peerId, bytes: 42 }]);
+    expect(r.body.data.unknown).toBe(3);
+    expect(await used(shortCode)).toBe(42);
   });
 });

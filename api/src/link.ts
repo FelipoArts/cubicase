@@ -17,6 +17,8 @@ export interface LinkEnv {
   TURN_DISABLED?: string;
   /** STUN extra/substituto, separado por vírgula. */
   STUN_URLS?: string;
+  /** Cota mensal de relay (bytes) de um servidor sem Cubicase Plus. Padrão: 5 GiB. */
+  RELAY_FREE_MONTHLY_BYTES?: string;
 }
 
 export type LinkRole = 'host' | 'guest';
@@ -113,21 +115,30 @@ export async function makeTurnCredentials(env: LinkEnv, peerId: string, nowMs = 
   return { urls, username, credential };
 }
 
+/**
+ * Estado do relay nesta sessão: "ok" (credenciais emitidas), "quota" (a cota gratuita do mês acabou —
+ * só a conexão direta e o plano B) ou "off" (relay desligado/sem configuração).
+ */
+export type RelayState = 'ok' | 'quota' | 'off';
+
 export interface LinkCredentials {
   signalUrl: string;
   signalToken: string;
   peerId: string;
   relayOnly: boolean;
+  relay: RelayState;
   ice: { stunUrls: string[]; turn?: TurnCredentials };
 }
 
 /** O que o sidecar recebe na ConnectionSession `link-v1` (ver cubicase-link/config.go). */
 export async function buildLinkCredentials(
   env: LinkEnv,
-  opts: { origin: string; shortCode: string; role: LinkRole; peerId: string; relayOnly: boolean },
+  opts: { origin: string; shortCode: string; role: LinkRole; peerId: string; relayOnly: boolean; /** false = cota do mês esgotada: não emite credenciais do relay. */ relayAllowed?: boolean },
 ): Promise<LinkCredentials> {
   const signalToken = await signLinkToken(env, { sc: opts.shortCode, role: opts.role, pid: opts.peerId });
-  const turn = await makeTurnCredentials(env, opts.peerId);
+  const relayAllowed = opts.relayAllowed !== false;
+  const turn = relayAllowed ? await makeTurnCredentials(env, opts.peerId) : null;
+  const relay: RelayState = turn ? 'ok' : relayAllowed ? 'off' : 'quota';
   const wsOrigin = opts.origin.replace(/^http/, 'ws'); // https → wss, http → ws
   const stunUrls = env.STUN_URLS ? env.STUN_URLS.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_STUN;
   return {
@@ -136,6 +147,44 @@ export async function buildLinkCredentials(
     peerId: opts.peerId,
     // Só vale relay forçado se há relay para usar.
     relayOnly: opts.relayOnly && !!turn,
+    relay,
     ice: { stunUrls, ...(turn ? { turn } : {}) },
   };
+}
+
+// ------------------------------------------------------------
+// Cota mensal de relay (servidores sem Cubicase Plus)
+// ------------------------------------------------------------
+// O que custa é o tráfego que SAI da VM do relay. Quem mede é o próprio coturn (log "usage:" de
+// cada alocação), e um serviço na VM reporta os totais ao Worker (ver infra/relay/relay-usage-reporter.py
+// e handleRelayUsage). O Worker soma por servidor e por mês; passou da cota, deixa de emitir
+// credenciais do relay até o mês virar — a conexão direta e o plano B (Radmin) seguem livres.
+
+export const RELAY_FREE_MONTHLY_BYTES_DEFAULT = 5 * 1024 ** 3;
+
+export function relayQuotaBytes(env: LinkEnv): number {
+  const n = Number(env.RELAY_FREE_MONTHLY_BYTES);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : RELAY_FREE_MONTHLY_BYTES_DEFAULT;
+}
+
+/** Chave do KV com os bytes de relay usados por um servidor no mês (UTC) de `nowMs`. */
+export function relayUsageKey(shortCode: string, nowMs = Date.now()): string {
+  const d = new Date(nowMs);
+  return `relayuse:${shortCode}:${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Assinatura (HMAC-SHA256 em hex, com o TURN_SECRET) que o reporter da VM manda junto do corpo. */
+export async function signRelayUsage(env: LinkEnv, rawBody: string): Promise<string> {
+  if (!env.TURN_SECRET) throw new Error('TURN_SECRET ausente');
+  return toHex(await hmac('SHA-256', env.TURN_SECRET, rawBody));
+}
+
+export async function verifyRelayUsageSignature(env: LinkEnv, rawBody: string, signature: string | null): Promise<boolean> {
+  if (!env.TURN_SECRET || !signature || !/^[0-9a-f]{64}$/.test(signature)) return false;
+  const expected = enc.encode(await signRelayUsage(env, rawBody));
+  return timingSafeEqualBytes(expected, enc.encode(signature));
 }

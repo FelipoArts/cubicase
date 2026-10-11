@@ -70,6 +70,8 @@ export const EN_MESSAGES: Record<string, string> = {
   'Sessão de checkout criada.': 'Checkout session created.',
   'Assinaturas não estão configuradas neste servidor.': "Subscriptions aren't configured on this server.",
   'Não autenticado.': 'Not signed in.',
+  'Assinatura inválida.': 'Invalid signature.',
+  'entries inválido.': 'Invalid entries.',
   'plan precisa ser "monthly" ou "annual".': 'plan must be "monthly" or "annual".',
   'Não foi possível criar a sessão de assinatura.': "Couldn't create the subscription session.",
   'Portal de assinatura não está configurado neste servidor.': "The subscription portal isn't configured on this server.",
