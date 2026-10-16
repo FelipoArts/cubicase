@@ -71,6 +71,7 @@ export const EN_MESSAGES: Record<string, string> = {
   'Assinaturas não estão configuradas neste servidor.': "Subscriptions aren't configured on this server.",
   'Não autenticado.': 'Not signed in.',
   'Assinatura inválida.': 'Invalid signature.',
+  'Esta versão do Cubicase é antiga e não é mais suportada. Atualize o aplicativo para continuar.': 'This version of Cubicase is outdated and no longer supported. Update the app to continue.',
   'entries inválido.': 'Invalid entries.',
   'plan precisa ser "monthly" ou "annual".': 'plan must be "monthly" or "annual".',
   'Não foi possível criar a sessão de assinatura.': "Couldn't create the subscription session.",

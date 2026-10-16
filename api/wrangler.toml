@@ -57,7 +57,7 @@ TURN_URLS = "turn:turn.cubicase.net:3478,turn:turn.cubicase.net:3478?transport=t
 # no lugar de "localhost:<porta>" dentro do Minecraft. Também na zona
 # HostGator: um único registro DNS estático, mantido manualmente fora deste
 # Worker, `*.link.cubicase.net -> A 127.0.0.1` — resolve qualquer nome sob
-# esse domínio pro loopback onde o tsnet-node do convidado escuta depois de
+# esse domínio pro loopback onde o cubicase-link do convidado escuta depois de
 # conectar (ver handleSetConnectName/handleRemoveConnectName em src/index.ts).
 # Este Worker nunca fala com DNS nenhum, só guarda o alias no KV, igual o slug.
 

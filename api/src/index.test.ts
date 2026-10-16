@@ -393,15 +393,18 @@ describe("segredo do dono (shortCode é público, não autoriza ações de dono)
 
   it("host-mode de ConnectionSession exige o segredo; guest não", async () => {
     const { shortCode, secret } = await createTestServer();
-    const payload = (mode: string) => JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "i", mode });
+    const payload = (mode: string) => JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "install-owner-01", mode, launcher: "link-v1" });
     const url = `${BASE}/api/v1/servers/${shortCode}/connection-sessions`;
     const hostNoSecret = await SELF.fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: payload("host") });
     expect(hostNoSecret.status).toBe(401);
     const hostWrong = await SELF.fetch(url, { method: "POST", headers: owner("y".repeat(32)), body: payload("host") });
     expect(hostWrong.status).toBe(403);
-    // Com o segredo certo passa da checagem de dono (depois disso o Worker tenta mintar a key no Tailscale, sem credenciais no teste: nunca 401/403).
+    // Com o segredo certo a sessão do host é criada.
     const hostOk = await SELF.fetch(url, { method: "POST", headers: owner(secret), body: payload("host") });
-    expect([401, 403]).not.toContain(hostOk.status);
+    expect(hostOk.status).toBe(201);
+    // O convidado não precisa de segredo.
+    const guestOk = await SELF.fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: payload("guest") });
+    expect(guestOk.status).toBe(201);
   });
 
   it("servidor legado (sem hash) é reivindicado pelo primeiro dono que traz segredo; depois só ele", async () => {
@@ -426,34 +429,16 @@ describe("segredo do dono (shortCode é público, não autoriza ações de dono)
 });
 
 describe("vários convidados ao mesmo tempo (regressão: 2º amigo recebia 409 OPERATION_IN_PROGRESS)", () => {
-  // Tailscale simulado: a key mintada ganha um id sequencial; deletes são só registrados.
-  const realFetch = globalThis.fetch;
-  let keyCounter = 0;
-  const revoked: string[] = [];
-  beforeEach(() => {
-    keyCounter = 0;
-    revoked.length = 0;
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("api.tailscale.com")) {
-        if (url.endsWith("/oauth/token")) return new Response(JSON.stringify({ access_token: "t" }));
-        if (url.endsWith("/tailnet/-/keys") && init?.method === "POST") {
-          keyCounter++;
-          return new Response(JSON.stringify({ id: `key${keyCounter}`, key: `tskey-auth-${keyCounter}` }));
-        }
-        if (init?.method === "DELETE") { revoked.push(url); return new Response("{}"); }
-      }
-      return realFetch(input, init);
-    }) as typeof fetch;
-  });
-  afterEach(() => { globalThis.fetch = realFetch; });
-
   const join = (shortCode: string, installationId: string, mode = "guest", headers: Record<string, string> = {}) =>
     SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/connection-sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId, mode }),
+      body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId, mode, launcher: "link-v1" }),
     });
+  const sessionExists = async (id: string) => {
+    const { env } = await import("cloudflare:test");
+    return (await (env as any).CUBEFORGE_REGISTRY.get(`csession:${id}`)) !== null;
+  };
 
   it("dois convidados (instalações diferentes) entram ao mesmo tempo", async () => {
     const { shortCode } = await createTestServer();
@@ -463,17 +448,19 @@ describe("vários convidados ao mesmo tempo (regressão: 2º amigo recebia 409 O
     expect(b.status).toBe(201);
     const [sa, sb] = [(await a.json()).data.sessionId, (await b.json()).data.sessionId];
     expect(sa).not.toBe(sb);
-    expect(revoked).toEqual([]); // ninguém foi derrubado
+    expect(await sessionExists(sa)).toBe(true); // ninguém foi derrubado
+    expect(await sessionExists(sb)).toBe(true);
   });
 
-  it("a mesma instalação reconectando substitui a sessão antiga (sem 409) e revoga a key anterior", async () => {
+  it("a mesma instalação reconectando substitui a sessão antiga (sem 409)", async () => {
     const { shortCode } = await createTestServer();
     const first = await join(shortCode, "install-aaaaaaaa");
     expect(first.status).toBe(201);
+    const firstId = (await first.json()).data.sessionId;
     const second = await join(shortCode, "install-aaaaaaaa");
     expect(second.status).toBe(201);
-    expect(revoked.length).toBe(1);
-    expect(revoked[0]).toContain("/keys/key1");
+    expect(await sessionExists(firstId)).toBe(false);
+    expect(await sessionExists((await second.json()).data.sessionId)).toBe(true);
   });
 
   it("o host (dono) reconectando logo após uma queda também não fica barrado", async () => {
@@ -489,92 +476,54 @@ describe("vários convidados ao mesmo tempo (regressão: 2º amigo recebia 409 O
     const ja = await join(shortCode, "install-aaaaaaaa");
     const jb = await join(shortCode, "install-bbbbbbbb");
     expect([ja.status, jb.status]).toEqual([201, 201]);
+    const [ida, idb] = [(await ja.json()).data.sessionId, (await jb.json()).data.sessionId];
     const del = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`, { method: "DELETE", headers: owner(secret, false) });
     expect(del.status).toBe(200);
-    expect(revoked.length).toBe(2);
+    expect(await sessionExists(ida)).toBe(false);
+    expect(await sessionExists(idb)).toBe(false);
   });
 });
 
-describe("hostIp da sessão (regressão: regex de IP quebrada rejeitava IPs válidos do Tailscale)", () => {
-  const realFetch = globalThis.fetch;
-  let devices: any[] = [];
-  const revoked: string[] = [];
-  beforeEach(() => {
-    devices = [];
-    revoked.length = 0;
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("api.tailscale.com")) {
-        if (url.endsWith("/oauth/token")) return new Response(JSON.stringify({ access_token: "t" }));
-        if (url.endsWith("/tailnet/-/keys") && init?.method === "POST") return new Response(JSON.stringify({ id: "key1", key: "tskey-auth-1" }));
-        if (url.includes("/tailnet/-/devices")) return new Response(JSON.stringify({ devices }));
-        if (init?.method === "DELETE") { revoked.push(url); return new Response("{}"); }
-      }
-      return realFetch(input, init);
-    }) as typeof fetch;
-  });
-  afterEach(() => { globalThis.fetch = realFetch; });
-
-  async function startSession(mode: "host" | "guest") {
-    const { shortCode, secret } = await createTestServer();
-    const res = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/connection-sessions`, {
+describe("app antigo (Tailscale foi descontinuado)", () => {
+  const legacy = (shortCode: string, extra: object = {}, headers: Record<string, string> = { "Content-Type": "application/json" }, lang?: string) =>
+    SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/connection-sessions`, {
       method: "POST",
-      headers: mode === "host" ? owner(secret) : { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "install-aaaaaaaa", mode }),
+      headers: { ...headers, ...(lang ? { "Accept-Language": lang } : {}) },
+      body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "install-aaaaaaaa", mode: "guest", ...extra }),
     });
-    const data = (await res.json()).data;
-    return { shortCode, sessionId: data.sessionId as string, hostname: data.credentials.hostname as string };
-  }
-  const patch = (sessionId: string, body: object) =>
-    SELF.fetch(`${BASE}/api/v1/connection-sessions/${sessionId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-  it("aceita IPs reais do Tailscale em todo o intervalo 100.64.0.0/10 quando o dispositivo é o da sessão", async () => {
-    for (const ip of ["100.64.0.1", "100.99.99.99", "100.116.6.37", "100.124.129.120", "100.127.255.254"]) {
-      const { shortCode, sessionId, hostname } = await startSession("host");
-      devices = [{ id: "dev1", hostname, name: `${hostname}.tail1234.ts.net`, addresses: [ip] }];
-      const res = await patch(sessionId, { status: "online", hostIp: ip, revision: 1 });
-      expect(res.status, ip).toBe(200);
-      const discover = await (await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`)).json();
-      expect(discover.data.session.hostIp, ip).toBe(ip);
-    }
+  it("quem não pede o launcher link-v1 (versões antigas) recebe um pedido claro de atualização, não um erro técnico", async () => {
+    const { shortCode } = await createTestServer();
+    const res = await legacy(shortCode);
+    expect(res.status).toBe(426);
+    const body = await res.json();
+    expect(body.code).toBe("CLIENT_OUTDATED");
+    expect(body.message).toMatch(/Atualize/);
+    expect((await (await legacy(shortCode, { launcher: "tsnet-v1" })).json()).code).toBe("CLIENT_OUTDATED");
   });
 
-  it("rejeita IP que não é do Tailscale (400)", async () => {
-    const { sessionId } = await startSession("host");
-    expect((await patch(sessionId, { hostIp: "8.8.8.8" })).status).toBe(400);
-    expect((await patch(sessionId, { hostIp: "100.200.1.1" })).status).toBe(400);
-    expect((await patch(sessionId, { hostIp: "100.116.6.37; drop" })).status).toBe(400);
+  it("a mensagem de atualização também existe em inglês", async () => {
+    const { shortCode } = await createTestServer();
+    const body = await (await legacy(shortCode, {}, { "Content-Type": "application/json" }, "en")).json();
+    expect(body.message).toMatch(/Update/);
   });
 
-  it("host não fica travado se a lista de dispositivos do Tailscale falha (ex.: escopo OAuth sem leitura)", async () => {
-    const { shortCode, sessionId } = await startSession("host");
-    const prev = globalThis.fetch;
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/tailnet/-/devices")) return new Response("forbidden", { status: 403 });
-      return prev(input, init);
-    }) as typeof fetch;
-    const res = await patch(sessionId, { status: "online", hostIp: "100.124.129.120", revision: 1 });
-    globalThis.fetch = prev;
+  it("o app antigo não consegue nem hospedar (o dono continua sendo checado antes)", async () => {
+    const { shortCode, secret } = await createTestServer();
+    expect((await legacy(shortCode, { mode: "host" })).status).toBe(401);
+    expect((await legacy(shortCode, { mode: "host" }, owner(secret))).status).toBe(426);
+  });
+
+  it("PATCH da sessão ignora hostIp (o P2P não tem IP de malha) e não quebra", async () => {
+    const { shortCode } = await createTestServer();
+    const created = await (await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/connection-sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "install-aaaaaaaa", mode: "guest", launcher: "link-v1" }),
+    })).json();
+    const res = await SELF.fetch(`${BASE}/api/v1/connection-sessions/${created.data.sessionId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", hostIp: "8.8.8.8" }),
+    });
     expect(res.status).toBe(200);
-    const discover = await (await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`)).json();
-    expect(discover.data.session.hostIp).toBe("100.124.129.120");
-  });
-
-  it("IP de dispositivo de OUTRA sessão é aceito como dado, mas esse dispositivo nunca é revogado", async () => {
-    const { sessionId } = await startSession("host");
-    devices = [{ id: "dev-outro", hostname: "cf-host-deadbeef", addresses: ["100.116.6.37"] }];
-    expect((await patch(sessionId, { hostIp: "100.116.6.37" })).status).toBe(200);
-    await SELF.fetch(`${BASE}/api/v1/connection-sessions/${sessionId}`, { method: "DELETE" });
-    expect(revoked.some((u) => u.includes("dev-outro"))).toBe(false);
-  });
-
-  it("convidado não consegue apontar para o dispositivo do host (nada é revogado ao encerrar)", async () => {
-    const guest = await startSession("guest");
-    devices = [{ id: "dev-do-host", hostname: "cf-host-12345678", addresses: ["100.116.6.37"] }];
-    const res = await patch(guest.sessionId, { hostIp: "100.116.6.37" });
-    expect(res.status).toBe(200); // aceito sem efeito: o IP do convidado não é usado
-    await SELF.fetch(`${BASE}/api/v1/connection-sessions/${guest.sessionId}`, { method: "DELETE" });
-    expect(revoked.some((u) => u.includes("dev-do-host"))).toBe(false);
   });
 });

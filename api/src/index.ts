@@ -12,10 +12,9 @@ const SESSION_TTL_SECONDS = 90;    // 90s TTL (em vez de 14400s = 4h)
 // Isso precisa ser BEM maior que esse intervalo — 60s aqui expirava a sessão do
 // KV bem na hora em que o próximo heartbeat estava a caminho (qualquer latência de
 // rede/cold start do Worker já era suficiente), e como a entrada é DELETADA (não só
-// marcada offline), a sessão nunca se recuperava — mesmo com o túnel real (Tailscale +
+// marcada offline), a sessão nunca se recuperava — mesmo com a conexão real (P2P +
 // Minecraft) funcionando perfeitamente. 3x o intervalo dá margem real de jitter.
 const HEARTBEAT_RENEW_MS = 180_000;
-const AUTH_KEY_EXPIRY_MS = 300_000;
 const REQUEST_ID_CACHE_TTL = 300;
 
 interface Env extends LinkEnv {
@@ -26,13 +25,6 @@ interface Env extends LinkEnv {
   SHORT_CODE_LENGTH: string;
   API_BASE_URL: string;
   ENVIRONMENT: string;
-  // OAuth client do Tailscale, restrito ao escopo "Auth Keys: Write" e às tags
-  // tag:cf-host/tag:cf-guest (ver Settings > OAuth clients no admin console).
-  // Nunca em wrangler.toml — configurar com:
-  //   wrangler secret put TAILSCALE_OAUTH_CLIENT_ID
-  //   wrangler secret put TAILSCALE_OAUTH_CLIENT_SECRET
-  TAILSCALE_OAUTH_CLIENT_ID: string;
-  TAILSCALE_OAUTH_CLIENT_SECRET: string;
   // Secret — nunca em wrangler.toml. Configurar com: wrangler secret put CURSEFORGE_API_KEY
   CURSEFORGE_API_KEY?: string;
   // Secrets do Stripe — nunca em wrangler.toml. Configurar com:
@@ -86,14 +78,8 @@ interface ConnectionSessionEntity {
   mcVersion: string | null; lastHeartbeat: string; createdAt: string; expiresAt: string;
   timing: { apiCallMs: number | null; providerStartMs: number | null; providerWaitMs: number | null; totalElapsedMs: number | null; };
   retries: number; heartbeatCount: number; clientVersion: string; installationId: string; correlationId: string;
-  // Papel do nó nesta sessão ("host" hospeda, "guest" se conecta) — decide qual
-  // tag (tag:cf-host/tag:cf-guest) a authKey mintada carrega.
+  // Papel do nó nesta sessão: "host" hospeda, "guest" se conecta.
   mode: 'host' | 'guest';
-  // IDs do Tailscale para permitir revogação forte ao encerrar a sessão (ver
-  // handleDeleteConnectionSession) em vez de depender só da limpeza automática
-  // de nós efêmeros, que tem atraso.
-  tailscaleKeyId: string | null;
-  tailscaleDeviceId: string | null;
 }
 
 interface ApiResponse<T = any> { success: boolean; code: string; message: string; data?: T; details?: Record<string, any>; technicalId?: string; timestamp: string; requestId?: string; }
@@ -105,11 +91,10 @@ const ResponseCodes = {
   BAD_REQUEST: 'BAD_REQUEST', NOT_FOUND: 'NOT_FOUND', SERVER_NOT_FOUND: 'SERVER_NOT_FOUND', SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
   CONFLICT: 'CONFLICT', INTERNAL_ERROR: 'INTERNAL_ERROR', VALIDATION_ERROR: 'VALIDATION_ERROR',
   STALE_WRITE: 'STALE_WRITE', OPERATION_IN_PROGRESS: 'OPERATION_IN_PROGRESS', RATE_LIMITED: 'RATE_LIMITED',
-  SUBSCRIPTION_REQUIRED: 'SUBSCRIPTION_REQUIRED', FORBIDDEN: 'FORBIDDEN',
+  SUBSCRIPTION_REQUIRED: 'SUBSCRIPTION_REQUIRED', FORBIDDEN: 'FORBIDDEN', CLIENT_OUTDATED: 'CLIENT_OUTDATED',
 } as const;
 
 const SESSION_STATUSES = new Set<string>(['creating', 'starting_provider', 'waiting_provider', 'online', 'degraded', 'stopping', 'stopped', 'failed', 'cancelled']);
-const TAILSCALE_IP_RE = /^(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|fd7a:115c:a1e0:[0-9a-f:]+)$/i;
 
 const SHORT_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -145,7 +130,7 @@ function isValidSlug(slug: unknown): slug is string {
 // wildcard `*.link.cubicase.net -> A 127.0.0.1`, mantido fora deste Worker
 // (painel DNS da HostGator — mesma zona de cubicase.net, ver comentário em
 // wrangler.toml), resolve qualquer nome sob esse domínio para o loopback
-// onde o tsnet-node do convidado já escuta depois de conectar. Este Worker
+// onde o cubicase-link do convidado já escuta depois de conectar. Este Worker
 // nunca fala com DNS nenhum — só guarda o alias, igual ao slug.
 const CONNECT_NAME_DOMAIN = 'link.cubicase.net';
 
@@ -164,7 +149,7 @@ const CONNECT_NAME_DOMAIN = 'link.cubicase.net';
 // automatizado, não dar uma garantia forte contra um atacante distribuído
 // (isso já é papel de uma regra de rate-limit no dashboard da Cloudflare).
 const RATE_LIMIT_WINDOW_SECONDS = 60;
-const JOIN_RATE_LIMIT = 30;      // connection-sessions: minta uma authKey Tailscale de verdade, mais sensível
+const JOIN_RATE_LIMIT = 30;      // connection-sessions: emite token de sala e credenciais do relay, mais sensível
 const REGEN_CODE_RATE_LIMIT = 5; // regenerar código: ação manual e rara, sem motivo legítimo pra repetir muitas vezes por minuto
 const SUB_CHECKOUT_RATE_LIMIT = 5;  // assinar: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const SUB_PORTAL_RATE_LIMIT = 10;   // gerenciar assinatura: pode ser reaberto ao focar o painel de configurações
@@ -295,106 +280,6 @@ async function genCode(env: Env, len: number): Promise<string> {
 function uuid(): string { return crypto.randomUUID(); }
 
 // ============================================================
-// TAILSCALE — mint/revoke de authKeys via OAuth client
-// ============================================================
-//
-// O client OAuth (TAILSCALE_OAUTH_CLIENT_ID/SECRET) tem escopo "Auth Keys:
-// Write" restrito às tags tag:cf-host/tag:cf-guest (ver Settings > OAuth
-// clients no admin console) — mesmo que esse secret vaze, só dá pra mintar
-// dispositivos com essas duas tags, nunca editar a ACL ou virar admin.
-//
-// Cada key é ephemeral (some da tailnet pouco depois de desconectar),
-// reusable:false (só registra um dispositivo, uma vez) e preauthorized:true
-// (não precisa aprovação manual). expirySeconds é só a janela de validade da
-// STRING da key para registro — não afeta quanto tempo o nó já registrado
-// fica conectado (isso é controlado por deleteTailscaleDevice no fim da
-// sessão, ver handleDeleteConnectionSession).
-//
-// "-" no lugar do nome da tailnet é o valor especial da API do Tailscale que
-// resolve para a tailnet dona das credenciais usadas na chamada.
-
-const TAILSCALE_API_BASE = 'https://api.tailscale.com/api/v2';
-
-async function getTailscaleAccessToken(env: Env): Promise<string> {
-  const resp = await fetch('https://api.tailscale.com/api/v2/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: env.TAILSCALE_OAUTH_CLIENT_ID,
-      client_secret: env.TAILSCALE_OAUTH_CLIENT_SECRET,
-      grant_type: 'client_credentials',
-    }).toString(),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(`Falha ao obter token OAuth do Tailscale (${resp.status}): ${text}`);
-  }
-  const data: any = await resp.json();
-  return data.access_token as string;
-}
-
-interface TailscaleKeyResult { keyId: string; authKey: string; }
-
-async function mintTailscaleKey(env: Env, tag: 'tag:cf-host' | 'tag:cf-guest', description: string, expirySeconds: number): Promise<TailscaleKeyResult> {
-  const token = await getTailscaleAccessToken(env);
-  const resp = await fetch(`${TAILSCALE_API_BASE}/tailnet/-/keys`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      capabilities: { devices: { create: { reusable: false, ephemeral: true, preauthorized: true, tags: [tag] } } },
-      expirySeconds,
-      description,
-    }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(`Falha ao criar authKey no Tailscale (${resp.status}): ${text}`);
-  }
-  const data: any = await resp.json();
-  return { keyId: data.id as string, authKey: data.key as string };
-}
-
-/** Revoga uma authKey ainda não usada para registrar nenhum dispositivo. */
-async function revokeTailscaleKey(env: Env, keyId: string): Promise<void> {
-  try {
-    const token = await getTailscaleAccessToken(env);
-    await fetch(`${TAILSCALE_API_BASE}/tailnet/-/keys/${keyId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-  } catch (e) { console.error('Falha ao revogar authKey do Tailscale:', e); }
-}
-
-/** Remove um dispositivo já conectado — revogação imediata, sem esperar a limpeza automática de nós efêmeros. */
-async function deleteTailscaleDevice(env: Env, deviceId: string): Promise<void> {
-  try {
-    const token = await getTailscaleAccessToken(env);
-    await fetch(`${TAILSCALE_API_BASE}/device/${deviceId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-  } catch (e) { console.error('Falha ao remover dispositivo do Tailscale:', e); }
-}
-
-/** Resolve o deviceId do Tailscale a partir do IP de malha (100.x.x.x) que o nó recebeu, para permitir revogação forte depois. */
-async function findTailscaleDeviceByIp(env: Env, tailscaleIp: string, expectedHostname: string): Promise<string | null> {
-  try {
-    const token = await getTailscaleAccessToken(env);
-    const resp = await fetch(`${TAILSCALE_API_BASE}/tailnet/-/devices?fields=all`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) {
-      // Provável causa: o cliente OAuth não tem o escopo de LEITURA de dispositivos
-      // (devices:core:read). Sem isso a revogação forte (apagar o dispositivo ao
-      // encerrar a sessão) não funciona e só sobra a limpeza automática de efêmeros.
-      console.error(`Tailscale: listar dispositivos falhou (HTTP ${resp.status}) — confira o escopo devices:core:read do cliente OAuth.`);
-      return null;
-    }
-    const data: any = await resp.json().catch(() => null);
-    const devices: any[] = data?.devices || [];
-    // O IP sozinho não prova nada (é público e vem do cliente): o dispositivo
-    // precisa também ter o hostname que ESTA sessão recebeu ao mintar a key.
-    const match = devices.find((d) =>
-      Array.isArray(d.addresses) && d.addresses.includes(tailscaleIp) &&
-      (d.hostname === expectedHostname || (typeof d.name === 'string' && d.name.split('.')[0] === expectedHostname)));
-    if (!match) console.error(`Tailscale: nenhum dispositivo com hostname "${expectedHostname}" e IP ${tailscaleIp} entre ${devices.length} dispositivos.`);
-    return match?.id ?? null;
-  } catch (e) { console.error('Falha ao resolver deviceId do Tailscale:', e); return null; }
-}
-
-// ============================================================
 // HEARTBEAT — cria sessão legada se não existir
 // ============================================================
 
@@ -413,7 +298,7 @@ async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: {
     s.expiresAt = exp.toISOString();
     await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(s), { expirationTtl: cfg.ttlSeconds });
   } else {
-    const ns: SessionEntity = { shortCode, provider: 'tailscale', hostIp: body.hostIp || '0.0.0.0', port: body.port || 25565, status: body.status || 'starting', currentPlayers: body.currentPlayers || 0, maxPlayers: body.maxPlayers || 20, lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString() };
+    const ns: SessionEntity = { shortCode, provider: 'link-v1', hostIp: body.hostIp || '0.0.0.0', port: body.port || 25565, status: body.status || 'starting', currentPlayers: body.currentPlayers || 0, maxPlayers: body.maxPlayers || 20, lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString() };
     await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(ns), { expirationTtl: cfg.ttlSeconds });
   }
   // Consome (delete) o pedido de despertar, se houver — ver handleWakeServer.
@@ -528,7 +413,7 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
   // sempre a de quem hospeda), se houver uma ativa agora.
   const csid = await env.CUBEFORGE_REGISTRY.get(`csession-by-shortcode:${shortCode}:host`);
   let networkStatus: SessionStatus | null = null;
-  let provider = 'tailscale', hostIp = '', port = 25565, maxPlayers = 20, currentPlayers = 0, lastHeartbeat: string | null = null;
+  let provider = 'link-v1', hostIp = '', port = 25565, maxPlayers = 20, currentPlayers = 0, lastHeartbeat: string | null = null;
   if (csid) {
     const csj = await env.CUBEFORGE_REGISTRY.get(`csession:${csid}`);
     if (csj) {
@@ -580,8 +465,8 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
 
 /**
  * Encerra qualquer ConnectionSession ativa (host e guest) presa a um shortCode,
- * revogando de verdade a credencial Tailscale de cada uma — não só apagando o
- * registro do KV — para que ninguém continue com acesso à malha depois. Usado
+ * apagando o registro de cada uma no KV (e derrubando a sala de sinalização) para
+ * que ninguém continue com acesso depois. Usado
  * tanto ao remover um servidor quanto ao regenerar seu código (ver
  * handleRegenerateCode), já que nos dois casos o shortCode antigo deixa de ser
  * válido e qualquer sessão presa a ele precisa cair.
@@ -607,14 +492,8 @@ function sessionSlotKey(shortCode: string, mode: 'host' | 'guest', installationI
   return mode === 'host' ? `csession-by-shortcode:${shortCode}:host` : `csession-by-install:${shortCode}:${installationId}`;
 }
 
-/** Revoga de verdade (dispositivo/key no Tailscale) e apaga a ConnectionSession. */
+/** Apaga a ConnectionSession (o token de sinalização expira sozinho; a sala confere a sessão ao conectar). */
 async function revokeConnectionSession(env: Env, sessionId: string): Promise<void> {
-  const csj = await env.CUBEFORGE_REGISTRY.get(`csession:${sessionId}`);
-  if (csj) {
-    const cs: ConnectionSessionEntity = JSON.parse(csj);
-    if (cs.tailscaleDeviceId) await deleteTailscaleDevice(env, cs.tailscaleDeviceId);
-    else if (cs.tailscaleKeyId) await revokeTailscaleKey(env, cs.tailscaleKeyId);
-  }
   await env.CUBEFORGE_REGISTRY.delete(`csession:${sessionId}`);
 }
 
@@ -718,8 +597,8 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
   let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
   if (!body.requestId) return json(fail(ResponseCodes.VALIDATION_ERROR, 'requestId obrigatório.'), 400, cors);
-  // Hospedar exige ser o dono (segredo) — antes, qualquer um com o código mintava
-  // uma key tag:cf-host, prendia a vaga do host e podia se passar por ele.
+  // Hospedar exige ser o dono (segredo) — senão qualquer um com o código prendia a
+  // vaga do host e podia se passar por ele.
   if (body.mode === 'host') {
     const denied = await requireOwner(req, env, shortCode, cors);
     if (denied) return denied;
@@ -729,11 +608,8 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (!body.correlationId || !body.clientVersion || !body.installationId) return json(fail(ResponseCodes.VALIDATION_ERROR, 'correlationId, clientVersion, installationId obrigatórios.'), 400, cors);
   if (body.mode !== 'host' && body.mode !== 'guest') return json(fail(ResponseCodes.VALIDATION_ERROR, 'mode precisa ser "host" ou "guest".'), 400, cors);
   const mode: 'host' | 'guest' = body.mode;
-  // Host e guest mintam AuthKeys/identidades Tailscale independentes (tag:cf-host
-  // vs tag:cf-guest) — cada um precisa da própria ConnectionSession. Sem o
-  // ":mode" aqui, a sessão do host (sempre ativa enquanto a rede mesh dele
-  // estiver de pé) bloqueava todo guest que tentasse entrar com 409
-  // OPERATION_IN_PROGRESS, achando que era uma segunda criação duplicada.
+  // Host e guest têm, cada um, a própria ConnectionSession (sem isso a sessão do host,
+  // sempre ativa, bloqueava todo convidado com 409 OPERATION_IN_PROGRESS).
   // A vaga é por papel: UM host por servidor (e só o dono chega aqui, já
   // autenticado) e UM convidado por INSTALAÇÃO — vários amigos entram ao mesmo
   // tempo. Se a mesma vaga já tem sessão (app que caiu e reabriu, clique duplo),
@@ -742,60 +618,34 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (typeof body.installationId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(body.installationId)) {
     return json(fail(ResponseCodes.VALIDATION_ERROR, 'installationId inválido.'), 400, cors);
   }
-  // Transporte P2P (cubicase-link): o cliente pede launcher "link-v1"; sem isso segue o Tailscale.
-  const isLink = body.launcher === 'link-v1';
-  if (isLink) {
-    if (!env.LINK_TOKEN_SECRET) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O transporte P2P não está configurado neste servidor.'), 503, cors);
-    // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus. Um host logado com
-    // Plus também marca o servidor como Plus: relay sem cota para ele e para os convidados dele.
-    if (body.relayOnly === true || (mode === 'host' && req.headers.has('Authorization'))) {
-      const userId = await resolveSupabaseUserId(req);
-      const isPlus = userId ? await userHasActiveSubscription(env, userId) : false;
-      if (body.relayOnly === true) {
-        if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
-        if (!isPlus) return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'O modo privado é um recurso do Cubicase Plus.'), 403, cors);
-      }
-      if (mode === 'host' && isPlus) {
-        await env.CUBEFORGE_REGISTRY.put(linkPlusKey(shortCode), '1', { expirationTtl: LINK_PLUS_FLAG_TTL_SECONDS });
-      }
+  // Único transporte: P2P (cubicase-link). Versões antigas do app pediam o Tailscale (descontinuado) e
+  // não mandam este launcher: respondem com um pedido claro de atualização, em vez de um erro técnico.
+  if (body.launcher !== 'link-v1') {
+    return json(fail(ResponseCodes.CLIENT_OUTDATED, 'Esta versão do Cubicase é antiga e não é mais suportada. Atualize o aplicativo para continuar.'), 426, cors);
+  }
+  if (!env.LINK_TOKEN_SECRET) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O transporte P2P não está configurado neste servidor.'), 503, cors);
+  // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus. Um host logado com
+  // Plus também marca o servidor como Plus: relay sem cota para ele e para os convidados dele.
+  if (body.relayOnly === true || (mode === 'host' && req.headers.has('Authorization'))) {
+    const userId = await resolveSupabaseUserId(req);
+    const isPlus = userId ? await userHasActiveSubscription(env, userId) : false;
+    if (body.relayOnly === true) {
+      if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+      if (!isPlus) return json(fail(ResponseCodes.SUBSCRIPTION_REQUIRED, 'O modo privado é um recurso do Cubicase Plus.'), 403, cors);
+    }
+    if (mode === 'host' && isPlus) {
+      await env.CUBEFORGE_REGISTRY.put(linkPlusKey(shortCode), '1', { expirationTtl: LINK_PLUS_FLAG_TTL_SECONDS });
     }
   }
   const slotKey = sessionSlotKey(shortCode, mode, body.installationId);
   const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
   if (existingSessionId) await revokeConnectionSession(env, existingSessionId);
 
-  if (isLink) return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors);
-
-  const sid = uuid(); const now = new Date(); const exp = new Date(now.getTime() + cfg.leaseTtlSeconds * 1000);
-  const tag = mode === 'host' ? 'tag:cf-host' : 'tag:cf-guest';
-  const hostname = `cf-${mode}-${sid.slice(0, 8)}`;
-
-  let minted: TailscaleKeyResult;
-  try {
-    minted = await mintTailscaleKey(env, tag, hostname, Math.ceil(AUTH_KEY_EXPIRY_MS / 1000));
-  } catch (e) {
-    console.error('Falha ao mintar authKey do Tailscale:', e);
-    return json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível gerar as credenciais de rede. Tente novamente em instantes.', { error: String(e) }, body.requestId), 502, cors);
-  }
-
-  const session: ConnectionSessionEntity = {
-    sessionId: sid, shortCode, launcher: 'tsnet-v1', launcherVersion: 1, protocolVersion: 1,
-    credentials: { authKey: minted.authKey, hostname }, hostIp: null, port: 25565, status: 'creating', revision: 1,
-    terminationReason: null, currentPlayers: 0, maxPlayers: 20, memoryUsageMb: null, mcVersion: null,
-    lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString(),
-    timing: { apiCallMs: null, providerStartMs: null, providerWaitMs: null, totalElapsedMs: null },
-    retries: 0, heartbeatCount: 0, clientVersion: body.clientVersion, installationId: body.installationId, correlationId: body.correlationId,
-    mode, tailscaleKeyId: minted.keyId, tailscaleDeviceId: null,
-  };
-  await env.CUBEFORGE_REGISTRY.put(`csession:${sid}`, JSON.stringify(session), { expirationTtl: cfg.leaseTtlSeconds });
-  await env.CUBEFORGE_REGISTRY.put(slotKey, sid);
-  const payload = ok(ResponseCodes.CONNECTION_SESSION_CREATED, 'Sessão criada.', { sessionId: sid, launcher: 'tsnet-v1', launcherVersion: 1, protocolVersion: 1, credentials: session.credentials, leaseDurationMs: LEASE_DURATION_MS, expiresAt: exp.toISOString() }, body.requestId);
-  await env.CUBEFORGE_REGISTRY.put(`requestId:${body.requestId}`, JSON.stringify({ ...payload, _status: 201 }), { expirationTtl: REQUEST_ID_CACHE_TTL });
-  return json(payload, 201, cors);
+  return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors);
 }
 
 /**
- * Sessão do transporte P2P: em vez de mintar uma key do Tailscale, emite o token da sala de
+ * Sessão do transporte P2P: emite o token da sala de
  * sinalização e as credenciais ICE (STUN/TURN). Não há heartbeat: a presença do host é o
  * próprio WebSocket da sala (ver link-room.ts), então a sessão vive 24 h no KV.
  */
@@ -814,7 +664,7 @@ async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body
     lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString(),
     timing: { apiCallMs: null, providerStartMs: null, providerWaitMs: null, totalElapsedMs: null },
     retries: 0, heartbeatCount: 0, clientVersion: body.clientVersion, installationId: body.installationId, correlationId: body.correlationId,
-    mode, tailscaleKeyId: null, tailscaleDeviceId: null,
+    mode,
   };
   await env.CUBEFORGE_REGISTRY.put(`csession:${sid}`, JSON.stringify(session), { expirationTtl: ttl });
   await env.CUBEFORGE_REGISTRY.put(slotKey, sid, { expirationTtl: ttl });
@@ -898,28 +748,6 @@ async function handleUpdateConnectionSession(sessionId: string, req: Request, en
     if (!SESSION_STATUSES.has(body.status)) return json(fail(ResponseCodes.VALIDATION_ERROR, 'status inválido.'), 400, cors);
     session.status = body.status;
   }
-  if (body.hostIp !== undefined && body.hostIp !== null) {
-    if (typeof body.hostIp !== 'string' || !TAILSCALE_IP_RE.test(body.hostIp)) {
-      return json(fail(ResponseCodes.VALIDATION_ERROR, 'hostIp inválido.'), 400, cors);
-    }
-    // O IP vem do cliente e é público (aparece no discover): só vale se o
-    // dispositivo com esse IP for o que ESTA sessão registrou (hostname
-    // cf-<papel>-<id> da key mintada). Sem essa checagem, um convidado
-    // mandava o IP do host e, ao encerrar a própria sessão, o Worker apagava
-    // o dispositivo do host (ou de qualquer outro), e um impostor apontava
-    // o discover para si.
-    const expectedHostname = String(session.credentials?.hostname ?? '');
-    const deviceId = expectedHostname ? await findTailscaleDeviceByIp(env, body.hostIp, expectedHostname) : null;
-    // Só o tailscaleDeviceId (que decide QUAL dispositivo será apagado ao encerrar)
-    // exige a confirmação por hostname. O hostIp em si vem de quem possui o
-    // sessionId (segredo da sessão; a de host só nasce com o segredo de dono) e
-    // já passou na checagem de formato — não pode travar o host se a lista do
-    // Tailscale estiver indisponível ou atrasada.
-    if (deviceId) session.tailscaleDeviceId = deviceId;
-    // Convidado: o IP dele não é usado na descoberta (só sessões de host são lidas
-    // lá); gravamos só para diagnóstico.
-    session.hostIp = body.hostIp;
-  }
   if (typeof body.metrics?.currentPlayers === 'number' && Number.isFinite(body.metrics.currentPlayers)) session.currentPlayers = Math.max(0, Math.min(10000, Math.floor(body.metrics.currentPlayers)));
   if (body.timing) session.timing = { ...session.timing, ...body.timing };
   if (typeof body.retries === 'number') session.retries = body.retries;
@@ -952,12 +780,6 @@ async function handleDeleteConnectionSession(sessionId: string, env: Env, cors: 
   const raw = await env.CUBEFORGE_REGISTRY.get(key);
   if (!raw) return json(ok(ResponseCodes.SESSION_DELETED, 'Sessão já não existe.'), 200, cors);
   const session: ConnectionSessionEntity = JSON.parse(raw);
-
-  // Revogação forte: se o nó chegou a se conectar (temos deviceId), remove o
-  // dispositivo na hora — não espera a limpeza automática de efêmeros, que tem
-  // atraso. Se a key nunca chegou a ser usada, revoga a key em si.
-  if (session.tailscaleDeviceId) await deleteTailscaleDevice(env, session.tailscaleDeviceId);
-  else if (session.tailscaleKeyId) await revokeTailscaleKey(env, session.tailscaleKeyId);
 
   await env.CUBEFORGE_REGISTRY.delete(key);
   const shortcodeKey = sessionSlotKey(session.shortCode, session.mode, session.installationId);

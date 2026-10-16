@@ -107,7 +107,7 @@ async function createLinkSession(shortCode: string, mode: "host" | "guest", opts
 }
 
 describe("sessão link-v1 na API", () => {
-  it("host (dono) e convidado recebem token da sala e credenciais ICE, sem tocar no Tailscale", async () => {
+  it("host (dono) e convidado recebem token da sala e credenciais ICE", async () => {
     const { shortCode, secret } = await createServer();
     const host = await createLinkSession(shortCode, "host", { secret });
     expect(host.status).toBe(201);
@@ -147,17 +147,15 @@ describe("sessão link-v1 na API", () => {
     expect(r.status).toBe(401);
   });
 
-  it("sem LINK_TOKEN_SECRET o servidor responde 503 claro (não cai no Tailscale por engano)", async () => {
-    // O ambiente de teste TEM o segredo; aqui só garantimos que o launcher padrão segue sendo o Tailscale.
+  it("pedido sem o launcher link-v1 não vira Tailscale por engano: recebe 426", async () => {
     const { shortCode } = await createServer();
     const res = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/connection-sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", mode: "guest", installationId: "install-legacy-1" }),
     });
-    expect([201, 502]).toContain(res.status); // 502: Tailscale sem credenciais no teste; nunca link-v1
-    const body: any = await res.json();
-    expect(body.data?.launcher ?? "tsnet-v1").toBe("tsnet-v1");
+    expect(res.status).toBe(426);
+    expect(((await res.json()) as any).code).toBe("CLIENT_OUTDATED");
   });
 });
 
