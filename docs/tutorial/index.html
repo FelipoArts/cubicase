@@ -1034,14 +1034,21 @@
   </ol>
 
   <h3>Se a conexão direta não funcionar: plano B com o Radmin VPN</h3>
-  <p>Em algumas internets (certas operadoras, redes de empresa ou de faculdade) o Cubicase não consegue ligar os computadores diretamente. Não é culpa de ninguém, e tem um jeito fácil: o <strong>Radmin VPN</strong>, um programa gratuito que faz os dois computadores se enxergarem como se estivessem na mesma casa. Você e seu amigo precisam instalar (leva uns 5 minutos).</p>
+  <p>Em algumas internets (certas operadoras, redes de empresa ou de faculdade) o Cubicase não consegue ligar os computadores diretamente. Não é culpa de ninguém, e tem um jeito fácil: o <strong>Radmin VPN</strong>, um programa gratuito que faz os dois computadores se enxergarem como se estivessem na mesma casa. Os dois precisam instalar. O Cubicase guia tudo: abra <span class="ui">Ajuda (?) → Não consegue conectar?</span> (ou toque no botão de boia no cartão do servidor) e siga os passos, que se marcam sozinhos quando ficam prontos.</p>
+  <p><strong>Quem hospeda:</strong></p>
   <ol class="tut-steps">
-    <li>Os dois baixam e instalam o <a href="https://www.radmin-vpn.com/" target="_blank" rel="noopener">Radmin VPN</a> (grátis, sem conta).</li>
-    <li><strong>Quem hospeda</strong> abre o Radmin e vai em <span class="ui">Rede → Criar rede</span>, escolhe um nome e uma senha e passa para o amigo.</li>
-    <li><strong>O amigo</strong> vai em <span class="ui">Rede → Entrar na rede</span> e digita o nome e a senha.</li>
-    <li>No Cubicase, abra <span class="ui">Ajuda (?) → Não consegue conectar?</span>. O endereço do Radmin do host aparece ali, pronto para copiar; o host manda esse endereço para o amigo.</li>
-    <li>No Minecraft, o amigo vai em <span class="ui">Multijogador → Adicionar servidor</span>, cola o endereço e entra.</li>
+    <li>Instale o Radmin VPN: o botão <span class="ui">Instalar automaticamente</span> faz isso, ou baixe do <a href="https://www.radmin-vpn.com/" target="_blank" rel="noopener">site oficial</a> (grátis, sem conta). O Windows pede permissão de administrador.</li>
+    <li>No Radmin, vá em <span class="ui">Rede → Criar rede</span> com o nome e a senha que o Cubicase sugere. Passe os dois aos amigos: o Cubicase <strong>não guarda a senha</strong>.</li>
+    <li>Clique em <span class="ui">Permitir amigos do Radmin</span>. Isso libera o Minecraft no firewall do Windows só para a rede do Radmin.</li>
+    <li>Pronto: o Cubicase mostra o seu endereço no Radmin. Quem usa o código do servidor recebe esse endereço sozinho (com o servidor ligado).</li>
   </ol>
+  <p><strong>Quem vai entrar:</strong></p>
+  <ol class="tut-steps">
+    <li>Instale o Radmin VPN, do mesmo jeito.</li>
+    <li>No Radmin, vá em <span class="ui">Rede → Entrar na rede</span> e digite o nome e a senha que o host passou.</li>
+    <li>No Cubicase, na aba <span class="ui">Convidado</span>, toque no botão de boia no cartão do servidor. Quando aparecer "acessível pelo Radmin", clique em <span class="ui">Jogar pelo Radmin</span> e use <span class="ui">Preparar e Jogar</span> normalmente.</li>
+  </ol>
+  <p>Se o Cubicase disser que não alcança o host, confira: vocês estão na mesma rede do Radmin (se ele recusou a senha ou disse que a rede não existe, peça os dados atuais ao host, porque podem ter mudado), o servidor está ligado e o host fez o passo do firewall.</p>
   <p>Seu servidor e seu mundo continuam os mesmos. Só muda o caminho da conexão.</p>
 
   <div class="tut-callout is-tip">
