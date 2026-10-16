@@ -77,12 +77,27 @@ fn silent_command(program: &str) -> std::process::Command {
     cmd
 }
 
+/// Linha do log com data e hora LOCAIS legíveis (antes era só o número UNIX, impossível de situar no tempo).
+fn format_log_line(now: chrono::DateTime<chrono::Local>, message: &str) -> String {
+    format!("[{}] {}\n", now.format("%Y-%m-%d %H:%M:%S"), message)
+}
+
+/// Separador gravado uma vez por execução do app: o arquivo é acumulativo e sem isto não dá para ver
+/// onde uma sessão termina e a próxima começa.
+fn session_banner(now: chrono::DateTime<chrono::Local>, version: &str) -> String {
+    format!(
+        "\n======== Cubicase {} iniciado em {} ========\n",
+        version,
+        now.format("%Y-%m-%d %H:%M:%S")
+    )
+}
+
 fn log_to_file(app: &tauri::AppHandle, message: &str) {
-    let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs(),
-        Err(_) => 0,
-    };
-    let formatted = format!("[UNIX:{}] {}\n", timestamp, message);
+    static BANNER: std::sync::Once = std::sync::Once::new();
+    let now = chrono::Local::now();
+    let mut formatted = String::new();
+    BANNER.call_once(|| formatted.push_str(&session_banner(now, &app.package_info().version.to_string())));
+    formatted.push_str(&format_log_line(now, message));
 
     // 1. Tenta gravar na pasta do executável (se tiver permissão)
     let mut written = false;

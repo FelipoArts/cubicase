@@ -1175,3 +1175,13 @@ fn estado_do_relay_vem_das_credenciais_da_sessao() {
     assert_eq!(relay_state_from_credentials(&serde_json::json!({ "authKey": "k" })), None);
     assert_eq!(relay_state_from_credentials(&serde_json::json!({ "relay": 3 })), None);
 }
+
+#[test]
+fn linhas_do_log_tem_data_e_hora_legiveis_e_cada_execucao_comeca_com_separador() {
+    use chrono::TimeZone;
+    let t = chrono::Local.with_ymd_and_hms(2026, 10, 8, 19, 11, 30).unwrap();
+    assert_eq!(format_log_line(t, "Servidor online"), "[2026-10-08 19:11:30] Servidor online\n");
+    let banner = session_banner(t, "0.6.0");
+    assert!(banner.contains("Cubicase 0.6.0 iniciado em 2026-10-08 19:11:30"));
+    assert!(banner.starts_with('\n') && banner.ends_with('\n'), "linha em branco antes, para destacar a sessão");
+}
