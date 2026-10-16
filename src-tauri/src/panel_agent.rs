@@ -81,6 +81,24 @@ fn relay_ws_base() -> String {
 // quedas curtas de rede, comuns num link doméstico).
 const BACKOFF_STEPS_SECS: [u64; 4] = [2, 5, 10, 30];
 const NO_DEVICE_RETRY_SECS: u64 = 5;
+// 401 = o servidor recusou o dispositivo (assinatura Plus inativa, aparelho removido ou o Supabase fora do ar).
+// Insistir a cada 30 s não resolve nada e enche o log: espera mais entre as tentativas e só registra de vez em quando.
+const AUTH_REFUSED_RETRY_SECS: u64 = 300;
+const AUTH_REFUSED_LOG_EVERY: u32 = 12; // ~1 h entre registros repetidos
+
+fn is_auth_refused(err: &str) -> bool {
+    err.contains("401") || err.to_ascii_lowercase().contains("unauthorized")
+}
+
+/// Quanto esperar antes de tentar de novo, e se vale registrar esta falha no log.
+/// `auth_failures` = quantas recusas seguidas (401) já houve, contando esta.
+fn panel_retry_wait(err: &str, backoff_index: usize, auth_failures: u32) -> (u64, bool) {
+    if is_auth_refused(err) {
+        let log_it = auth_failures == 1 || auth_failures % AUTH_REFUSED_LOG_EVERY == 0;
+        return (AUTH_REFUSED_RETRY_SECS, log_it);
+    }
+    (BACKOFF_STEPS_SECS[backoff_index.min(BACKOFF_STEPS_SECS.len() - 1)], true)
+}
 // Poll, não evento: ver comentário grande em cima de LOG_SINK sobre por que
 // nada aqui usa AppHandle::listen. 5s (não 2s) de propósito, como margem
 // extra depois de mover scan_local_servers (I/O de disco síncrono) pra
@@ -748,6 +766,7 @@ async fn run_agent_connection(app: &AppHandle, device: &PanelDeviceFile) -> Resu
 pub fn spawn_panel_agent(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut backoff_index = 0usize;
+        let mut auth_failures = 0u32;
         loop {
             let device = load_panel_device(&app);
 
@@ -759,16 +778,20 @@ pub fn spawn_panel_agent(app: AppHandle) {
             match run_agent_connection(&app, &device).await {
                 Ok(()) => {
                     backoff_index = 0;
+                    auth_failures = 0;
                 }
                 Err(e) => {
-                    let wait = BACKOFF_STEPS_SECS[backoff_index.min(BACKOFF_STEPS_SECS.len() - 1)];
-                    log_to_file(
-                        &app,
-                        &format!(
-                            "[PANEL] Conexão com o painel web caiu ({}). Tentando de novo em {}s.",
-                            e, wait
-                        ),
-                    );
+                    auth_failures = if is_auth_refused(&e) { auth_failures + 1 } else { 0 };
+                    let (wait, log_it) = panel_retry_wait(&e, backoff_index, auth_failures);
+                    if log_it {
+                        log_to_file(
+                            &app,
+                            &format!(
+                                "[PANEL] Conexão com o painel web caiu ({}). Tentando de novo em {}s.",
+                                e, wait
+                            ),
+                        );
+                    }
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                     backoff_index = (backoff_index + 1).min(BACKOFF_STEPS_SECS.len() - 1);
                     continue;
@@ -778,4 +801,33 @@ pub fn spawn_panel_agent(app: AppHandle) {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::*;
+
+    #[test]
+    fn falha_comum_usa_o_backoff_curto_e_sempre_registra() {
+        assert_eq!(panel_retry_wait("connection reset", 0, 0), (2, true));
+        assert_eq!(panel_retry_wait("timeout", 3, 0), (30, true));
+        assert_eq!(panel_retry_wait("timeout", 99, 0), (30, true)); // limitado ao último degrau
+    }
+
+    #[test]
+    fn recusa_401_espera_5_minutos_e_registra_so_de_vez_em_quando() {
+        let e = "HTTP error: 401 Unauthorized";
+        assert!(is_auth_refused(e));
+        assert_eq!(panel_retry_wait(e, 3, 1), (300, true)); // a primeira sempre aparece
+        for n in 2..12 {
+            assert_eq!(panel_retry_wait(e, 3, n), (300, false), "recusa nº {n}");
+        }
+        assert_eq!(panel_retry_wait(e, 3, 12), (300, true)); // ~1 h depois, lembra de novo
+    }
+
+    #[test]
+    fn outras_falhas_nao_sao_tratadas_como_recusa() {
+        assert!(!is_auth_refused("HTTP error: 503 Service Unavailable"));
+        assert!(!is_auth_refused("connection refused"));
+    }
 }
