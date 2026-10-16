@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::fs::File;
 use std::io::{Write, BufRead, BufReader};
@@ -166,6 +166,9 @@ struct AppState {
     
     // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
     private_mode: AtomicBool,
+    // Porta do Minecraft do servidor que este app hospeda (0 = nenhum): publicada no heartbeat junto do IP do
+    // Radmin, para o convidado saber onde conectar nesse plano B.
+    minecraft_port: AtomicU16,
 
     // Flag atômica para saber se a parada foi solicitada pelo usuário
     // (diferencia parada limpa de crash). Usamos AtomicBool em vez de Mutex<bool>
@@ -1457,12 +1460,16 @@ async fn copy_local_mod_file(from_path: String, to_path: String) -> Result<(), S
     .map_err(|e| e.to_string())?
 }
 
-/// Origens de onde um mod pode ser baixado: o CDN do Modrinth (HTTPS) ou o
-/// proxy local do sidecar que leva ao host pela mesh (loopback:25568).
+/// Origens de onde um mod pode ser baixado: o CDN do Modrinth (HTTPS), o proxy local do sidecar que leva
+/// ao host pelo P2P (loopback:25568) ou, no plano B, o servidor de mods do host na rede do Radmin
+/// (IP 26.x.x.x, porta 25567).
 fn is_allowed_mod_origin(url: &reqwest::Url) -> bool {
     match url.scheme() {
         "https" => url.host_str() == Some("cdn.modrinth.com") && url.port().is_none(),
-        "http" => url.host_str() == Some("127.0.0.1") && url.port() == Some(25568),
+        "http" => {
+            (url.host_str() == Some("127.0.0.1") && url.port() == Some(25568))
+                || (url.host_str().map_or(false, radmin::is_radmin_ip) && url.port() == Some(25567))
+        }
         _ => false,
     }
 }
@@ -1806,11 +1813,18 @@ fn report_mc_status(app: &tauri::AppHandle, state: &AppState, status: &str) {
     let short_code = state.active_short_code.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(sc) = short_code {
         let current_players = state.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).len() as u32;
-        enqueue_operation(app, SyncOperationType::Heartbeat, serde_json::json!({
+        let mut payload = serde_json::json!({
             "shortCode": sc,
             "status": status,
             "currentPlayers": current_players,
-        }));
+            // IP do host na rede do Radmin VPN (null se não está conectado a uma): é o plano B dos convidados.
+            "radminIp": radmin::cached_ip(),
+        });
+        let port = state.minecraft_port.load(Ordering::SeqCst);
+        if port != 0 {
+            payload["port"] = serde_json::json!(port);
+        }
+        enqueue_operation(app, SyncOperationType::Heartbeat, payload);
     }
 }
 
@@ -1911,6 +1925,7 @@ async fn start_minecraft_server(
             Err(_) => local_port,
         }
     };
+    state.minecraft_port.store(server_port, Ordering::SeqCst);
     // Retry com backoff: é comum a porta aparecer "ocupada" por um instante logo após
     // parar um servidor anterior (socket ainda em TIME_WAIT) — sem isso, o usuário via
     // um erro de porta ocupada mesmo tendo acabado de clicar em "Parar" um segundo antes.
@@ -4328,9 +4343,22 @@ fn start_registry_http_server(
     active_short_code: Arc<Mutex<Option<String>>>,
     active_server_dir: Arc<Mutex<Option<String>>>,
 ) {
+    start_registry_listener("127.0.0.1:25567".to_string(), registry, active_short_code, active_server_dir, Arc::new(AtomicBool::new(false)), false);
+}
+
+/// Um listener do servidor de registro/mods (só leitura) em `addr`. `stop` o encerra (checado a cada segundo).
+/// `radmin_peers_only`: aceita somente conexões vindas da faixa do Radmin (26.0.0.0/8) — uso do plano B, em que o
+/// listener fica preso ao IP do adaptador do Radmin (o Windows já não entrega nada de fora dessa rede).
+fn start_registry_listener(
+    addr: String,
+    registry: Arc<ServerRegistry>,
+    active_short_code: Arc<Mutex<Option<String>>>,
+    active_server_dir: Arc<Mutex<Option<String>>>,
+    stop: Arc<AtomicBool>,
+    radmin_peers_only: bool,
+) {
     thread::spawn(move || {
-        let addr = "127.0.0.1:25567";
-        let server = match tiny_http::Server::http(addr) {
+        let server = match tiny_http::Server::http(addr.as_str()) {
             Ok(s) => {
                 eprintln!("[Registry] Servidor HTTP local iniciado em {}", addr);
                 s
@@ -4341,9 +4369,16 @@ fn start_registry_http_server(
             }
         };
 
-        loop {
-            match server.recv() {
-                Ok(request) => {
+        while !stop.load(Ordering::SeqCst) {
+            match server.recv_timeout(Duration::from_secs(1)) {
+                Ok(Some(request)) => {
+                    if radmin_peers_only {
+                        let from_radmin = request.remote_addr().map_or(false, |a| radmin::is_radmin_ip(&a.ip().to_string()));
+                        if !from_radmin {
+                            respond_json(request, 403, "{\"error\":\"forbidden\"}");
+                            continue;
+                        }
+                    }
                     let registry = registry.clone();
                     let active_short_code = active_short_code.clone();
                     let active_server_dir = active_server_dir.clone();
@@ -4351,10 +4386,45 @@ fn start_registry_http_server(
                         handle_registry_connection(request, &registry, &active_short_code, &active_server_dir);
                     });
                 }
+                Ok(None) => {}
                 Err(e) => {
                     eprintln!("[Registry] Erro no servidor HTTP local: {}", e);
+                    thread::sleep(Duration::from_secs(1));
                 }
             }
+        }
+        eprintln!("[Registry] Servidor HTTP em {} encerrado", addr);
+    });
+}
+
+/// Acompanha o Radmin VPN a cada poucos segundos: atualiza o estado em cache (usado no heartbeat do host),
+/// avisa a interface quando muda e mantém o servidor de mods escutando no IP do Radmin enquanto ele existir.
+fn start_radmin_supervisor(
+    app: tauri::AppHandle,
+    registry: Arc<ServerRegistry>,
+    active_short_code: Arc<Mutex<Option<String>>>,
+    active_server_dir: Arc<Mutex<Option<String>>>,
+) {
+    thread::spawn(move || {
+        let mut listener: Option<(String, Arc<AtomicBool>)> = None;
+        loop {
+            let st = radmin::status();
+            if radmin::store_status(st.clone()) {
+                let _ = app.emit("radmin-status", st.clone());
+            }
+            let same = matches!((&st.ip, &listener), (Some(ip), Some((cur, _))) if ip == cur);
+            if !same {
+                if let Some((_, stop)) = listener.take() {
+                    stop.store(true, Ordering::SeqCst);
+                    thread::sleep(Duration::from_millis(1200)); // dá tempo de o listener antigo largar a porta
+                }
+                if let Some(ip) = &st.ip {
+                    let stop = Arc::new(AtomicBool::new(false));
+                    start_registry_listener(format!("{}:25567", ip), registry.clone(), active_short_code.clone(), active_server_dir.clone(), stop.clone(), true);
+                    listener = Some((ip.clone(), stop));
+                }
+            }
+            thread::sleep(Duration::from_secs(8));
         }
     });
 }
@@ -5747,11 +5817,44 @@ async fn sync_delete_server(
     }
 }
 
-/// IP do Radmin VPN deste computador (faixa 26.x.x.x), se estiver instalado e conectado a uma rede.
-/// Alimenta o plano B de conexão (ver radmin.rs). Roda fora da thread da UI: `ipconfig` é um processo.
+/// Estado do Radmin VPN neste computador (instalado / serviço rodando / IP). Roda fora da thread da UI:
+/// consulta processos do Windows. Alimenta o plano B de conexão (ver radmin.rs).
 #[tauri::command]
-async fn get_radmin_address() -> Option<String> {
-    tauri::async_runtime::spawn_blocking(radmin::detect).await.ok().flatten()
+async fn get_radmin_status() -> radmin::RadminStatus {
+    tauri::async_runtime::spawn_blocking(radmin::status).await.unwrap_or_default()
+}
+
+/// O `winget` (instalador oficial do Windows) existe aqui? Decide se a interface oferece "Instalar".
+#[tauri::command]
+async fn radmin_winget_available() -> bool {
+    tauri::async_runtime::spawn_blocking(radmin::winget_available).await.unwrap_or(false)
+}
+
+/// Instala o Radmin VPN pelo winget. Erros: "WINGET_MISSING" | "INSTALL_FAILED".
+#[tauri::command]
+async fn install_radmin() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(radmin::install_with_winget).await.map_err(|e| e.to_string())?
+}
+
+/// O host (IP do Radmin) responde nesta porta? Só aceita endereços da faixa do Radmin.
+#[tauri::command]
+async fn radmin_probe(host: String, port: u16) -> bool {
+    tauri::async_runtime::spawn_blocking(move || radmin::probe(&host, port, Duration::from_millis(2500))).await.unwrap_or(false)
+}
+
+/// O firewall já deixa o Minecraft/app receberem conexões da rede do Radmin? (false = falta criar regra)
+#[tauri::command]
+async fn radmin_firewall_ok(app: tauri::AppHandle) -> bool {
+    let Ok(dir) = app.path().app_local_data_dir() else { return false };
+    tauri::async_runtime::spawn_blocking(move || radmin::missing_firewall_rules(&dir).is_empty()).await.unwrap_or(false)
+}
+
+/// Cria as regras de firewall do Radmin, com a confirmação de administrador do Windows.
+/// Erros: "CANCELLED" | "FAILED".
+#[tauri::command]
+async fn allow_radmin_firewall(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app.path().app_local_data_dir().map_err(|_| "FAILED".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || radmin::allow_firewall(&dir)).await.map_err(|e| e.to_string())?
 }
 
 /// Segredo de dono do servidor, para o frontend autenticar as rotas de dono que
@@ -6306,6 +6409,8 @@ pub fn run() {
 
   // Iniciar servidor HTTP de registro em background
   start_registry_http_server(registry.clone(), active_short_code.clone(), active_server_dir.clone());
+  // Cópias para o supervisor do Radmin (iniciado no setup, quando já existe um AppHandle).
+  let (radmin_registry, radmin_codes, radmin_dirs) = (registry.clone(), active_short_code.clone(), active_server_dir.clone());
   
   // Iniciar motor de sincronização periódico (a cada 30 segundos)
   let telemetry_clone = telemetry.clone();
@@ -6402,6 +6507,7 @@ pub fn run() {
       // e panel_agent.rs. Sem custo se não houver dispositivo pareado ainda
       // (fica só verificando a cada alguns segundos).
       panel_agent::spawn_panel_agent(app.handle().clone());
+      start_radmin_supervisor(app.handle().clone(), radmin_registry.clone(), radmin_codes.clone(), radmin_dirs.clone());
 
       // --- System tray ---
       // Fechar a janela (X) pergunta ao usuário (via modal no frontend, ver
@@ -6544,7 +6650,12 @@ pub fn run() {
        sync_delete_server,
        regenerate_server_code,
        get_owner_secret,
-       get_radmin_address,
+       get_radmin_status,
+       radmin_winget_available,
+       install_radmin,
+       radmin_probe,
+       radmin_firewall_ok,
+       allow_radmin_firewall,
        arm_wake_on_demand,
        disarm_wake_on_demand,
        cancel_idle_shutdown,

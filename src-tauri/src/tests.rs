@@ -1192,3 +1192,21 @@ fn token_expirado_do_sidecar_vira_aviso_amigavel_e_nao_erro_generico() {
     assert_eq!(title, tr!("sidecar.tokenExpired.title"));
     assert!(message.contains("reconectando"), "a mensagem deve dizer que o app se recupera sozinho: {message}");
 }
+
+#[test]
+fn origem_de_mods_aceita_o_servidor_de_mods_do_host_so_na_rede_do_radmin() {
+    let ok = |u: &str| is_allowed_mod_origin(&reqwest::Url::parse(u).unwrap());
+    // os dois caminhos legítimos que já existiam
+    assert!(ok("https://cdn.modrinth.com/data/x/versions/y/mod.jar"));
+    assert!(ok("http://127.0.0.1:25568/mods/file?code=ABC&name=a.jar"));
+    // plano B: o servidor de mods do host, no IP do Radmin e na porta do registro
+    assert!(ok("http://26.202.7.93:25567/mods/file?code=ABC&name=a.jar"));
+    // nada além disso
+    assert!(!ok("http://26.202.7.93:25568/mods/file"), "porta errada");
+    assert!(!ok("http://26.202.7.93:22/mods/file"), "porta errada");
+    assert!(!ok("http://192.168.1.5:25567/mods/file"), "IP de rede local qualquer");
+    assert!(!ok("http://100.64.0.1:25567/mods/file"), "fora da faixa do Radmin");
+    assert!(!ok("http://127.0.0.1:25567/mods/file"), "o registro local não é origem de download");
+    assert!(!ok("https://26.202.7.93:25567/mods/file"), "só http na rede do Radmin");
+    assert!(!ok("http://evil.example:25567/mods/file"));
+}

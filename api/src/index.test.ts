@@ -527,3 +527,50 @@ describe("app antigo (Tailscale foi descontinuado)", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("plano B: IP do Radmin no heartbeat do host", () => {
+  const beat = (shortCode: string, secret: string, body: object) =>
+    SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/heartbeat`, { method: "POST", headers: owner(secret), body: JSON.stringify({ status: "online", ...body }) });
+  const session = async (shortCode: string) => (await (await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}`)).json()).data.session;
+
+  it("publica o IP do Radmin e a porta do Minecraft, e a descoberta os devolve", async () => {
+    const { shortCode, secret } = await createTestServer();
+    expect((await beat(shortCode, secret, { radminIp: "26.202.7.93", port: 25570 })).status).toBe(200);
+    const s = await session(shortCode);
+    expect(s.radminIp).toBe("26.202.7.93");
+    expect(s.minecraftPort).toBe(25570);
+  });
+
+  it("o IP some quando o host sai da rede do Radmin (null) e quando o heartbeat não o menciona, nada muda", async () => {
+    const { shortCode, secret } = await createTestServer();
+    await beat(shortCode, secret, { radminIp: "26.1.2.3" });
+    await beat(shortCode, secret, { currentPlayers: 2 }); // não menciona: mantém
+    expect((await session(shortCode)).radminIp).toBe("26.1.2.3");
+    await beat(shortCode, secret, { radminIp: null });
+    const s = await session(shortCode);
+    expect(s.radminIp).toBeNull();
+    expect(s.minecraftPort).toBeNull();
+  });
+
+  it("recusa qualquer coisa que não seja IP da faixa 26.0.0.0/8 (nunca devolve texto arbitrário aos convidados)", async () => {
+    const { shortCode, secret } = await createTestServer();
+    for (const bad of ["100.64.0.1", "26.300.1.1", "26.1.1", "26.1.1.1.1", "evil.example", "26.1.1.1:80", "<script>", 26, ""]) {
+      await beat(shortCode, secret, { radminIp: bad });
+      expect((await session(shortCode)).radminIp, String(bad)).toBeNull();
+    }
+  });
+
+  it("porta fora da faixa é ignorada", async () => {
+    const { shortCode, secret } = await createTestServer();
+    await beat(shortCode, secret, { radminIp: "26.1.2.3", port: 80 });
+    expect((await session(shortCode)).minecraftPort).toBe(25565);
+    await beat(shortCode, secret, { port: 70000 });
+    expect((await session(shortCode)).minecraftPort).toBe(25565);
+  });
+
+  it("só o dono publica (o heartbeat continua exigindo o segredo)", async () => {
+    const { shortCode } = await createTestServer();
+    const r = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/heartbeat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ radminIp: "26.1.2.3" }) });
+    expect(r.status).toBe(401);
+  });
+});

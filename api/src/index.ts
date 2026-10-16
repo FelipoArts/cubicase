@@ -69,7 +69,7 @@ type TerminationReason = 'user_stopped' | 'application_closed' | 'provider_error
 
 interface ServerEntity { shortCode: string; uuid: string; name: string; version: string; serverType: string; description: string; owner: string; createdAt: string; updatedAt: string; forgeVersion?: string | null; modLoaderVersion?: string | null; slug?: string | null; connectName?: string | null; }
 
-interface SessionEntity { shortCode: string; provider: string; hostIp: string; port: number; status: ServerStatus; currentPlayers: number; maxPlayers: number; lastHeartbeat: string; createdAt: string; expiresAt: string; }
+interface SessionEntity { shortCode: string; provider: string; hostIp: string; port: number; /** IP do host na rede do Radmin VPN (26.x.x.x), se estiver conectado a uma. */ radminIp?: string | null; status: ServerStatus; currentPlayers: number; maxPlayers: number; lastHeartbeat: string; createdAt: string; expiresAt: string; }
 
 interface ConnectionSessionEntity {
   sessionId: string; shortCode: string; launcher: string; launcherVersion: number; protocolVersion: number;
@@ -283,6 +283,18 @@ function uuid(): string { return crypto.randomUUID(); }
 // HEARTBEAT — cria sessão legada se não existir
 // ============================================================
 
+/** IP do Radmin VPN: só a faixa 26.0.0.0/8, com octetos válidos. Qualquer outra coisa vira null. */
+function parseRadminIp(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const m = v.match(/^26\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m || m.slice(1).some((o) => Number(o) > 255)) return null;
+  return v;
+}
+
+function parsePort(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1024 && v <= 65535 ? v : null;
+}
+
 async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: { ttlSeconds: number }, cors: Record<string, string>): Promise<Response> {
   const denied = await requireOwner(req, env, shortCode, cors);
   if (denied) return denied;
@@ -295,10 +307,14 @@ async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: {
     s.lastHeartbeat = now.toISOString();
     if (body.status) s.status = body.status;
     if (body.currentPlayers !== undefined) s.currentPlayers = body.currentPlayers;
+    // O host manda o IP do Radmin (ou null se saiu da rede) a cada heartbeat; a porta do Minecraft só quando muda.
+    if ('radminIp' in body) s.radminIp = parseRadminIp(body.radminIp);
+    const hbPort = parsePort(body.port);
+    if (hbPort) s.port = hbPort;
     s.expiresAt = exp.toISOString();
     await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(s), { expirationTtl: cfg.ttlSeconds });
   } else {
-    const ns: SessionEntity = { shortCode, provider: 'link-v1', hostIp: body.hostIp || '0.0.0.0', port: body.port || 25565, status: body.status || 'starting', currentPlayers: body.currentPlayers || 0, maxPlayers: body.maxPlayers || 20, lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString() };
+    const ns: SessionEntity = { shortCode, provider: 'link-v1', hostIp: body.hostIp || '0.0.0.0', port: parsePort(body.port) ?? 25565, radminIp: parseRadminIp(body.radminIp), status: body.status || 'starting', currentPlayers: body.currentPlayers || 0, maxPlayers: body.maxPlayers || 20, lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString() };
     await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(ns), { expirationTtl: cfg.ttlSeconds });
   }
   // Consome (delete) o pedido de despertar, se houver — ver handleWakeServer.
@@ -455,6 +471,9 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
       networkStatus,
       minecraftStatus: mc?.status ?? null,
       provider, hostIp, port, currentPlayers, maxPlayers, lastHeartbeat,
+      // Plano B (Radmin VPN): IP do host na rede do Radmin e a porta do Minecraft, se o host está nela agora.
+      radminIp: mc?.radminIp ?? null,
+      minecraftPort: mc?.radminIp ? mc.port : null,
     },
   }), 200, cors);
 }
