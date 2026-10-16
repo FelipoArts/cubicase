@@ -67,4 +67,4 @@ Para reportar uma vulnerabilidade, **não abra uma issue pública**: escreva par
 
 ## Licença
 
-A licença do código do Cubicase ainda será definida pelo autor. Até lá, todos os direitos são reservados. Os componentes de terceiros mantêm suas próprias licenças (ver página de licenças acima).
+O código do Cubicase está sob a [Functional Source License 1.1 (Apache 2.0 como licença futura)](LICENSE.md): você pode usar, estudar e modificar o código para qualquer finalidade, **exceto** oferecer um produto ou serviço concorrente. Cada versão passa a valer também sob a licença Apache 2.0 dois anos depois de publicada. Os componentes de terceiros mantêm suas próprias licenças (ver página de licenças acima).
