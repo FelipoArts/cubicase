@@ -5,26 +5,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "tsnet-node",
-          "sidecar": true,
-          "args": ["--config", {"validator":"[\\s\\S]*"}]
-        }
-      ]
-    },
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [
-        {
-          "name": "tsnet-node",
-          "sidecar": true,
-          "args": ["--config", {"validator":"[\\s\\S]*"}]
-        }
-      ]
-    },
     "shell:default",
     "os:default",
     "os:allow-hostname",

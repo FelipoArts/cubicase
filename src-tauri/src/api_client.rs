@@ -445,34 +445,6 @@ impl ApiClient {
         self.transport.send(req).await.map(|_| ())
     }
 
-    /// Envia heartbeat para uma ConnectionSession
-    pub async fn send_heartbeat(
-        &self,
-        session_id: &str,
-        metrics: Option<HashMap<String, serde_json::Value>>,
-    ) -> Result<(), ApiError> {
-        let (request_id, correlation_id) = self.generate_ids();
-
-        let mut body = serde_json::json!({
-            "requestId": request_id,
-            "correlationId": correlation_id,
-        });
-
-        if let Some(m) = metrics {
-            body["metrics"] = serde_json::Value::Object(m.into_iter().collect());
-        }
-
-        let req = ApiRequest {
-            method: "POST".into(),
-            path: format!("/api/v1/connection-sessions/{}/heartbeat", session_id),
-            body: Some(body),
-            request_id,
-            correlation_id,
-        };
-
-        self.transport.send(req).await.map(|_| ())
-    }
-
     /// Encerra uma ConnectionSession
     pub async fn delete_connection_session(
         &self,

@@ -2,7 +2,7 @@ use crate::api_client::{ApiClient, ConnectionSessionResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::sync::Arc;
 
 // ============================================================
@@ -273,7 +273,7 @@ impl SessionManager {
     // ============================================================
 
     /// A sessão usa o transporte P2P (a presença do host é a própria sala de sinalização:
-    /// não há PATCH de hostIp nem heartbeat para a API).
+    /// não há PATCH de hostIp nem heartbeat para a API). Hoje é o único transporte.
     pub fn is_link(&self) -> bool {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).provider.as_deref() == Some("link-v1")
     }
@@ -285,91 +285,6 @@ impl SessionManager {
         state.status = SessionStatus::Online;
         state.timing.provider_wait_ms = Some(state.timing.started_at.elapsed().as_millis() as u64);
         state.timing.total_elapsed_ms = state.timing.provider_wait_ms;
-        Ok(())
-    }
-
-    pub async fn set_online(&self, host_ip: &str) -> Result<(), String> {
-        let session_id;
-        let revision;
-        let timing;
-
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            Self::validate_transition(&state.status, &SessionStatus::Online)?;
-            state.status = SessionStatus::Online;
-            state.host_ip = Some(host_ip.to_string());
-            state.timing.provider_wait_ms = Some(state.timing.started_at.elapsed().as_millis() as u64);
-            state.timing.total_elapsed_ms = Some(state.timing.started_at.elapsed().as_millis() as u64);
-
-            session_id = state.session_id.clone();
-            revision = state.revision;
-            timing = state.timing.clone();
-        }
-
-        // Notificar API. Com retry curto: a ConnectionSession acabou de ser
-        // criada (POST /connection-sessions) segundos antes — se esse PATCH
-        // bater num edge do Cloudflare que ainda não replicou a escrita no KV
-        // (consistência eventual, não imediata), a API responde
-        // SESSION_NOT_FOUND mesmo a sessão existindo de verdade. Sem retry,
-        // isso deixava a sessão travada em DEGRADED pra sempre — nenhum
-        // heartbeat depois disso corrige o hostIp/status nunca reportados, e
-        // ela só some (expira) da API central, sem o convidado nunca ver
-        // "online" de verdade. Descoberto testando o wake-on-demand, mas o
-        // race já existia antes disso, em qualquer início de hospedagem.
-        if let Some(sid) = session_id {
-            let mut timing_map = HashMap::new();
-            timing_map.insert("apiCallMs".into(), serde_json::json!(timing.api_call_ms));
-            timing_map.insert("providerStartMs".into(), serde_json::json!(timing.provider_start_ms));
-            timing_map.insert("providerWaitMs".into(), serde_json::json!(timing.provider_wait_ms));
-            timing_map.insert("totalElapsedMs".into(), serde_json::json!(timing.total_elapsed_ms));
-
-            const MAX_ATTEMPTS: u32 = 4;
-            let mut last_err = String::new();
-            let mut succeeded = false;
-            for attempt in 1..=MAX_ATTEMPTS {
-                match self.api.update_connection_session(
-                    &sid, "online", Some(host_ip), revision,
-                    None, Some(timing_map.clone()), None, None,
-                ).await {
-                    Ok(_) => { succeeded = true; break; }
-                    Err(e) if e.code == "STALE_WRITE" => {
-                        // Cada tentativa deste loop reusa a MESMA `revision` capturada
-                        // antes do laço, mas gera um requestId novo por chamada (ver
-                        // update_connection_session/generate_ids) — se a tentativa 1
-                        // tiver sido aplicada de verdade no servidor mas a resposta se
-                        // perdeu (timeout/rede), a tentativa 2 reenvia essa MESMA
-                        // revision, agora desatualizada, e o servidor rejeita com
-                        // STALE_WRITE (não é um erro transitório igual aos outros: é
-                        // exatamente o sinal de "isso já foi aplicado por outra
-                        // chamada"). Insistir com a mesma revision só repetiria esse
-                        // 409 pra sempre até esgotar as tentativas e cair em
-                        // DEGRADED — com o host 100% online de verdade. Trata como
-                        // sucesso em vez de reportar falha por algo que já aconteceu.
-                        succeeded = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_err = e.to_string();
-                        if attempt < MAX_ATTEMPTS {
-                            tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
-                        }
-                    }
-                }
-            }
-            if !succeeded {
-                // Se falhar ao notificar mesmo após as tentativas, entra em DEGRADED
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                state.status = SessionStatus::Degraded;
-                return Err(tr!("session.sidecarApiFailed", error = last_err));
-            }
-        }
-
-        // Incrementar revision
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.revision += 1;
-        }
-
         Ok(())
     }
 
@@ -451,34 +366,6 @@ impl SessionManager {
     }
 
     // ============================================================
-    // Enviar Heartbeat
-    // ============================================================
-
-    pub async fn send_heartbeat(&self, players: u32) -> Result<(), String> {
-        let (session_id, status) = {
-            let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            (state.session_id.clone(), state.status)
-        };
-
-        if status != SessionStatus::Online && status != SessionStatus::Degraded {
-            return Ok(()); // Só manda heartbeat se estiver ativa
-        }
-
-        if let Some(sid) = session_id {
-            let mut metrics = HashMap::new();
-            metrics.insert("currentPlayers".into(), serde_json::json!(players));
-
-            self.api.send_heartbeat(&sid, Some(metrics)).await
-                .map_err(|e| tr!("session.heartbeatFailed", error = e))?;
-
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.heartbeat_count += 1;
-        }
-
-        Ok(())
-    }
-
-    // ============================================================
     // Getters
     // ============================================================
 
@@ -505,9 +392,9 @@ impl SessionManager {
 // `ApiTransport` já é um trait (pensado pra HTTP/WebSocket/gRPC — ver
 // api_client.rs), então dá pra injetar um transporte roteirizado aqui e
 // testar exatamente o comportamento de retry do SessionManager sem
-// depender de rede/Tailscale/Worker de verdade. O que NÃO dá (e não deveria
+// depender de rede/Worker de verdade. O que NÃO dá (e não deveria
 // tentar) pra testar assim: subir o processo Java de verdade ou o sidecar
-// do Tailscale de verdade — isso continua sendo teste manual com duas
+// cubicase-link de verdade — isso continua sendo teste manual com duas
 // máquinas.
 #[cfg(test)]
 mod tests {
@@ -558,7 +445,7 @@ mod tests {
     fn connection_session_json(session_id: &str) -> serde_json::Value {
         serde_json::json!({
             "sessionId": session_id,
-            "launcher": "tsnet-v1",
+            "launcher": "link-v1",
             "launcherVersion": 1,
             "protocolVersion": 1,
             "credentials": {},
@@ -573,92 +460,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_online_retries_past_a_transient_session_not_found() {
-        // Regressão do incidente de 2026-09-14/15: a ConnectionSession
-        // tinha acabado de ser criada quando o PATCH pra "online" batia num
-        // edge do Cloudflare que ainda não via a escrita (KV é eventualmente
-        // consistente, não imediato) — sem retry, isso travava a sessão em
-        // DEGRADED pra sempre, sem o convidado nunca ver a rede "online".
-        // Simula exatamente essa falha transitória: as duas primeiras
-        // tentativas do PATCH falham, a terceira funciona.
-        let sm = session_manager_with(vec![
-            fake_ok(connection_session_json("sess-1")), // create_connection_session
-            fake_err("SESSION_NOT_FOUND", "not found"), // update_connection_session, tentativa 1
-            fake_err("SESSION_NOT_FOUND", "not found"), // tentativa 2
-            fake_ok(serde_json::json!({})),             // tentativa 3 — sucesso
-        ]);
+    async fn start_then_set_online_local_succeeds_without_extra_api_calls() {
+        // Único transporte: o P2P. Depois de criar a sessão, ficar online só avança o estado local
+        // (a presença do host é a sala de sinalização) — nenhuma chamada extra à API.
+        let sm = session_manager_with(vec![fake_ok(connection_session_json("sess-3"))]);
 
         sm.start("ABCDEF", "host", 25565).await.expect("start deveria funcionar");
         sm.set_waiting_provider().expect("set_waiting_provider deveria funcionar");
-        let result = sm.set_online("100.64.0.1").await;
-
-        assert!(result.is_ok(), "set_online deveria ter se recuperado após retries: {:?}", result);
-        assert_eq!(sm.get_status(), SessionStatus::Online);
-    }
-
-    #[tokio::test]
-    async fn set_online_degrades_after_exhausting_retries() {
-        // O mesmo cenário, mas a falha não é transitória (persiste em todas
-        // as tentativas) — precisa continuar caindo em DEGRADED de verdade,
-        // não travar num loop nem reportar sucesso falso.
-        let sm = session_manager_with(vec![
-            fake_ok(connection_session_json("sess-2")),
-            fake_err("SESSION_NOT_FOUND", "not found"),
-            fake_err("SESSION_NOT_FOUND", "not found"),
-            fake_err("SESSION_NOT_FOUND", "not found"),
-            fake_err("SESSION_NOT_FOUND", "not found"),
-        ]);
-
-        sm.start("ABCDEF", "host", 25565).await.expect("start deveria funcionar");
-        sm.set_waiting_provider().expect("set_waiting_provider deveria funcionar");
-        let result = sm.set_online("100.64.0.1").await;
-
-        assert!(result.is_err());
-        assert_eq!(sm.get_status(), SessionStatus::Degraded);
-    }
-
-    #[tokio::test]
-    async fn set_online_treats_stale_write_as_success_instead_of_degrading() {
-        // Achado de pré-lançamento: cada tentativa deste retry reenvia a MESMA
-        // `revision` capturada antes do laço — se a tentativa 1 tiver sido
-        // aplicada de verdade no servidor mas a resposta se perder (timeout,
-        // conexão instável), o servidor já avançou a revision sozinho, e
-        // qualquer retry subsequente com a revision antiga toma STALE_WRITE.
-        // Sem tratar esse código especificamente, isso insistia com a mesma
-        // revision já ultrapassada até esgotar as 4 tentativas e cair em
-        // DEGRADED — mesmo com o host 100% online de verdade. Simula
-        // exatamente isso: a ÚNICA tentativa de update retorna STALE_WRITE
-        // (nunca SESSION_NOT_FOUND nem timeout) — se o código tratasse isso
-        // como um erro comum, não haveria resposta roteirizada suficiente
-        // pras 3 tentativas restantes e o teste falharia com "EXHAUSTED".
-        let sm = session_manager_with(vec![
-            fake_ok(connection_session_json("sess-stale")),
-            fake_err("STALE_WRITE", "revision desatualizada"),
-        ]);
-
-        sm.start("ABCDEF", "host", 25565).await.expect("start deveria funcionar");
-        sm.set_waiting_provider().expect("set_waiting_provider deveria funcionar");
-        let result = sm.set_online("100.64.0.1").await;
-
-        assert!(result.is_ok(), "STALE_WRITE deveria ser tratado como sucesso: {:?}", result);
-        assert_eq!(sm.get_status(), SessionStatus::Online);
-    }
-
-    #[tokio::test]
-    async fn start_then_set_online_succeeds_on_first_try() {
-        // Caminho feliz, sem nenhuma falha — garante que o retry novo não
-        // atrapalha (nem atrasa) o caso comum.
-        let sm = session_manager_with(vec![
-            fake_ok(connection_session_json("sess-3")),
-            fake_ok(serde_json::json!({})),
-        ]);
-
-        sm.start("ABCDEF", "host", 25565).await.expect("start deveria funcionar");
-        sm.set_waiting_provider().expect("set_waiting_provider deveria funcionar");
-        sm.set_online("100.64.0.1").await.expect("set_online deveria funcionar de primeira");
+        sm.set_online_local().expect("set_online_local deveria funcionar");
 
         assert_eq!(sm.get_status(), SessionStatus::Online);
         assert_eq!(sm.get_session_id(), Some("sess-3".to_string()));
+        assert!(sm.is_link());
     }
 }
 #[cfg(test)]

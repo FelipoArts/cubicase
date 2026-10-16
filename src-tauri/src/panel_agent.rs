@@ -3,7 +3,7 @@
 // ============================================================
 // Ver plans/remote-web-panel-plan.md para o desenho completo. Este módulo é
 // o lado "agent" do protocolo: conecta (sempre de dentro pra fora, contorna
-// CGNAT/firewall igual ao tsnet) no Durable Object HostChannel do Worker
+// CGNAT/firewall, como o cubicase-link) no Durable Object HostChannel do Worker
 // (api/src/durable-objects/host-channel.ts), envia status/console/lista de
 // servidores locais/métricas de CPU-RAM em tempo real, e agora também
 // executa comandos vindos do painel (Fase 2 — ver handle_incoming_message):

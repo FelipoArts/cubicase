@@ -890,10 +890,10 @@ fn crop_and_resize_icon_always_outputs_64x64_square() {
 fn connection_session_response_parses_camel_case_payload() {
     let payload = serde_json::json!({
         "sessionId": "sess_abc123",
-        "launcher": "tsnet-v1",
+        "launcher": "link-v1",
         "launcherVersion": 1,
         "protocolVersion": 1,
-        "credentials": { "authKey": "tskey-auth-xxx", "hostname": "cf-host-e4595926" },
+        "credentials": { "signalUrl": "wss://x/ws", "signalToken": "t", "peerId": "sess_abc123" },
         "leaseDurationMs": 60000,
         "expiresAt": "2026-09-09T00:00:00Z",
     });
@@ -1171,8 +1171,8 @@ fn modo_privado_recusado_pela_api_e_reconhecido_nos_dois_idiomas() {
 fn estado_do_relay_vem_das_credenciais_da_sessao() {
     let quota = serde_json::json!({ "relay": "quota", "ice": { "stunUrls": [] } });
     assert_eq!(relay_state_from_credentials(&quota).as_deref(), Some("quota"));
-    // Servidor antigo (sem o campo) ou sessão Tailscale: nada a informar.
-    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "authKey": "k" })), None);
+    // Servidor antigo (sem o campo): nada a informar.
+    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "peerId": "k" })), None);
     assert_eq!(relay_state_from_credentials(&serde_json::json!({ "relay": 3 })), None);
 }
 

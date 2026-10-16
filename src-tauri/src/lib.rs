@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use sysinfo::{System, Pid};
 
 // Módulos da arquitetura de rede: a API central atua como "controlador" —
-// decide o provedor (Tailscale via tsnet) e minta credenciais de curta duração
+// decide o provedor (hoje o P2P, cubicase-link) e emite as credenciais de curta duração
 // por sessão; o desktop só executa (ver ProviderManager) e reporta ciclo de
 // vida (SessionManager).
 #[macro_use]
@@ -134,7 +134,7 @@ fn log_to_file(app: &tauri::AppHandle, message: &str) {
 
 #[derive(Default)]
 struct AppState {
-    // Processo sidecar do Tailscale (tsnet-node)
+    // Processo sidecar de rede (cubicase-link)
     sidecar_process: Mutex<Option<CommandChild>>,
     is_mock_active: Mutex<bool>,
 
@@ -164,9 +164,6 @@ struct AppState {
     minecraft_process: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
     minecraft_stdin: Mutex<Option<Box<dyn std::io::Write + Send>>>,
     
-    // Transporte de rede usado quando ESTE app hospeda: "tailscale" (padrão) ou "link" (P2P, beta).
-    // O convidado não escolhe: segue o que o host publica (ver start_network_node).
-    network_transport: Mutex<String>,
     // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
     private_mode: AtomicBool,
 
@@ -211,8 +208,8 @@ struct AppState {
     active_server_dir: Arc<Mutex<Option<String>>>,
 
     // ConnectionSession ativa (host ou guest) na rede mesh — dono do session_id
-    // usado para heartbeat e para encerrar/revogar a credencial do Tailscale no
-    // fim (ver stop_network_node_internal e graceful_shutdown_and_exit). None
+    // usado para encerrar a sessão no fim (ver stop_network_node_internal e
+    // graceful_shutdown_and_exit). None
     // quando não há nó de rede ativo ou quando o provedor ativo é o Mock local
     // (que não fala com a API central).
     active_session_manager: Mutex<Option<Arc<SessionManager>>>,
@@ -363,9 +360,6 @@ fn map_sidecar_error_code(code: &str, detail: &str) -> (String, String) {
             tr!("sidecar.config.title"),
             tr!("sidecar.config.message"),
         ),
-        "mesh_auth_failed" => (tr!("sidecar.auth.title"), tr!("sidecar.auth.message")),
-        "no_ip_assigned" => (tr!("sidecar.noIp.title"), tr!("sidecar.noIp.message")),
-        "listen_mesh_failed" => (tr!("sidecar.listenMesh.title"), tr!("sidecar.listenMesh.message")),
         "listen_local_failed" => (
             tr!("sidecar.listenLocal.title"),
             tr!("sidecar.listenLocal.message", detail = detail),
@@ -428,11 +422,9 @@ async fn start_network_node_impl(
     state: tauri::State<'_, AppState>,
     mode: String,
     short_code: String,
-    target_ip: Option<String>,
     local_port: u16,
-    launcher: Option<String>,
 ) -> Result<(), String> {
-    log_to_file(&app, &format!("=== INÍCIO DE CONEXÃO (Modo: {}, shortCode: {}, Porta Local: {}, IP Alvo: {:?}) ===", mode, short_code, local_port, target_ip));
+    log_to_file(&app, &format!("=== INÍCIO DE CONEXÃO (Modo: {}, shortCode: {}, Porta Local: {}) ===", mode, short_code, local_port));
 
     // 0. Recusar troca de papel com um nó de outro modo ainda ativo. Hospedar
     // e entrar como convidado ao mesmo tempo NÃO é suportado nesta mesma
@@ -463,7 +455,7 @@ async fn start_network_node_impl(
 
     // 2. Opt-in de desenvolvimento: se existir um `network_session.json` local
     // com "provider":"mock", usa o provedor simulado direto, sem tocar na API
-    // central nem no Tailscale (ver CLAUDE.md — Mock provider). É a ÚNICA
+    // central (ver CLAUDE.md — Mock provider). É a ÚNICA
     // função desse arquivo agora; ele nunca mais serve de fallback silencioso
     // para credenciais reais (isso causava falhas incompreensíveis fora da
     // máquina de dev, já que o arquivo nunca vai para o instalador).
@@ -524,15 +516,9 @@ async fn start_network_node_impl(
     *state.active_session_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(session_manager.clone());
 
     log_to_file(&app, "[start_network_node] Solicitando ConnectionSession à API central...");
-    // Transporte: o host usa a preferência do app; o convidado segue o que o host publica
-    // (a descoberta devolve o launcher do host — host e convidado precisam falar o mesmo).
-    let want_link = if mode == "host" {
-        state.network_transport.lock().unwrap_or_else(|e| e.into_inner()).as_str() == "link"
-    } else {
-        launcher.as_deref() == Some("link-v1")
-    };
-    let launcher_arg = if want_link { Some("link-v1") } else { None };
-    let relay_only = want_link && mode == "host" && state.private_mode.load(Ordering::SeqCst);
+    // Único transporte: P2P (cubicase-link). A API recusa pedidos sem este launcher (apps antigos).
+    let launcher_arg = Some("link-v1");
+    let relay_only = mode == "host" && state.private_mode.load(Ordering::SeqCst);
     let mut started = session_manager.start_with_relay(&short_code, &mode, local_port, launcher_arg, relay_only).await;
     // O modo privado é do Plus. Se a assinatura venceu (ou o login expirou) a API recusa: em vez de
     // impedir de hospedar, hospeda no modo normal e avisa — o app deve sempre ajudar, nunca travar.
@@ -552,8 +538,8 @@ async fn start_network_node_impl(
     if let Some(relay) = relay_state_from_credentials(&session_resp.credentials) {
         let _ = app.emit("relay-status", RelayStatusPayload { state: relay });
     }
-    if want_link && session_resp.launcher != "link-v1" && mode == "guest" {
-        // O host usa o P2P mas a API devolveu outro provedor (versão antiga do servidor): não há como conectar.
+    if session_resp.launcher != "link-v1" {
+        // A API devolveu outro provedor (servidor mais antigo que o app): não há como conectar.
         let msg = tr!("net.link.unsupported");
         log_to_file(&app, &msg);
         return Err(msg);
@@ -564,11 +550,11 @@ async fn start_network_node_impl(
     })?;
 
     // 4. Executar via ProviderManager (sabe qual sidecar iniciar a partir de
-    // `session.launcher` — hoje só "tsnet-v1" — sem o desktop precisar saber o
+    // `session.launcher` — hoje só "link-v1" — sem o desktop precisar saber o
     // formato das credenciais, que continuam opacas aqui).
     log_to_file(&app, &format!("Iniciando provedor (launcher: {})...", session_resp.launcher));
     let provider_manager = ProviderManager::new();
-    let (child, mut rx) = provider_manager.start_provider(&app, &session_resp, &mode, local_port, target_ip.as_deref()).await.map_err(|e| {
+    let (child, mut rx) = provider_manager.start_provider(&app, &session_resp, &mode, local_port).await.map_err(|e| {
         log_to_file(&app, &format!("Erro ao iniciar provedor: {}", e));
         e
     })?;
@@ -628,42 +614,10 @@ async fn start_network_node_impl(
                                             ip: ip_str.clone(),
                                         });
 
-                                        // Reportar "online" à API central (popula hostIp real —
-                                        // é o que permite um convidado descobrir este host depois)
-                                        // e manter a ConnectionSession viva com heartbeats
-                                        // periódicos até a sessão sair de Online/Degraded.
-                                        if let Some(ip) = ip_str {
-                                            let sm = session_manager_events.clone();
-                                            let app_for_hb = app_clone.clone();
-                                            tauri::async_runtime::spawn(async move {
-                                                // Transporte P2P: a presença do host é a própria sala de sinalização — sem PATCH de
-                                                // hostIp nem heartbeats de 60 s para a API (só o estado local avança para Online).
-                                                if sm.is_link() {
-                                                    if let Err(e) = sm.set_online_local() {
-                                                        log_to_file(&app_for_hb, &format!("[SessionManager] Estado local da sessão P2P: {}", e));
-                                                    }
-                                                    return;
-                                                }
-                                                if let Err(e) = sm.set_online(&ip).await {
-                                                    log_to_file(&app_for_hb, &format!("[SessionManager] Falha ao reportar online: {}", e));
-                                                }
-                                                loop {
-                                                    tokio::time::sleep(Duration::from_secs(60)).await;
-                                                    let status = sm.get_status();
-                                                    if status != session_manager::SessionStatus::Online
-                                                        && status != session_manager::SessionStatus::Degraded
-                                                    {
-                                                        break;
-                                                    }
-                                                    let player_count = app_for_hb.state::<AppState>()
-                                                        .minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).len() as u32;
-                                                    let _ = sm.send_heartbeat(player_count).await;
-
-                                                    // O auto-shutdown por inatividade do wake-on-demand mora no
-                                                    // supervisor da hospedagem (hosting.rs) — funciona mesmo com a
-                                                    // rede fora do ar, e para tudo na ordem certa.
-                                                }
-                                            });
+                                        // Transporte P2P: a presença do host é a própria sala de sinalização — sem PATCH à API
+                                        // nem heartbeats; só o estado local da sessão avança para Online.
+                                        if let Err(e) = session_manager_events.set_online_local() {
+                                            log_to_file(&app_clone, &format!("[SessionManager] Estado local da sessão P2P: {}", e));
                                         }
                                     }
                                 }
@@ -734,13 +688,7 @@ async fn start_network_node_impl(
                             }
                         }
 
-                        // Filtrar logs técnicos poluídos do Tailscale na interface, repassando logs informativos
-                        let display_message = if trimmed.contains("magicsock:") || trimmed.contains("control:") || trimmed.contains("derp:") {
-                            // Suprime logs muito detalhados de debug do Tailscale
-                            "".to_string()
-                        } else {
-                            friendly_sidecar_line(trimmed)
-                        };
+                        let display_message = friendly_sidecar_line(trimmed);
 
                         if !display_message.is_empty() {
                             let _ = app_clone.emit("network-log", NetworkLogPayload {
@@ -846,15 +794,13 @@ async fn start_network_node_with_retry(
     app: tauri::AppHandle,
     mode: String,
     short_code: String,
-    target_ip: Option<String>,
     local_port: u16,
-    launcher: Option<String>,
 ) -> Result<(), String> {
     let mut result: Result<(), String> = Err(tr!("err.neverTried"));
     for attempt in 1..=NETWORK_MAX_ATTEMPTS {
         result = match tokio::time::timeout(
             NETWORK_TIMEOUT,
-            start_network_node_impl(app.clone(), app.state::<AppState>(), mode.clone(), short_code.clone(), target_ip.clone(), local_port, launcher.clone()),
+            start_network_node_impl(app.clone(), app.state::<AppState>(), mode.clone(), short_code.clone(), local_port),
         ).await {
             Ok(inner_result) => inner_result,
             Err(_) => Err(tr!("err.networkTimeout", seconds = NETWORK_TIMEOUT.as_secs(), attempt = attempt, max = NETWORK_MAX_ATTEMPTS)),
@@ -906,21 +852,9 @@ async fn start_network_node(
     app: tauri::AppHandle,
     mode: String,
     short_code: String,
-    target_ip: Option<String>,
     local_port: u16,
-    launcher: Option<String>,
 ) -> Result<(), String> {
-    start_network_node_with_retry(app, mode, short_code, target_ip, local_port, launcher).await
-}
-
-/// Define o transporte de rede usado quando este app hospeda: "tailscale" (padrão) ou "link" (P2P, beta).
-#[tauri::command]
-fn set_network_transport(state: tauri::State<'_, AppState>, transport: String) -> Result<(), String> {
-    if transport != "tailscale" && transport != "link" {
-        return Err(format!("transporte inválido: {}", transport));
-    }
-    *state.network_transport.lock().unwrap_or_else(|e| e.into_inner()) = transport;
-    Ok(())
+    start_network_node_with_retry(app, mode, short_code, local_port).await
 }
 
 /// Liga/desliga o modo privado (só vale para o P2P) e entrega o token atual da conta, que a API usa
@@ -1019,32 +953,16 @@ async fn stop_network_node_internal(
     }
 
     // 2. Encerrar a ConnectionSession ativa (se houver): notifica a API central,
-    // que revoga a credencial do Tailscale (device já conectado ou key ainda
-    // não usada — ver handleDeleteConnectionSession no Worker) em vez de
-    // esperar a limpeza automática de nós efêmeros, que tem atraso. Usa
+    // que apaga a sessão (ver handleDeleteConnectionSession no Worker). Usa
     // `cleanup()` (best-effort, sem validar estado) em vez de `stop()` porque
     // este caminho também roda no início de todo novo `start_network_node` —
     // pode encontrar a sessão em qualquer estado, inclusive ainda conectando.
-    let session_id_ended = {
-        let sm_opt = state.active_session_manager.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(sm) = sm_opt {
-            let sid = sm.get_session_id();
-            sm.cleanup().await;
-            sid
-        } else {
-            None
-        }
-    };
-    if let Some(sid) = session_id_ended {
-        if let Ok(data_dir) = app.path().app_local_data_dir() {
-            let per_session_config = data_dir.join(format!("tsnet_{}.json", sid));
-            if per_session_config.exists() {
-                let _ = std::fs::remove_file(&per_session_config);
-            }
-        }
+    let sm_opt = state.active_session_manager.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(sm) = sm_opt {
+        sm.cleanup().await;
     }
 
-    // 3. Tratar limpeza do processo do provedor Tailscale
+    // 3. Tratar limpeza do processo do provedor (sidecar)
     // Mesmo padrão: extrair e liberar o guard antes de qualquer operação assíncrona
     let child_to_kill = {
         let mut process = state.sidecar_process.lock().unwrap_or_else(|e| e.into_inner());
@@ -1065,15 +983,7 @@ async fn stop_network_node_internal(
         wait_for_process_exit(pid, Duration::from_millis(1500)).await;
     }
 
-    // 4. Remover arquivo JSON de credenciais temporárias do Tailscale (formato
-    // antigo, de uso único fixo — mantido por segurança caso algo ainda o crie)
-    let data_dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-    let config_path = data_dir.join("tsnet_config.json");
-    if config_path.exists() {
-        let _ = std::fs::remove_file(&config_path);
-    }
-
-    // 5. Emitir status offline apenas se havia um processo rodando
+    // 4. Emitir status offline apenas se havia um processo rodando
     //    (evita resetar isStarting no frontend durante start_network_node)
     if had_child {
         let _ = app.emit("network-status", NetworkStatusPayload {
@@ -4355,15 +4265,15 @@ async fn extract_modpack_overrides(zip_path: String, dest_dir: String, overrides
 //   validação de path em handle_mods_file.
 // - GET /status                                        → health check
 //
-// O sidecar Go é o único consumidor: ele escuta em :25566 na interface
-// virtual do Tailscale (tsnet, sem stack de rede real — só outros peers da
-// mesh chegam ali) e faz proxy dessas rotas para cá. Deliberadamente NÃO
+// O sidecar Go (cubicase-link) é o único consumidor: ele recebe essas requisições
+// pelos DataChannels do P2P (só convidados autenticados na sala chegam ali) e faz
+// proxy dessas rotas para cá. Deliberadamente NÃO
 // existe:
 //
 // - Um listener em 0.0.0.0: escutar em todas as interfaces expunha isso pra
-//   qualquer um na mesma rede local/Wi-Fi, não só pra quem está na mesh
-//   privada — o Tailscale já roteia peers autorizados até o listener do Go,
-//   não precisa (e não deve) haver um caminho de rede alternativo direto.
+//   qualquer um na mesma rede local/Wi-Fi, não só pra quem está conectado pelo
+//   P2P — o sidecar já entrega só o tráfego dos peers autorizados, não precisa
+//   (e não deve) haver um caminho de rede alternativo direto.
 // - Rotas de escrita (update/remove) ou listagem completa (/list) por HTTP:
 //   quem precisa mutar o registro é sempre o próprio host, em processo, via
 //   os comandos Tauri `update_server_registry`/`remove_server_registry` —
@@ -4985,7 +4895,7 @@ async fn remove_server_registry(
 
 /// Comando Tauri: descobre informações de um servidor pelo código de convite completo.
 /// O guest chama este comando APÓS conectar na mesh para obter metadados.
-/// Faz uma requisição HTTP para o host via Tailscale (porta 25566).
+/// Faz uma requisição HTTP para o host pelo túnel P2P (porta 25566).
 /// O sidecar Go extrai o shortCode e consulta o registro do Rust.
 ///
 /// Inclui retry automático com backoff para dar tempo do servidor HTTP iniciar.
@@ -5908,7 +5818,7 @@ async fn regenerate_server_code(
 // ============================================================
 // Enquanto armado, este host manda uma heartbeat leve de "sleeping" pro
 // Worker a cada poucos segundos (send_sleep_heartbeat) SEM subir Java nem a
-// malha Tailscale — só quando a resposta trouxer wakeRequested:true (um
+// rede P2P — só quando a resposta trouxer wakeRequested:true (um
 // convidado pediu pra entrar, ver POST /servers/{sc}/wake no Worker) é que
 // wake_from_sleep sobe os dois de verdade. O auto-shutdown por inatividade
 // mora dentro do loop de heartbeat "online" já existente (ver mais abaixo,
@@ -6169,9 +6079,8 @@ fn cancel_idle_shutdown(app: tauri::AppHandle) {
 // (SessionEntity simples, sem Tailscale) que a UI mantinha via timer JS. O
 // ciclo de vida real agora é o ConnectionSession (ver session_manager.rs),
 // conduzido pelo Rust a partir dos eventos do sidecar em start_network_node —
-// dispara "online" com o IP real assim que a malha conecta, envia heartbeats
-// periódicos e encerra/revoga a credencial do Tailscale no fim (ver
-// stop_network_node_internal e graceful_shutdown_and_exit). Os endpoints
+// marca "online" localmente quando o P2P conecta e encerra a sessão no fim
+// (ver stop_network_node_internal e graceful_shutdown_and_exit). Os endpoints
 // legados que essas funções chamavam (`/sessions`, PATCH via heartbeat) já
 // nem existem mais no Worker. `execute_create_session`/`execute_update_session`/
 // `execute_delete_session`/`execute_heartbeat` continuam existindo só para não
@@ -6249,10 +6158,11 @@ async fn get_sync_telemetry(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Shutdown gracioso completo: para o servidor Minecraft, encerra o sidecar
-/// Tailscale, notifica a API Central e então finaliza o processo do app de vez.
+/// de rede, notifica a API Central e então finaliza o processo do app de vez.
 /// Só é chamado a partir do "Sair" do tray — fechar a janela (X) agora apenas
 /// esconde o app para o system tray, mantendo servidor e rede mesh no ar.
-/// Apaga arquivos tsnet_*.json do AppData (configs temporárias do sidecar, com a auth key da sessão).
+/// Apaga restos de versões anteriores: arquivos tsnet_*.json do AppData (configs temporárias do
+/// sidecar do Tailscale, que guardavam uma auth key). A versão atual não cria mais nenhum.
 fn remove_stale_sidecar_configs(data_dir: &std::path::Path) {
   if let Ok(entries) = std::fs::read_dir(data_dir) {
     for entry in entries.flatten() {
@@ -6318,29 +6228,22 @@ async fn graceful_shutdown_and_exit(app: tauri::AppHandle) {
     }
   }
 
-  // 2. Parar sidecar Tailscale
+  // 2. Parar o sidecar de rede
   {
     let state_ref = app.state::<AppState>();
     let mut process = state_ref.sidecar_process.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(child) = process.take() {
-      log_to_file(&app, "[SHUTDOWN] Encerrando sidecar Tailscale.");
+      log_to_file(&app, "[SHUTDOWN] Encerrando sidecar de rede.");
       let _ = child.kill();
     }
   }
 
-  // 3. Remover arquivo JSON temporário do Tailscale
+  // 3. Limpar restos de configs antigas do sidecar do Tailscale (versões anteriores)
   if let Ok(data_dir) = app.path().app_local_data_dir() {
-    let config_path = data_dir.join("tsnet_config.json");
-    if config_path.exists() {
-      let _ = std::fs::remove_file(&config_path);
-    }
-    // Configs por sessão (tsnet_<id>.json, contêm a auth key): só eram apagadas no stop normal.
     remove_stale_sidecar_configs(&data_dir);
   }
 
-  // 4. Encerrar a ConnectionSession ativa (se houver) — revoga a credencial do
-  // Tailscale (device ou key não usada) em vez de deixar o nó pendurado até a
-  // limpeza automática de efêmeros. Best-effort: não deve travar o fechamento
+  // 4. Encerrar a ConnectionSession ativa (se houver). Best-effort: não deve travar o fechamento
   // em caso de rede lenta/indisponível (ver session_manager::cleanup).
   {
     let sm_opt = {
@@ -6561,7 +6464,6 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
        set_locale,
        start_network_node,
-       set_network_transport,
        set_private_mode,
        stop_network_node,
        add_minecraft_server_entry,

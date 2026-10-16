@@ -1,5 +1,5 @@
 // Job Object do Windows: garante que os processos filhos (java.exe do servidor
-// Minecraft, sidecar tsnet-node) morram junto se o processo principal do Cubicase
+// Minecraft, sidecar cubicase-link) morram junto se o processo principal do Cubicase
 // morrer — seja por fechamento normal, seja por ser finalizado à força pelo
 // Gerenciador de Tarefas. Sem isso, finalizar o processo do app pelo Gerenciador
 // de Tarefas deixaria esses filhos órfãos rodando escondidos em segundo plano.

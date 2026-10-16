@@ -21,40 +21,25 @@ macro_rules! messages {
 messages! {
     // ---------- Tray ----------
     "tray.show" => ("Abrir Cubicase", "Open Cubicase"),
-    "tray.quit" => ("Sair (encerra servidor e rede mesh)", "Quit (stops the server and mesh network)"),
+    "tray.quit" => ("Sair (encerra servidor e conexão)", "Quit (stops the server and the connection)"),
 
     // ---------- Erros do sidecar de rede (título + mensagem) ----------
     "sidecar.config.title" => ("Configuração de rede inválida", "Invalid network configuration"),
     "sidecar.config.message" => (
-        "Não foi possível ler a configuração da rede mesh. Tente reiniciar o app; se persistir, reinstale o Cubicase.",
-        "Couldn't read the mesh network configuration. Try restarting the app; if it persists, reinstall Cubicase."
-    ),
-    "sidecar.auth.title" => ("Falha de autenticação na rede mesh", "Mesh network authentication failed"),
-    "sidecar.auth.message" => (
-        "Não foi possível autenticar na rede mesh (Tailscale). Verifique sua conexão com a internet e tente novamente.",
-        "Couldn't authenticate with the mesh network (Tailscale). Check your internet connection and try again."
-    ),
-    "sidecar.noIp.title" => ("Nenhum IP atribuído pela rede mesh", "No IP assigned by the mesh network"),
-    "sidecar.noIp.message" => (
-        "A rede mesh não atribuiu um endereço para este dispositivo. Tente reconectar em alguns instantes.",
-        "The mesh network didn't assign an address to this device. Try reconnecting in a few moments."
-    ),
-    "sidecar.listenMesh.title" => ("Falha ao abrir a porta na rede mesh", "Failed to open the port on the mesh network"),
-    "sidecar.listenMesh.message" => (
-        "Não foi possível abrir a porta do servidor na rede mesh. Tente reconectar; se persistir, pode haver conflito de hostname na malha.",
-        "Couldn't open the server port on the mesh network. Try reconnecting; if it persists, there may be a hostname conflict on the mesh."
+        "Não foi possível ler a configuração da conexão. Tente reiniciar o app; se persistir, reinstale o Cubicase.",
+        "Couldn't read the connection configuration. Try restarting the app; if it persists, reinstall Cubicase."
     ),
     "sidecar.listenLocal.title" => ("Porta local já em uso", "Local port already in use"),
     "sidecar.listenLocal.message" => (
         "Não foi possível abrir a porta local necessária para a conexão — provavelmente já está em uso por outro programa. Detalhe técnico: {detail}",
         "Couldn't open the local port needed for the connection — it's probably already in use by another program. Technical detail: {detail}"
     ),
-    "sidecar.other.title" => ("Erro inesperado na rede mesh", "Unexpected mesh network error"),
+    "sidecar.other.title" => ("Erro inesperado na conexão", "Unexpected connection error"),
     "sidecar.other.code" => ("Código: {code}", "Code: {code}"),
     "sidecar.hostUnreachable.title" => ("Conexão com o host instável", "Unstable connection to the host"),
     "sidecar.hostUnreachable.message" => (
-        "Não estamos conseguindo alcançar o host na rede mesh há um tempo — a conexão pode ter caído ou o host pode ter ficado offline. O túnel continua tentando se recuperar sozinho; se persistir, peça para o host verificar a rede mesh dele.",
-        "We haven't been able to reach the host on the mesh network for a while — the connection may have dropped or the host may have gone offline. The tunnel keeps trying to recover on its own; if it persists, ask the host to check their mesh network."
+        "Não estamos conseguindo alcançar o host há um tempo — a conexão pode ter caído ou o host pode ter ficado offline. O app continua tentando se recuperar sozinho; se persistir, peça para o host verificar a internet dele.",
+        "We haven't been able to reach the host for a while — the connection may have dropped or the host may have gone offline. The app keeps trying to recover on its own; if it persists, ask the host to check their internet."
     ),
     "sidecar.roomFull.title" => ("Servidor lotado", "Server is full"),
     "sidecar.roomFull.message" => (
@@ -76,31 +61,31 @@ messages! {
         "Não foi possível abrir a porta local usada para sincronizar mods (provavelmente em uso por outro programa). O jogo em si não é afetado.",
         "Couldn't open the local port used to sync mods (probably in use by another program). The game itself is not affected."
     ),
-    "sidecar.warn.title" => ("Aviso na rede mesh", "Mesh network warning"),
+    "sidecar.warn.title" => ("Aviso na conexão", "Connection warning"),
 
     // ---------- Rede ----------
     "net.roleConflict" => (
-        "Esta instalação já está com a rede mesh ativa como \"{active}\". Pare-a antes de conectar como \"{requested}\". Se quiser jogar no seu próprio servidor a partir deste mesmo computador, conecte direto em localhost:{port} — não precisa (e não é suportado) usar o modo Convidado para isso.",
-        "This installation already has the mesh network active as \"{active}\". Stop it before connecting as \"{requested}\". If you want to play on your own server from this same computer, connect straight to localhost:{port} — you don't need to (and can't) use Guest mode for that."
+        "Esta instalação já está com a conexão ativa como \"{active}\". Pare-a antes de conectar como \"{requested}\". Se quiser jogar no seu próprio servidor a partir deste mesmo computador, conecte direto em localhost:{port} — não precisa (e não é suportado) usar o modo Convidado para isso.",
+        "This installation already has the connection active as \"{active}\". Stop it before connecting as \"{requested}\". If you want to play on your own server from this same computer, connect straight to localhost:{port} — you don't need to (and can't) use Guest mode for that."
     ),
     "net.role.host" => ("Host", "Host"),
     "net.role.guest" => ("Convidado", "Guest"),
     "net.credentialsFailed" => ("Não foi possível obter credenciais de rede: {error}", "Couldn't get network credentials: {error}"),
     "net.link.unsupported" => (
-        "O host usa a nova conexão direta (P2P), mas o servidor do Cubicase ainda não oferece esse modo. Peça ao host para voltar ao modo padrão nas Configurações.",
-        "The host uses the new direct (P2P) connection, but the Cubicase server doesn't offer that mode yet. Ask the host to switch back to the standard mode in Settings."
+        "O servidor do Cubicase ainda não está atualizado para esta versão do app. Tente de novo em alguns minutos.",
+        "The Cubicase server isn't updated for this version of the app yet. Try again in a few minutes."
     ),
     "provider.link.incomplete" => ("As credenciais da conexão P2P vieram incompletas. Tente novamente.", "The P2P connection credentials came back incomplete. Try again."),
-    "net.hostReconnected" => ("Conexão com o host da malha restabelecida.", "Connection to the mesh host restored."),
-    "net.meshDisconnected" => ("Rede mesh desconectada.", "Mesh network disconnected."),
+    "net.hostReconnected" => ("Conexão com o host restabelecida.", "Connection to the host restored."),
+    "net.meshDisconnected" => ("Conexão desconectada.", "Connection disconnected."),
     "net.closed" => ("Conexão de rede encerrada: {title} (ver Central de Diagnósticos)", "Network connection closed: {title} (see the Diagnostics Center)"),
     "net.closedUnexpected" => ("Conexão de rede encerrada inesperadamente (Código: {code})", "Network connection closed unexpectedly (Code: {code})"),
-    "net.mock.authenticating" => ("[mock-provider] Autenticando nó virtual de rede mesh simulado...", "[mock-provider] Authenticating the simulated mesh network virtual node..."),
+    "net.mock.authenticating" => ("[mock-provider] Autenticando nó virtual simulado...", "[mock-provider] Authenticating the simulated virtual node..."),
     "net.mock.registered" => ("[mock-provider] Nó registrado com IP virtual simulado: {ip}", "[mock-provider] Node registered with simulated virtual IP: {ip}"),
     "net.mock.starting" => ("[mock-provider] Inicializando provedor de testes (Mock)...", "[mock-provider] Starting the test provider (Mock)..."),
     "net.mock.proxy" => ("[mock-provider] Proxy reverso simulado escutando em localhost:{port}", "[mock-provider] Simulated reverse proxy listening on localhost:{port}"),
     "net.mock.stopping" => ("[mock-provider] Finalizando sessão simulada...", "[mock-provider] Ending the simulated session..."),
-    "net.mock.stopped" => ("[mock-provider] Rede mesh simulada encerrada.", "[mock-provider] Simulated mesh network stopped."),
+    "net.mock.stopped" => ("[mock-provider] Rede simulada encerrada.", "[mock-provider] Simulated network stopped."),
 
     // ---------- Arquivos / launcher / instalação ----------
     "err.serverMustBeStopped" => (
@@ -234,15 +219,12 @@ messages! {
     "session.invalidTransition" => ("Transição inválida: {from} → {to}", "Invalid transition: {from} → {to}"),
     "session.busy" => ("Já existe uma operação em andamento. Pare a sessão atual antes de iniciar outra.", "An operation is already in progress. Stop the current session before starting another one."),
     "session.internal" => ("Erro interno: {error}", "Internal error: {error}"),
-    "session.sidecarApiFailed" => ("Sidecar online, mas API falhou: {error}", "Sidecar online, but the API failed: {error}"),
-    "session.heartbeatFailed" => ("Heartbeat falhou: {error}", "Heartbeat failed: {error}"),
     "api.requestFailed" => ("Falha na requisição: {error}", "Request failed: {error}"),
     "api.parseFailed" => ("Falha ao parsear resposta: {error}", "Failed to parse the response: {error}"),
     "api.noData" => ("Resposta da API não contém 'data'", "The API response has no 'data'"),
     "api.sessionDeserialize" => ("Falha ao desserializar sessão: {error}", "Failed to deserialize the session: {error}"),
     "api.noDataShort" => ("Resposta não contém 'data'", "The response has no 'data'"),
     "provider.launcherUnsupported" => ("Launcher '{launcher}' não é suportado pelo ProviderManager.", "Launcher '{launcher}' isn't supported by the ProviderManager."),
-    "provider.noAuthKey" => ("Credenciais não contêm 'authKey'", "Credentials don't contain 'authKey'"),
     "provider.dataDir" => ("Erro ao obter data_dir: {error}", "Error getting data_dir: {error}"),
     "provider.dataDirCreate" => ("Erro ao criar data_dir: {error}", "Error creating data_dir: {error}"),
     "provider.serializeConfig" => ("Erro ao serializar config: {error}", "Error serializing config: {error}"),

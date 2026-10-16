@@ -48,7 +48,6 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "externalBin": [
-      "binaries/tsnet-node",
       "binaries/cubicase-link"
     ],
     "icon": [
