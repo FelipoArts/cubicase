@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,10 @@ func (h *Host) Run(ctx context.Context) error {
 		if err != nil {
 			if ctx.Err() != nil {
 				break
+			}
+			if errors.Is(err, errTokenRejected) {
+				h.closeAll()
+				return coded("token_expired", err)
 			}
 			emitWarning(h.em, "signal_unreachable", describe(err))
 			if !sleepCtx(ctx, backoff) {

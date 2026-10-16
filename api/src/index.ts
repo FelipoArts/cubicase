@@ -2,7 +2,7 @@ import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from '
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { localizeResponse } from './i18n';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
-import { buildLinkCredentials, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
+import { buildLinkCredentials, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
 export { LinkRoom } from './durable-objects/link-room';
 
@@ -647,11 +647,11 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
 /**
  * Sessão do transporte P2P: emite o token da sala de
  * sinalização e as credenciais ICE (STUN/TURN). Não há heartbeat: a presença do host é o
- * próprio WebSocket da sala (ver link-room.ts), então a sessão vive 24 h no KV.
+ * próprio WebSocket da sala (ver link-room.ts), então a sessão vive o mesmo tempo que o token (LINK_TOKEN_TTL_SECONDS) no KV.
  */
 async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body: any, req: Request, env: Env, slotKey: string, cors: Record<string, string>): Promise<Response> {
   const sid = uuid(); const now = new Date();
-  const ttl = 24 * 3600;
+  const ttl = LINK_TOKEN_TTL_SECONDS;
   const exp = new Date(now.getTime() + ttl * 1000);
   const relayAllowed = await relayWithinQuota(env, shortCode);
   const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true, relayAllowed });
@@ -680,7 +680,7 @@ async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body
 // Os demais têm RELAY_FREE_MONTHLY_BYTES por mês (padrão 5 GiB de saída do relay). Passou disso, não
 // emitimos credenciais do relay até o mês virar: a conexão direta segue livre e o app mostra o plano B.
 
-const LINK_PLUS_FLAG_TTL_SECONDS = 25 * 3600;
+const LINK_PLUS_FLAG_TTL_SECONDS = LINK_TOKEN_TTL_SECONDS + 3600; // sobrevive à sessão do host, que a renova ao reconectar
 const linkPlusKey = (shortCode: string) => `linkplus:${shortCode}`;
 
 async function relayWithinQuota(env: Env, shortCode: string): Promise<boolean> {

@@ -365,6 +365,7 @@ fn map_sidecar_error_code(code: &str, detail: &str) -> (String, String) {
             tr!("sidecar.listenLocal.message", detail = detail),
         ),
         "room_full" => (tr!("sidecar.roomFull.title"), tr!("sidecar.roomFull.message")),
+        "token_expired" => (tr!("sidecar.tokenExpired.title"), tr!("sidecar.tokenExpired.message")),
         other => (
             tr!("sidecar.other.title"),
             if detail.is_empty() {
@@ -635,8 +636,11 @@ async fn start_network_node_impl(
                                     log_to_file(&app_clone, &format!("[Sidecar] Erro estruturado: código={}, detail={}", code, detail));
                                     *app_clone.state::<AppState>().network_last_error.lock().unwrap_or_else(|e| e.into_inner()) =
                                         Some((title.clone(), message.clone()));
+                                    // Token de sinalização vencido (sessão muito longa): o app recria a sessão sozinho,
+                                    // então é só um aviso — não um erro crítico.
+                                    let level = if code == "token_expired" { "warning" } else { "critical" };
                                     let _ = app_clone.emit("network-diagnostic", DiagnosticPayload {
-                                        level: "critical".to_string(),
+                                        level: level.to_string(),
                                         title,
                                         message,
                                         detail: if detail.is_empty() { None } else { Some(detail.to_string()) },

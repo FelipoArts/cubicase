@@ -47,7 +47,10 @@ func newPeerConnection(cfg Config) (*webrtc.PeerConnection, error) {
 		rc.ICEServers = append(rc.ICEServers, webrtc.ICEServer{URLs: cfg.ICE.STUNURLs})
 	}
 	if t := cfg.ICE.TURN; t != nil {
-		rc.ICEServers = append(rc.ICEServers, webrtc.ICEServer{URLs: t.URLs, Username: t.Username, Credential: t.Credential})
+		// Uma URL só: cada URL abriria uma alocação no relay (ver turnselect.go).
+		if urls := selectTURNURLs(t.URLs, probeTURNUDP); len(urls) > 0 {
+			rc.ICEServers = append(rc.ICEServers, webrtc.ICEServer{URLs: urls, Username: t.Username, Credential: t.Credential})
+		}
 	}
 	if cfg.RelayOnly {
 		rc.ICETransportPolicy = webrtc.ICETransportPolicyRelay

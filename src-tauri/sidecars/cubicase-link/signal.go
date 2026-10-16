@@ -68,16 +68,23 @@ type wsSignal struct {
 	once   sync.Once
 }
 
+// errTokenRejected: a sala respondeu 401 — o token de sinalização expirou (ou é inválido). Reconectar
+// com o mesmo token nunca vai funcionar, então o sidecar sai e o app cria uma sessão nova.
+var errTokenRejected = errors.New("a sala recusou o token de sinalização (expirado ou inválido)")
+
 // DialWebSocket devolve um Dialer que conecta na sala de sinalização. O token vai no
 // header Authorization (o sidecar não é um navegador, então pode mandar header).
 func DialWebSocket(url, token string) Dialer {
 	return func(ctx context.Context) (Signal, error) {
 		dctx, cancelDial := context.WithTimeout(ctx, 15*time.Second)
 		defer cancelDial()
-		conn, _, err := websocket.Dial(dctx, url, &websocket.DialOptions{
+		conn, resp, err := websocket.Dial(dctx, url, &websocket.DialOptions{
 			HTTPHeader: http.Header{"Authorization": {"Bearer " + token}},
 		})
 		if err != nil {
+			if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+				return nil, errTokenRejected
+			}
 			return nil, err
 		}
 		conn.SetReadLimit(maxSignalMessage)

@@ -1185,3 +1185,10 @@ fn linhas_do_log_tem_data_e_hora_legiveis_e_cada_execucao_comeca_com_separador()
     assert!(banner.contains("Cubicase 0.6.0 iniciado em 2026-10-08 19:11:30"));
     assert!(banner.starts_with('\n') && banner.ends_with('\n'), "linha em branco antes, para destacar a sessão");
 }
+
+#[test]
+fn token_expirado_do_sidecar_vira_aviso_amigavel_e_nao_erro_generico() {
+    let (title, message) = map_sidecar_error_code("token_expired", "a sala recusou o token");
+    assert_eq!(title, tr!("sidecar.tokenExpired.title"));
+    assert!(message.contains("reconectando"), "a mensagem deve dizer que o app se recupera sozinho: {message}");
+}

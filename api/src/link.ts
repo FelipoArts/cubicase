@@ -33,8 +33,13 @@ export interface LinkClaims {
   exp: number;
 }
 
-/** Vida do token e das credenciais TURN: cobre uma sessão longa e reconexões. */
-export const LINK_TOKEN_TTL_SECONDS = 24 * 3600;
+/**
+ * Vida do token de sinalização e das credenciais TURN. O token só é conferido ao conectar na sala, mas a
+ * sala reconecta sempre que o WebSocket cai; um host que fica semanas ligado precisa de um token que
+ * ainda valha nessa hora (se expirar, o sidecar sai e o app cria uma sessão nova). As credenciais do
+ * relay também precisam valer enquanto a alocação for renovada.
+ */
+export const LINK_TOKEN_TTL_SECONDS = 7 * 24 * 3600;
 
 const DEFAULT_STUN = ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
 

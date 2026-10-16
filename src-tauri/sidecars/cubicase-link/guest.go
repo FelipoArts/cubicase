@@ -82,6 +82,10 @@ func (g *Guest) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
+			if errors.Is(err, errTokenRejected) {
+				g.closePeer()
+				return coded("token_expired", err)
+			}
 			emitWarning(g.em, "signal_unreachable", describe(err))
 			if !sleepCtx(ctx, backoff) {
 				break

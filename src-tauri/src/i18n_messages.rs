@@ -41,6 +41,11 @@ messages! {
         "Não estamos conseguindo alcançar o host há um tempo — a conexão pode ter caído ou o host pode ter ficado offline. O app continua tentando se recuperar sozinho; se persistir, peça para o host verificar a internet dele.",
         "We haven't been able to reach the host for a while — the connection may have dropped or the host may have gone offline. The app keeps trying to recover on its own; if it persists, ask the host to check their internet."
     ),
+    "sidecar.tokenExpired.title" => ("Conexão renovada", "Connection renewed"),
+    "sidecar.tokenExpired.message" => (
+        "A sessão de conexão expirou depois de muito tempo ligada. O Cubicase está reconectando sozinho; se os amigos caírem, é só entrarem de novo.",
+        "The connection session expired after running for a long time. Cubicase is reconnecting by itself; if friends get dropped they just need to join again."
+    ),
     "sidecar.roomFull.title" => ("Servidor lotado", "Server is full"),
     "sidecar.roomFull.message" => (
         "O host atingiu o limite de convidados conectados ao mesmo tempo. Tente de novo quando alguém sair.",

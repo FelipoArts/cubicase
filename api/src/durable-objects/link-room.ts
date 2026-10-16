@@ -19,7 +19,7 @@
 // heartbeats de 60 s do modelo anterior.
 // ============================================================
 
-import { verifyLinkToken, type LinkClaims, type LinkEnv } from '../link';
+import { verifyLinkToken, LINK_TOKEN_TTL_SECONDS, type LinkClaims, type LinkEnv } from '../link';
 
 interface Env extends LinkEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
@@ -233,7 +233,7 @@ export class LinkRoom {
       if (cs.status === status) return;
       cs.status = status;
       cs.lastHeartbeat = new Date().toISOString();
-      await this.env.CUBEFORGE_REGISTRY.put(`csession:${claims.pid}`, JSON.stringify(cs), { expirationTtl: 24 * 3600 });
+      await this.env.CUBEFORGE_REGISTRY.put(`csession:${claims.pid}`, JSON.stringify(cs), { expirationTtl: LINK_TOKEN_TTL_SECONDS });
     } catch {
       // Best-effort: a sala funciona mesmo se o KV falhar.
     }
