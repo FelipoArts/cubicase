@@ -126,18 +126,22 @@ try {
     } else {
         if (-not (Test-Path $sessionDest)) {
             Copy-Item "network_session.template.json" $sessionDest
-            Write-Warning "  network_session.json criado a partir do template - preencha o authKey real (idealmente uma key NOVA do Tailscale) antes de rodar o app."
+            Write-Warning "  network_session.json criado a partir do template (so para o modo mock de desenvolvimento offline)."
         }
         if (-not (Test-Path $devVarsDest)) {
-            Copy-Item "api\.dev.vars.example" $devVarsDest
-            Write-Warning "  api\.dev.vars criado a partir do template - preencha TAILSCALE_OAUTH_CLIENT_ID/SECRET e SUPABASE_SERVICE_ROLE_KEY antes de usar a API."
+            Set-Content -Path $devVarsDest -Value @(
+                "SUPABASE_SERVICE_ROLE_KEY=",
+                "LINK_TOKEN_SECRET=",
+                "TURN_SECRET="
+            )
+            Write-Warning "  api\.dev.vars criado vazio - preencha SUPABASE_SERVICE_ROLE_KEY, LINK_TOKEN_SECRET e TURN_SECRET antes de usar a API (veja SETUP.md)."
         }
     }
 
     # -----------------------------------------------------------------------
     # 5. Build do sidecar
     # -----------------------------------------------------------------------
-    Write-Host "== Passo 5: build do sidecar (tsnet-node) ==" -ForegroundColor Cyan
+    Write-Host "== Passo 5: build do sidecar (cubicase-link) ==" -ForegroundColor Cyan
     if (Test-Cmd "go") {
         npm run build:sidecar
     } else {

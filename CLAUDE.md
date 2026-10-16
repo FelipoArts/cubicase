@@ -3,16 +3,16 @@
 # CubeForge Dash — Project Context
 
 ## Overview
-CubeForge Dash is a Tauri v2 desktop app that simplifies creating and sharing Minecraft servers. It uses a mesh VPN (Tailscale) to avoid port forwarding.
+CubeForge Dash is a Tauri v2 desktop app that simplifies creating and sharing Minecraft servers. It connects friends peer-to-peer (WebRTC, with a TURN relay as fallback) to avoid port forwarding.
 
 ## Stack
 - **Frontend**: Next.js (static export) + React 19 + TypeScript + Zustand + Tailwind v4 + Framer Motion
 - **Desktop Shell**: Tauri v2 (Rust backend)
-- **Sidecar**: Go binary (`tsnet-node`) for Tailscale mesh networking
+- **Sidecar**: Go binary (`cubicase-link`) for P2P networking (WebRTC via Pion); relay = coturn (`infra/relay`)
 - **Build**: `npm run tauri dev` / `npm run tauri build`
 
 ## Key Architecture Decisions
-- **Network Provider abstraction**: Backend works with `NetworkSession`/`NetworkProvider` traits; currently Tailscale + Mock implementations
+- **Network provider abstraction**: the backend picks the sidecar from the session `launcher` (`ProviderManager`); currently `link-v1` (P2P) plus a dev-only Mock
 - **Minecraft server process**: Managed via Rust `std::process::Command` with TCP polling for online detection (not log parsing)
 - **JRE management**: Auto-downloaded from Adoptium API, stored in app local data dir
 - **Server.jar download**: Done via Rust `reqwest` (not PowerShell), Mojang manifest API
@@ -20,7 +20,7 @@ CubeForge Dash is a Tauri v2 desktop app that simplifies creating and sharing Mi
 
 ## Important Files
 - `src-tauri/src/lib.rs` — All Rust Tauri commands (network, MC server, properties, memory)
-- `src-tauri/sidecars/tsnet-node/main.go` — Go sidecar for Tailscale mesh
+- `src-tauri/sidecars/cubicase-link/` — Go sidecar for P2P networking (host/guest, signaling, bridge)
 - `src/app/page.tsx` — Main UI (host/guest flows, server management, console)
 - `src/app/store.ts` — Zustand store with localStorage persistence
 - `src/lib/server.ts` — Minecraft server installation (Mojang API, EULA, properties, importExistingServer, scanExternalServer)

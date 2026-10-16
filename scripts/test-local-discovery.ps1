@@ -1,11 +1,11 @@
 # Script de Teste Local para Descoberta de Servidores
 # 
 # Testa o servidor HTTP de registro do Rust (127.0.0.1:25567)
-# sem precisar de Tailscale ou dois computadores.
+# sem precisar de dois computadores.
 #
 # Como usar:
 #   1. Rode 'npm run tauri dev' (ou tenha o app rodando)
-#   2. No host: inicie a rede mesh (mock ou tailscale)
+#   2. No host: inicie a conexão (mock)
 #   3. O servidor HTTP de registro do Rust estará rodando em 127.0.0.1:25567
 #   4. Execute este script: .\scripts\test-local-discovery.ps1
 #
@@ -170,11 +170,11 @@ if ($allPassed) {
 Write-Host ""
 Write-Host "=== Como testar o fluxo completo LOCALMENTE ===" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Método 1: Usando o Mock Provider (sem Tailscale)" -ForegroundColor White
+Write-Host "Método 1: Usando o Mock Provider" -ForegroundColor White
 Write-Host "  1. Crie o arquivo network_session.json na raiz do projeto:" -ForegroundColor Gray
 Write-Host '     { "provider": "mock", "credentials": { "fakeIp": "100.99.99.99" } }' -ForegroundColor Gray
 Write-Host "  2. Rode: npm run tauri dev" -ForegroundColor Gray
-Write-Host "  3. No host: clique em 'Iniciar Rede Mesh'" -ForegroundColor Gray
+Write-Host "  3. No host: inicie a conexão" -ForegroundColor Gray
 Write-Host "  4. O código de convite será gerado (ex: CF-XXXXXX63636363)" -ForegroundColor Gray
 Write-Host "  5. Volte para início, vá em guest, cole o código e conecte" -ForegroundColor Gray
 Write-Host "  6. O guest vai conectar 'virtualmente' (sem rede real)" -ForegroundColor Gray
@@ -190,7 +190,7 @@ Write-Host "     curl http://127.0.0.1:25567/registry/resolve?code=SEUCODIGO" -F
 Write-Host ""
 Write-Host "Método 3: Testando com dois terminais (host + guest simulados)" -ForegroundColor White
 Write-Host "  1. Terminal 1 (host): npm run tauri dev" -ForegroundColor Gray
-Write-Host "  2. No host: inicie a rede mesh (mock provider)" -ForegroundColor Gray
+Write-Host "  2. No host: inicie a conexão (mock provider)" -ForegroundColor Gray
 Write-Host "  3. Copie o código de convite" -ForegroundColor Gray
 Write-Host "  4. Terminal 2: Use curl para simular o guest:" -ForegroundColor Gray
 Write-Host "     curl 'http://127.0.0.1:25567/registry/resolve?code=SEUCODIGO'" -ForegroundColor Gray

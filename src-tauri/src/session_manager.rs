@@ -532,7 +532,7 @@ mod link_tests {
         let _ = sm.start_with_relay("ABCDEF", "host", 25565, Some("link-v1"), true).await.expect("start");
         assert_eq!(seen.lock().unwrap()[0].body.as_ref().unwrap()["relayOnly"], true);
 
-        // Sem o P2P (Tailscale) o modo privado não existe: nada de relayOnly no pedido.
+        // Sem o launcher P2P o modo privado não existe: nada de relayOnly no pedido.
         let seen2 = Arc::new(StdMutex::new(Vec::new()));
         let client2 = ApiClient::with_transport(Box::new(Recorder { seen: seen2.clone() }), ApiConfig::default());
         let sm2 = SessionManager::new(Arc::new(client2));

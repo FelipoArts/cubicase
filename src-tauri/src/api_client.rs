@@ -328,7 +328,7 @@ impl ApiClient {
             "clientVersion": self.config.client_version,
             "mode": mode,
         });
-        // Transporte P2P (cubicase-link): sem isto a API continua devolvendo o Tailscale.
+        // Transporte P2P (cubicase-link): a API exige este launcher (apps antigos, sem ele, recebem 426).
         if let Some(l) = launcher {
             body["launcher"] = serde_json::Value::String(l.to_string());
             if relay_only {

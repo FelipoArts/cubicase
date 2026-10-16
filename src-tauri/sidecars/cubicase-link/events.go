@@ -7,7 +7,7 @@ import (
 )
 
 // Emitter escreve eventos estruturados (uma linha JSON por evento) na saída que o app
-// escuta. Formato compatível com o tsnet-node:
+// escuta. Formato:
 //
 //	{"status":"online","ip":"p2p"}      rede pronta
 //	{"info":"..."}                      informativo

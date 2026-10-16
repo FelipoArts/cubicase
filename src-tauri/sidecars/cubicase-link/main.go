@@ -1,7 +1,7 @@
 // cubicase-link: transporte P2P (WebRTC: ICE + DTLS + SCTP) entre host e convidado do
-// Cubicase. Substitui o tsnet-node (Tailscale) — ver plans/p2p-link-transport-plan.md.
+// Cubicase — ver plans/p2p-link-transport-plan.md.
 //
-// Contrato com o app (mesmo do tsnet-node):
+// Contrato com o app:
 //   - configuração por --config <arquivo> ou --stdin (primeira linha JSON);
 //   - eventos como uma linha JSON por evento no stdout (ver events.go);
 //   - o processo sai quando o stdin do pai fecha (o app morreu).

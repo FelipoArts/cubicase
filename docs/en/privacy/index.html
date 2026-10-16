@@ -70,8 +70,9 @@
         <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
         <tbody>
         <tr><td><strong>Using the app (no account)</strong></td><td>A random installation identifier (not your name or e-mail); app version; the IP address of your connection (seen by the infrastructure and used for up to ~1 minute to limit abuse).</td><td>Make the service work and protect it from abuse.</td></tr>
-        <tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players, and the network's virtual IP address while you host. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
-        <tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; a temporary network credential (valid for a few minutes) and a temporary device name.</td><td>Connect you to the host's server.</td></tr>
+        <tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players and whether the host is connected. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
+        <tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; temporary connection credentials (valid for up to 24 hours).</td><td>Connect you to the host's server.</td></tr>
+        <tr><td><strong>Connection between host and guests</strong></td><td>To link the computers, the app exchanges network addresses (each side's public IP address and local addresses) through a temporary signaling room on our server. <strong>With the direct connection, host and guests get to see each other's IP address</strong>, which is inherent to this kind of connection; private mode (Cubicase Plus) hides the host's IP. When a direct connection is not possible, traffic goes through a backup server that relays already-encrypted data and records the volume relayed per server.</td><td>Connect host and guests and measure the backup server's monthly allowance.</td></tr>
         <tr><td><strong>Account (optional)</strong></td><td>E-mail and, if you sign in with Google or Discord, the profile name and picture they provide.</td><td>Authenticate you and enable account features.</td></tr>
         <tr><td><strong>Cubicase Plus</strong></td><td>Stripe customer and subscription identifiers, plan, status and renewal date. <strong>We do not receive or store card data</strong>; payment happens on Stripe's page.</td><td>Bill you and enable paid features.</td></tr>
         <tr><td><strong>Remote web panel (Plus)</strong></td><td>Computer name, device token, last seen, invited accounts and permissions. While the app is connected: server state, server list, online players, computer usage metrics and the last ~200 console lines, plus commands sent from the panel. This temporary content is deleted when the app disconnects.</td><td>Control the server from a browser.</td></tr>
@@ -88,7 +89,8 @@
         <li><strong>Supabase</strong> — accounts, subscriptions and remote panel data.</li>
         <li><strong>Stripe</strong> — payments (subscriptions and donations).</li>
         <li><strong>Resend</strong> — delivery of Help Center e-mails to us.</li>
-        <li><strong>Tailscale</strong> — the network that connects host and guests (temporary devices and virtual addresses). This provider may be replaced by another, and this policy will be updated.</li>
+        <li><strong>Oracle Cloud</strong> — backup (relay) server in São Paulo, used only when a direct connection is not possible; it sees the IP addresses of whoever uses it and the volume relayed, but not the content (the connection is encrypted).</li>
+        <li><strong>Google (STUN servers)</strong> — used to discover the public IP address needed for the direct connection; Google sees the IP of whoever queries.</li>
         <li><strong>GitHub</strong> — hosting of the website and of the app installers/updates (the app checks published versions).</li>
         <li><strong>Mojang/Microsoft, Adoptium, PaperMC, Forge/NeoForge, Fabric</strong> — where the app downloads the server, Java and installers; they see the IP of whoever downloads.</li>
         <li><strong>Modrinth and CurseForge</strong> — mod search and download; they receive the search terms and, to identify mods, file hash codes (never the files).</li>
@@ -103,7 +105,8 @@
       <section class="legal-section">
         <h2>6. How long we keep it</h2>
         <ul>
-        <li>Network credentials and sessions: expire in a few minutes.</li>
+        <li>Connection credentials and sessions: expire within 24 hours.</li>
+        <li>Monthly backup-server usage (bytes relayed per server): up to 40 days.</li>
         <li>Per-IP anti-abuse counters: about 1 minute.</li>
         <li>Server record: until you delete the server in the app or ask for removal.</li>
         <li>Account: as long as it exists; you may ask for deletion.</li>
@@ -149,7 +152,7 @@
         <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
-    <div class="container footer-disclaimer">Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios, Microsoft or Tailscale. Minecraft is a registered trademark of Mojang Synergies AB.</div>
+    <div class="container footer-disclaimer">Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft. Minecraft is a registered trademark of Mojang Synergies AB.</div>
   </footer>
 
   <script src="/assets/site.js"></script>

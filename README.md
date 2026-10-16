@@ -5,7 +5,7 @@ Crie e compartilhe servidores de Minecraft Java **no seu próprio computador**, 
 
 Site: <https://cubicase.net> · Tutorial: <https://cubicase.net/tutorial/> · English: <https://cubicase.net/en/>
 
-> O Cubicase é um projeto independente. Não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft nem pela Tailscale. Minecraft é uma marca registrada da Mojang Synergies AB.
+> O Cubicase é um projeto independente. Não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB.
 
 ## O que faz
 
@@ -20,7 +20,7 @@ Site: <https://cubicase.net> · Tutorial: <https://cubicase.net/tutorial/> · En
 | Peça | Tecnologia |
 |---|---|
 | App desktop | Tauri v2 (Rust) + Next.js (exportação estática) + React 19 + TypeScript + Zustand + Tailwind v4 |
-| Rede host ⇄ convidado | sidecar em Go (`src-tauri/sidecars/tsnet-node`, Tailscale tsnet) — em migração para um transporte P2P próprio, ver `plans/p2p-link-transport-plan.md` |
+| Rede host ⇄ convidado | P2P (WebRTC via Pion) no sidecar em Go `src-tauri/sidecars/cubicase-link`, com relay TURN (coturn) como reserva — ver `infra/relay/` |
 | API central | Cloudflare Worker (`api/`): registro de servidores, sessões de rede, painel remoto (Durable Objects), assinaturas (Stripe) |
 | Contas | Supabase |
 | Site | `docs/` (estático, GitHub Pages) |

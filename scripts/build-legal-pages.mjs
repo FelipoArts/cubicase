@@ -22,9 +22,9 @@ const NAV = {
 };
 const FOOTER = {
   pt: { privacy: ["Privacidade", "/privacidade/"], terms: ["Termos", "/termos/"], licenses: ["Licenças", "/licencas/"],
-    disclaimer: "O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft nem pela Tailscale. Minecraft é uma marca registrada da Mojang Synergies AB." },
+    disclaimer: "O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB." },
   en: { privacy: ["Privacy", "/en/privacy/"], terms: ["Terms", "/en/terms/"], licenses: ["Licenses", "/en/licenses/"],
-    disclaimer: "Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios, Microsoft or Tailscale. Minecraft is a registered trademark of Mojang Synergies AB." },
+    disclaimer: "Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft. Minecraft is a registered trademark of Mojang Synergies AB." },
 };
 
 // ============================================================
@@ -46,8 +46,9 @@ const PAGES = {
 <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
 <tbody>
 <tr><td><strong>Usar o app (sem conta)</strong></td><td>Um identificador aleatório da instalação (não é seu nome nem e-mail); versão do app; o endereço IP da sua conexão (visto pela infraestrutura, usado por até ~1 minuto para limitar abuso).</td><td>Fazer o serviço funcionar e protegê-lo contra abuso.</td></tr>
-<tr><td><strong>Registrar um servidor para convidar amigos</strong></td><td>Código de convite, nome do servidor, versão do Minecraft, tipo/loader, descrição, estado (online/offline), quantidade de jogadores online, e o endereço IP virtual da rede enquanto você hospeda. O segredo de dono é guardado só como <em>hash</em>.</td><td>Permitir que seus amigos encontrem e entrem no servidor.</td></tr>
-<tr><td><strong>Entrar como convidado</strong></td><td>O código digitado; identificador da instalação; credencial temporária de rede (válida por poucos minutos) e um nome de dispositivo temporário.</td><td>Conectar você ao servidor do host.</td></tr>
+<tr><td><strong>Registrar um servidor para convidar amigos</strong></td><td>Código de convite, nome do servidor, versão do Minecraft, tipo/loader, descrição, estado (online/offline), quantidade de jogadores online e se o host está conectado. O segredo de dono é guardado só como <em>hash</em>.</td><td>Permitir que seus amigos encontrem e entrem no servidor.</td></tr>
+<tr><td><strong>Entrar como convidado</strong></td><td>O código digitado; identificador da instalação; credenciais temporárias de conexão (válidas por até 24 horas).</td><td>Conectar você ao servidor do host.</td></tr>
+<tr><td><strong>Conexão entre host e convidados</strong></td><td>Para ligar os computadores, o app troca endereços de rede (o endereço IP público e os endereços locais de cada um) por uma sala de sinalização temporária no nosso servidor. <strong>Na conexão direta, host e convidados passam a ver o endereço IP uns dos outros</strong>, o que é inerente a esse tipo de conexão; o modo privado (Cubicase Plus) esconde o IP do host. Quando a conexão direta não é possível, o tráfego passa por um servidor de reserva, que repassa dados já cifrados e registra o volume repassado por servidor.</td><td>Conectar host e convidados e medir a cota mensal do servidor de reserva.</td></tr>
 <tr><td><strong>Conta (opcional)</strong></td><td>E-mail e, se você entrar com Google ou Discord, o nome e a foto do perfil informados por eles.</td><td>Autenticar e liberar recursos da conta.</td></tr>
 <tr><td><strong>Cubicase Plus</strong></td><td>Identificador do cliente e da assinatura na Stripe, plano, situação e data de renovação. <strong>Não recebemos nem guardamos dados de cartão</strong>; o pagamento é feito na página da Stripe.</td><td>Cobrar e liberar os recursos pagos.</td></tr>
 <tr><td><strong>Painel web remoto (Plus)</strong></td><td>Nome do computador, token do dispositivo, último acesso, contas convidadas e permissões. Enquanto o app está conectado: estado do servidor, lista de servidores, jogadores online, métricas de uso do computador e as últimas ~200 linhas do console, além dos comandos enviados pelo painel. Esse conteúdo temporário é apagado quando o app se desconecta.</td><td>Controlar o servidor pelo navegador.</td></tr>
@@ -61,7 +62,8 @@ const PAGES = {
 <li><strong>Supabase</strong> — contas, assinaturas e dados do painel remoto.</li>
 <li><strong>Stripe</strong> — pagamentos (assinaturas e doações).</li>
 <li><strong>Resend</strong> — envio dos e-mails da Central de Ajuda até nós.</li>
-<li><strong>Tailscale</strong> — rede que conecta host e convidados (dispositivos temporários e endereços virtuais). Este provedor poderá ser substituído por outro, e esta política será atualizada.</li>
+<li><strong>Oracle Cloud</strong> — servidor de reserva (relay) em São Paulo, usado só quando a conexão direta não é possível; vê os endereços IP de quem o usa e o volume repassado, mas não o conteúdo (a conexão é cifrada).</li>
+<li><strong>Google (servidores STUN)</strong> — usados para descobrir o endereço IP público necessário à conexão direta; o Google vê o IP de quem consulta.</li>
 <li><strong>GitHub</strong> — hospedagem do site e dos instaladores/atualizações do app (o app consulta as versões publicadas).</li>
 <li><strong>Mojang/Microsoft, Adoptium, PaperMC, Forge/NeoForge, Fabric</strong> — de onde o app baixa o servidor, o Java e os instaladores; eles enxergam o IP de quem baixa.</li>
 <li><strong>Modrinth e CurseForge</strong> — busca e download de mods; recebem os termos pesquisados e, para identificar mods, o código hash dos arquivos (nunca os arquivos).</li>
@@ -70,7 +72,8 @@ const PAGES = {
 <p>Também podemos divulgar dados se houver obrigação legal ou ordem de autoridade competente.</p>`],
         ["5. Bases legais (LGPD, art. 7º)", `<p><strong>Execução de contrato</strong> (fornecer o app e os recursos que você pediu, inclusive a assinatura), <strong>legítimo interesse</strong> (segurança, prevenção de abuso e fraude, e o funcionamento básico da rede) e <strong>cumprimento de obrigação legal</strong> (por exemplo, registros fiscais da assinatura). Quando exigido, pedimos o seu <strong>consentimento</strong>, que você pode revogar a qualquer momento.</p>`],
         ["6. Por quanto tempo guardamos", `<ul>
-<li>Credenciais e sessões de rede: expiram em poucos minutos.</li>
+<li>Credenciais e sessões de conexão: expiram em até 24 horas.</li>
+<li>Consumo mensal do servidor de reserva (bytes repassados por servidor): até 40 dias.</li>
 <li>Contadores anti-abuso por IP: cerca de 1 minuto.</li>
 <li>Registro do servidor: até você apagar o servidor no app ou pedir a remoção.</li>
 <li>Conta: enquanto existir; você pode pedir a exclusão.</li>
@@ -98,8 +101,9 @@ const PAGES = {
 <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
 <tbody>
 <tr><td><strong>Using the app (no account)</strong></td><td>A random installation identifier (not your name or e-mail); app version; the IP address of your connection (seen by the infrastructure and used for up to ~1 minute to limit abuse).</td><td>Make the service work and protect it from abuse.</td></tr>
-<tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players, and the network's virtual IP address while you host. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
-<tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; a temporary network credential (valid for a few minutes) and a temporary device name.</td><td>Connect you to the host's server.</td></tr>
+<tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players and whether the host is connected. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
+<tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; temporary connection credentials (valid for up to 24 hours).</td><td>Connect you to the host's server.</td></tr>
+<tr><td><strong>Connection between host and guests</strong></td><td>To link the computers, the app exchanges network addresses (each side's public IP address and local addresses) through a temporary signaling room on our server. <strong>With the direct connection, host and guests get to see each other's IP address</strong>, which is inherent to this kind of connection; private mode (Cubicase Plus) hides the host's IP. When a direct connection is not possible, traffic goes through a backup server that relays already-encrypted data and records the volume relayed per server.</td><td>Connect host and guests and measure the backup server's monthly allowance.</td></tr>
 <tr><td><strong>Account (optional)</strong></td><td>E-mail and, if you sign in with Google or Discord, the profile name and picture they provide.</td><td>Authenticate you and enable account features.</td></tr>
 <tr><td><strong>Cubicase Plus</strong></td><td>Stripe customer and subscription identifiers, plan, status and renewal date. <strong>We do not receive or store card data</strong>; payment happens on Stripe's page.</td><td>Bill you and enable paid features.</td></tr>
 <tr><td><strong>Remote web panel (Plus)</strong></td><td>Computer name, device token, last seen, invited accounts and permissions. While the app is connected: server state, server list, online players, computer usage metrics and the last ~200 console lines, plus commands sent from the panel. This temporary content is deleted when the app disconnects.</td><td>Control the server from a browser.</td></tr>
@@ -113,7 +117,8 @@ const PAGES = {
 <li><strong>Supabase</strong> — accounts, subscriptions and remote panel data.</li>
 <li><strong>Stripe</strong> — payments (subscriptions and donations).</li>
 <li><strong>Resend</strong> — delivery of Help Center e-mails to us.</li>
-<li><strong>Tailscale</strong> — the network that connects host and guests (temporary devices and virtual addresses). This provider may be replaced by another, and this policy will be updated.</li>
+<li><strong>Oracle Cloud</strong> — backup (relay) server in São Paulo, used only when a direct connection is not possible; it sees the IP addresses of whoever uses it and the volume relayed, but not the content (the connection is encrypted).</li>
+<li><strong>Google (STUN servers)</strong> — used to discover the public IP address needed for the direct connection; Google sees the IP of whoever queries.</li>
 <li><strong>GitHub</strong> — hosting of the website and of the app installers/updates (the app checks published versions).</li>
 <li><strong>Mojang/Microsoft, Adoptium, PaperMC, Forge/NeoForge, Fabric</strong> — where the app downloads the server, Java and installers; they see the IP of whoever downloads.</li>
 <li><strong>Modrinth and CurseForge</strong> — mod search and download; they receive the search terms and, to identify mods, file hash codes (never the files).</li>
@@ -122,7 +127,8 @@ const PAGES = {
 <p>We may also disclose data when legally required or ordered by a competent authority.</p>`],
         ["5. Legal bases (LGPD, art. 7)", `<p><strong>Performance of a contract</strong> (providing the app and the features you asked for, including the subscription), <strong>legitimate interest</strong> (security, abuse and fraud prevention, and basic network operation) and <strong>compliance with a legal obligation</strong> (for example, tax records of the subscription). Where required we ask for your <strong>consent</strong>, which you can withdraw at any time.</p>`],
         ["6. How long we keep it", `<ul>
-<li>Network credentials and sessions: expire in a few minutes.</li>
+<li>Connection credentials and sessions: expire within 24 hours.</li>
+<li>Monthly backup-server usage (bytes relayed per server): up to 40 days.</li>
 <li>Per-IP anti-abuse counters: about 1 minute.</li>
 <li>Server record: until you delete the server in the app or ask for removal.</li>
 <li>Account: as long as it exists; you may ask for deletion.</li>
@@ -148,7 +154,7 @@ const PAGES = {
       lead: "Ao instalar ou usar o Cubicase você concorda com estes termos. Se não concordar, não use o app.",
       sections: [
         ["1. O que é o Cubicase", `<p>O Cubicase é um aplicativo para Windows que ajuda você a criar e hospedar servidores de Minecraft Java <strong>no seu próprio computador</strong> e a convidar amigos sem abrir portas no roteador. Nós <strong>não hospedamos</strong> o seu servidor nem os seus mundos: fornecemos o programa e um serviço de conexão (registro de códigos de convite e rede entre host e convidados).</p>
-<p>O Cubicase é um projeto independente. <strong>Não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft ou pela Tailscale.</strong> Minecraft é uma marca registrada da Mojang Synergies AB.</p>`],
+<p>O Cubicase é um projeto independente. <strong>Não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft.</strong> Minecraft é uma marca registrada da Mojang Synergies AB.</p>`],
         ["2. EULA do Minecraft e regras de terceiros", `<p>Para criar um servidor você precisa aceitar o <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">EULA do Minecraft</a>. O Cubicase só grava <code>eula=true</code> depois que <em>você</em> marca a caixa de aceite. Você é responsável por cumprir o EULA e as <a href="https://www.minecraft.net/usage-guidelines" target="_blank" rel="noopener">diretrizes de uso</a> da Mojang, inclusive as regras sobre monetização de servidores. Mods, modpacks, Java e demais componentes têm licenças e termos próprios.</p>`],
         ["3. Conta e idade", `<p>Você pode usar o app sem conta. Contas, assinaturas e o painel remoto são destinados a maiores de 18 anos; menores devem ter a participação e a autorização de um responsável legal. Mantenha seus dados de acesso em segurança; você é responsável pelas ações feitas na sua conta.</p>`],
         ["4. Uso aceitável", `<p>É proibido usar o Cubicase para: violar a lei ou direitos de terceiros; hospedar ou distribuir conteúdo ilícito ou malicioso (inclusive mods e pacotes com malware); assediar, ameaçar ou enganar pessoas; atacar redes ou computadores; sobrecarregar, automatizar em massa, contornar limites ou tentar obter acesso não autorizado ao serviço ou a servidores de outras pessoas; e se passar por outra pessoa. Podemos limitar ou suspender o acesso a quem violar estas regras.</p>`],
@@ -177,7 +183,7 @@ const PAGES = {
       lead: "By installing or using Cubicase you agree to these terms. If you do not agree, do not use the app.",
       sections: [
         ["1. What Cubicase is", `<p>Cubicase is a Windows application that helps you create and host Minecraft Java servers <strong>on your own computer</strong> and invite friends without opening router ports. We <strong>do not host</strong> your server or your worlds: we provide the program and a connection service (invite code registry and network between host and guests).</p>
-<p>Cubicase is an independent project. <strong>It is not affiliated with, associated with or endorsed by Mojang Studios, Microsoft or Tailscale.</strong> Minecraft is a registered trademark of Mojang Synergies AB.</p>`],
+<p>Cubicase is an independent project. <strong>It is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft.</strong> Minecraft is a registered trademark of Mojang Synergies AB.</p>`],
         ["2. Minecraft EULA and third-party rules", `<p>To create a server you must accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">Minecraft EULA</a>. Cubicase only writes <code>eula=true</code> after <em>you</em> tick the acceptance box. You are responsible for complying with the EULA and Mojang's <a href="https://www.minecraft.net/usage-guidelines" target="_blank" rel="noopener">usage guidelines</a>, including the rules on server monetization. Mods, modpacks, Java and other components have their own licenses and terms.</p>`],
         ["3. Account and age", `<p>You can use the app without an account. Accounts, subscriptions and the remote panel are intended for people aged 18 or over; minors need the participation and authorization of a legal guardian. Keep your sign-in details safe; you are responsible for actions taken in your account.</p>`],
         ["4. Acceptable use", `<p>You must not use Cubicase to: break the law or third-party rights; host or distribute unlawful or malicious content (including mods and packs with malware); harass, threaten or deceive people; attack networks or computers; overload the service, automate it at scale, bypass limits or try to gain unauthorized access to the service or to other people's servers; or impersonate someone else. We may limit or suspend access for anyone who breaks these rules.</p>`],
@@ -218,11 +224,36 @@ const PAGES = {
 <tr><td>Supabase JS</td><td>MIT</td></tr>
 <tr><td>Bibliotecas Rust: serde, tokio, reqwest, chrono, uuid, rand, zip, image, walkdir, sha2, base64, sysinfo, tiny_http, tokio-tungstenite, portable-pty, hematite-nbt, md5, sha1_smol, windows-sys e dependências</td><td>MIT, Apache-2.0, BSD ou Unlicense (conforme cada pacote)</td></tr>
 </tbody></table>`],
-        ["Rede (sidecar)", `<p><strong>Tailscale (tsnet)</strong> e dependências — © Tailscale Inc. &amp; AUTHORS — licença BSD de 3 cláusulas:</p>
-<pre>Copyright (c) 2020 Tailscale Inc &amp; AUTHORS All rights reserved.
+        ["Rede (sidecar)", `<p><strong>Pion WebRTC</strong> e módulos Pion (ice, dtls, sctp, turn, stun, srtp, rtp, rtcp, sdp, mdns, transport, logging, randutil, datachannel, interceptor) — © The Pion community e autores de cada módulo — licença MIT. O texto abaixo é o do módulo principal; os demais módulos do Pion usam a mesma licença, com seus próprios avisos de copyright:</p>
+<pre>MIT License
+
+Copyright (c) 2026 The Pion community &lt;https://pion.ly&gt;
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+<p><strong>coder/websocket</strong> — © Coder — licença ISC:</p>
+<pre>Copyright (c) 2025 Coder
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</pre>
+<p><strong>golang.org/x/crypto</strong> (e demais módulos <code>golang.org/x/*</code>) — © The Go Authors — licença BSD de 3 cláusulas:</p>
+<pre>Copyright 2009 The Go Authors.
 
 Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+modification, are permitted provided that the following conditions are
+met:
 
    * Redistributions of source code must retain the above copyright
 notice, this list of conditions and the following disclaimer.
@@ -230,7 +261,7 @@ notice, this list of conditions and the following disclaimer.
 copyright notice, this list of conditions and the following disclaimer
 in the documentation and/or other materials provided with the
 distribution.
-   * Neither the name of Tailscale Inc. nor the names of its
+   * Neither the name of Google LLC nor the names of its
 contributors may be used to endorse or promote products derived from
 this software without specific prior written permission.
 
@@ -246,7 +277,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>`],
         ["Fontes do site", `<p>Inter e Space Grotesk — SIL Open Font License 1.1 (fornecidas pelo Google Fonts).</p>`],
-        ["Marcas", `<p>Minecraft é uma marca registrada da Mojang Synergies AB. Tailscale é marca da Tailscale Inc. Stripe, Supabase, Cloudflare, GitHub, Modrinth e CurseForge são marcas de seus respectivos donos. O Cubicase não é afiliado a nenhum deles.</p>`],
+        ["Marcas", `<p>Minecraft é uma marca registrada da Mojang Synergies AB. Stripe, Supabase, Cloudflare, GitHub, Modrinth e CurseForge são marcas de seus respectivos donos. O Cubicase não é afiliado a nenhum deles.</p>`],
       ],
     },
     en: {
@@ -264,11 +295,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>`],
 <tr><td>Supabase JS</td><td>MIT</td></tr>
 <tr><td>Rust libraries: serde, tokio, reqwest, chrono, uuid, rand, zip, image, walkdir, sha2, base64, sysinfo, tiny_http, tokio-tungstenite, portable-pty, hematite-nbt, md5, sha1_smol, windows-sys and dependencies</td><td>MIT, Apache-2.0, BSD or Unlicense (per package)</td></tr>
 </tbody></table>`],
-        ["Networking (sidecar)", `<p><strong>Tailscale (tsnet)</strong> and dependencies — © Tailscale Inc. &amp; AUTHORS — BSD 3-Clause license:</p>
-<pre>Copyright (c) 2020 Tailscale Inc &amp; AUTHORS All rights reserved.
+        ["Networking (sidecar)", `<p><strong>Pion WebRTC</strong> and Pion modules (ice, dtls, sctp, turn, stun, srtp, rtp, rtcp, sdp, mdns, transport, logging, randutil, datachannel, interceptor) — © The Pion community and each module's authors — MIT license. The text below is the main module's; the other Pion modules use the same license with their own copyright notices:</p>
+<pre>MIT License
+
+Copyright (c) 2026 The Pion community &lt;https://pion.ly&gt;
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</pre>
+<p><strong>coder/websocket</strong> — © Coder — ISC license:</p>
+<pre>Copyright (c) 2025 Coder
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</pre>
+<p><strong>golang.org/x/crypto</strong> (and the other <code>golang.org/x/*</code> modules) — © The Go Authors — BSD 3-Clause license:</p>
+<pre>Copyright 2009 The Go Authors.
 
 Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+modification, are permitted provided that the following conditions are
+met:
 
    * Redistributions of source code must retain the above copyright
 notice, this list of conditions and the following disclaimer.
@@ -276,7 +332,7 @@ notice, this list of conditions and the following disclaimer.
 copyright notice, this list of conditions and the following disclaimer
 in the documentation and/or other materials provided with the
 distribution.
-   * Neither the name of Tailscale Inc. nor the names of its
+   * Neither the name of Google LLC nor the names of its
 contributors may be used to endorse or promote products derived from
 this software without specific prior written permission.
 
@@ -292,7 +348,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>`],
         ["Website fonts", `<p>Inter and Space Grotesk — SIL Open Font License 1.1 (served by Google Fonts).</p>`],
-        ["Trademarks", `<p>Minecraft is a registered trademark of Mojang Synergies AB. Tailscale is a trademark of Tailscale Inc. Stripe, Supabase, Cloudflare, GitHub, Modrinth and CurseForge are trademarks of their respective owners. Cubicase is not affiliated with any of them.</p>`],
+        ["Trademarks", `<p>Minecraft is a registered trademark of Mojang Synergies AB. Stripe, Supabase, Cloudflare, GitHub, Modrinth and CurseForge are trademarks of their respective owners. Cubicase is not affiliated with any of them.</p>`],
       ],
     },
   },

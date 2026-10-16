@@ -10,8 +10,7 @@ import (
 )
 
 // Config é o que o app (Rust) entrega ao sidecar — por arquivo (--config) ou pela
-// primeira linha do stdin (--stdin). Mesmo contrato do tsnet-node: o sidecar morre
-// quando o stdin do pai fecha.
+// primeira linha do stdin (--stdin). O sidecar morre quando o stdin do pai fecha.
 type Config struct {
 	// Mode: "host" (hospeda: recebe convidados e encaminha para o Minecraft local) ou
 	// "guest" (entra: escuta em localhost e leva o tráfego ao host).

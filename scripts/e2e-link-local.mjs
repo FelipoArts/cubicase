@@ -5,7 +5,7 @@
 //
 // Pré-requisito: o binário do sidecar (npm run build:sidecar, ou
 //   cd src-tauri/sidecars/cubicase-link && go build -o ../../binaries/cubicase-link-x86_64-pc-windows-msvc.exe .)
-// Use LINK_BIN para apontar outro binário. Não usa Tailscale nem a internet (só STUN, que é opcional).
+// Use LINK_BIN para apontar outro binário. Não usa a internet (só STUN, que é opcional).
 import { spawn } from "node:child_process";
 import { createServer as createTcp, connect } from "node:net";
 import { createServer as createHttp } from "node:http";
@@ -76,7 +76,7 @@ async function main() {
   }, headers);
   const hostSess = await sess("host", "install-host-0001", owner);
   const guestSess = await sess("guest", "install-guest-0001", {});
-  check(hostSess.status === 201 && guestSess.status === 201, "API emitiu as sessões link-v1 (sem Tailscale)");
+  check(hostSess.status === 201 && guestSess.status === 201, "API emitiu as sessões link-v1");
 
   // serviços locais falsos
   const mcPort = await freePort();

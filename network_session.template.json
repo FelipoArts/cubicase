@@ -1,7 +1,6 @@
 {
-  "provider": "tailscale",
+  "provider": "mock",
   "credentials": {
-    "authKey": "tskey-auth-YOUR_KEY_HERE",
-    "hostname": "cubeforge-dev"
+    "fakeIp": "100.99.99.99"
   }
 }

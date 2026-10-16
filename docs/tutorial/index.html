@@ -90,7 +90,7 @@
   <p>
     Normalmente, para jogar com amigos em um servidor caseiro você precisa abrir portas no roteador, descobrir seu IP,
     configurar firewall e instalar Java. O Cubicase faz tudo isso sozinho: ele baixa o Java certo, instala o servidor,
-    e conecta você e seus amigos por uma <strong>rede privada (mesh)</strong>, um tipo de VPN, sem abrir nenhuma porta.
+    e conecta você e seus amigos <strong>direto pela internet</strong>, sem abrir nenhuma porta.
   </p>
 
   <h3>Os dois papéis</h3>
@@ -1033,6 +1033,17 @@
     <li>Tente <span class="ui">Desconectar</span> e <span class="ui">Conectar</span> de novo.</li>
   </ol>
 
+  <h3>Se a conexão direta não funcionar: plano B com o Radmin VPN</h3>
+  <p>Em algumas internets (certas operadoras, redes de empresa ou de faculdade) o Cubicase não consegue ligar os computadores diretamente. Não é culpa de ninguém, e tem um jeito fácil: o <strong>Radmin VPN</strong>, um programa gratuito que faz os dois computadores se enxergarem como se estivessem na mesma casa. Você e seu amigo precisam instalar (leva uns 5 minutos).</p>
+  <ol class="tut-steps">
+    <li>Os dois baixam e instalam o <a href="https://www.radmin-vpn.com/" target="_blank" rel="noopener">Radmin VPN</a> (grátis, sem conta).</li>
+    <li><strong>Quem hospeda</strong> abre o Radmin e vai em <span class="ui">Rede → Criar rede</span>, escolhe um nome e uma senha e passa para o amigo.</li>
+    <li><strong>O amigo</strong> vai em <span class="ui">Rede → Entrar na rede</span> e digita o nome e a senha.</li>
+    <li>No Cubicase, abra <span class="ui">Ajuda (?) → Não consegue conectar?</span>. O endereço do Radmin do host aparece ali, pronto para copiar; o host manda esse endereço para o amigo.</li>
+    <li>No Minecraft, o amigo vai em <span class="ui">Multijogador → Adicionar servidor</span>, cola o endereço e entra.</li>
+  </ol>
+  <p>Seu servidor e seu mundo continuam os mesmos. Só muda o caminho da conexão.</p>
+
   <div class="tut-callout is-tip">
     <strong>Mesma versão!</strong>
     <p>Mensagens como "versão incompatível" no Minecraft significam que jogador e servidor estão em versões diferentes. No modo Convidado o botão <span class="ui">Preparar e Jogar</span> já abre o perfil correto.</p>
@@ -1067,7 +1078,7 @@
   <p>Sim. O Cubicase é gratuito e de código aberto. O <a href="#plus">Cubicase Plus</a> é uma assinatura opcional com recursos extras.</p>
 
   <h3>Preciso abrir portas no roteador?</h3>
-  <p>Não. A conexão passa por uma rede privada (mesh), sem expor seu roteador.</p>
+  <p>Não. O Cubicase conecta direto, sem precisar abrir portas e sem expor seu roteador.</p>
 
   <h3>Meus amigos precisam instalar o Cubicase?</h3>
   <p>Para entrar pelo código/link, sim: o Cubicase deles faz a conexão (e instala os mods, se houver). Só o host cria o servidor.</p>
@@ -1108,8 +1119,8 @@
       <tbody>
         <tr><td>Host</td><td>Quem hospeda o servidor no próprio PC.</td></tr>
         <tr><td>Convidado</td><td>Quem entra no servidor de outra pessoa.</td></tr>
-        <tr><td>Rede mesh</td><td>Rede privada virtual que liga host e convidados diretamente, sem abrir portas no roteador.</td></tr>
-        <tr><td>Túnel</td><td>A conexão criada pela rede mesh entre você e o host.</td></tr>
+        <tr><td>Conexão direta</td><td>Liga host e convidados diretamente pela internet, sem abrir portas no roteador. Se a internet de alguém não permitir, o Cubicase usa um servidor de reserva (relay).</td></tr>
+        <tr><td>Túnel</td><td>A ligação entre você e o host, direta ou pelo servidor de reserva (relay).</td></tr>
         <tr><td>Código (CF-XXXX)</td><td>Identificador curto do servidor, usado para convidar.</td></tr>
         <tr><td>Vanilla</td><td>Minecraft puro, sem mods nem plugins.</td></tr>
         <tr><td>Mod</td><td>Modificação do jogo. Precisa de um mod loader (Forge, NeoForge ou Fabric).</td></tr>
@@ -1158,7 +1169,7 @@
         <a href="https://github.com/FelipoArts/cubeforge/releases" target="_blank" rel="noopener">Releases</a>
       </div>
     </div>
-    <div class="container footer-disclaimer">O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios, pela Microsoft nem pela Tailscale. Minecraft é uma marca registrada da Mojang Synergies AB.</div>
+    <div class="container footer-disclaimer">O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB.</div>
   </footer>
 
   <script src="/assets/site.js"></script>

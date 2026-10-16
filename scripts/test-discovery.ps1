@@ -1,7 +1,7 @@
 # Script de Teste Local para Descoberta de Servidores
 # 
 # Este script simula o fluxo completo de descoberta de servidores
-# sem precisar de dois computadores ou do Tailscale.
+# sem precisar de dois computadores.
 #
 # Fluxo testado:
 # 1. Inicia um servidor HTTP local (simulando o Rust registry)
@@ -177,16 +177,16 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Para testar o fluxo completo (Rust + sidecar Go + frontend):" -ForegroundColor White
 Write-Host "  1. Rode 'npm run tauri dev' para iniciar o app em modo desenvolvimento" -ForegroundColor Gray
-Write-Host "  2. No host: clique em 'Iniciar Rede Mesh' (modo mock ou tailscale)" -ForegroundColor Gray
+Write-Host "  2. No host: inicie a conexao (modo mock)" -ForegroundColor Gray
 Write-Host "  3. Copie o código de convite gerado" -ForegroundColor Gray
 Write-Host "  4. Volte para o início e vá em 'Entrar em um Jogo'" -ForegroundColor Gray
 Write-Host "  5. Cole o código e clique em 'Conectar Agora'" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Para testar LOCALMENTE (sem Tailscale):" -ForegroundColor Yellow
+Write-Host "Para testar LOCALMENTE (modo mock):" -ForegroundColor Yellow
 Write-Host "  1. Crie um arquivo network_session.json na raiz do projeto:" -ForegroundColor Gray
 Write-Host '     { "provider": "mock", "credentials": { "fakeIp": "100.99.99.99" } }' -ForegroundColor Gray
 Write-Host "  2. Rode 'npm run tauri dev'" -ForegroundColor Gray
-Write-Host "  3. No host: inicie a rede mesh (usará o mock provider)" -ForegroundColor Gray
+Write-Host "  3. No host: inicie a conexão (usará o mock provider)" -ForegroundColor Gray
 Write-Host "  4. O código de convite será CF-XXXXXX63636363 (IP fake)" -ForegroundColor Gray
 Write-Host "  5. Volte para início, vá em guest, cole o código e conecte" -ForegroundColor Gray
 Write-Host "  6. O guest vai conectar 'virtualmente' (sem rede real)" -ForegroundColor Gray

@@ -21,14 +21,12 @@ do zero. Segue a ordem recomendada.
 | Git | qualquer recente | `git --version` |
 | Node.js | v24.x (LTS) | inclui npm |
 | Rust (via [rustup](https://rustup.rs)) | stable (1.96+), `rust-version` mínimo no Cargo.toml é 1.77.2 | target padrão no Windows já é `x86_64-pc-windows-msvc` |
-| Go | 1.26.x (CI usa 1.22, então qualquer versão ≥1.22 serve) | necessário para compilar o sidecar `tsnet-node` |
+| Go | 1.26.x (CI usa 1.22, então qualquer versão ≥1.22 serve) | necessário para compilar o sidecar `cubicase-link` |
 | Microsoft C++ Build Tools | — | Visual Studio Build Tools com o workload "Desktop development with C++" — exigido pelo toolchain MSVC do Rust/Tauri no Windows |
 | WebView2 Runtime | — | normalmente já vem instalado no Windows 11; senão, baixar da Microsoft |
 
-Não é necessário instalar o Tailscale desktop app à parte — o app usa o
-sidecar `tsnet-node` (embutido, via Go) para entrar na mesh, não o cliente
-oficial. Só instale o Tailscale separadamente se quiser inspecionar a mesh
-pela CLI/GUI oficial.
+Não é necessário instalar nenhum cliente de VPN — o app usa o sidecar
+`cubicase-link` (embutido, compilado com Go) para ligar host e convidados.
 
 ## 2. Clonar o repositório
 
@@ -53,13 +51,14 @@ precisa instalar globalmente.
 
 Estes estão no `.gitignore` de propósito (segredos ou build local):
 
-- **`network_session.json`** — contém o `authKey` do Tailscale usado em dev.
-  Copie o arquivo da máquina antiga (não é seguro recriar do zero sem gerar
-  uma nova key). Alternativa mais limpa: gerar uma **auth key nova** no painel
-  do Tailscale para a máquina nova, em vez de reutilizar a antiga.
-- **`api/.dev.vars`** — segredos do Worker (Cloudflare): `TAILSCALE_OAUTH_CLIENT_ID`,
-  `TAILSCALE_OAUTH_CLIENT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`. Copie a partir
-  de `api/.dev.vars.example` preenchendo com os valores reais.
+- **`network_session.json`** — usado só no modo de desenvolvimento offline
+  (`"provider": "mock"`, ver `network_session.template.json`). Não guarda segredo
+  real; recrie a partir do template se precisar.
+- **`api/.dev.vars`** — segredos do Worker (Cloudflare) para `wrangler dev`:
+  `SUPABASE_SERVICE_ROLE_KEY`, `LINK_TOKEN_SECRET` (assinatura dos tokens de
+  sinalização), `TURN_SECRET` (o mesmo do coturn) e, para os recursos que usam,
+  `STRIPE_*`, `RESEND_API_KEY` e `CURSEFORGE_API_KEY`. Em produção os mesmos nomes
+  são configurados com `wrangler secret put`.
 - **`test_config.json`** — na verdade este *está* versionado (contém só uma
   key fake `"teste"`), então já vem com o `git clone`.
 
@@ -90,8 +89,8 @@ Para trabalhar só na UI sem o shell Tauri: `npm run dev`.
   (repo separado: `github.com/FelipoArts/cubicase-play`, usado para
   `play.cubicase.net`, publicado via GitHub Pages).
 - **Cloudflare (`wrangler login`)** — só se for mexer/deployar o Worker em `api/`.
-- **Tailscale** — se for gerar auth key nova (recomendado) em vez de reusar a
-  antiga, é só acessar o painel web, não precisa instalar nada localmente.
+- **Oracle Cloud (relay)** — só se for mexer no servidor de reserva (coturn): veja
+  `infra/relay/README.md`.
 
 ## 8. O que é opcional / não precisa copiar
 

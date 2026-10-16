@@ -21,8 +21,8 @@ cd api
 npx tsc --noEmit
 
 # 4. Go (sidecar)
-cd src-tauri\sidecars\tsnet-node
-go build -o tsnet-node.exe .
+cd src-tauri\sidecars\cubicase-link
+go build -o cubicase-link.exe .
 ```
 
 **Resultado esperado:** Todos compilam sem erros.
@@ -79,7 +79,7 @@ curl -X POST https://cubeforge-api.cubeforge.workers.dev/api/v1/servers/X7K9M2/c
 **Importante:** Note que o request NÃO envia "provider". A API decide.
 
 - [ ] 1.4 ConnectionSession criada sem enviar provider
-- [ ] 1.5 Resposta contém `launcher: "tsnet-v1"` (driver opaco)
+- [ ] 1.5 Resposta contém `launcher: "link-v1"` (driver opaco)
 - [ ] 1.6 Resposta contém `credentials` como blob
 - [ ] 1.7 Resposta contém `protocolVersion: 1`
 
@@ -202,29 +202,20 @@ use provider_manager::ProviderManager;
 
 ### 3.1 Compilar
 ```bash
-cd c:\Projetos\CubeForge\src-tauri\sidecars\tsnet-node
-go build -o tsnet-node.exe .
+cd src-tauri\sidecars\cubicase-link
+go build -o cubicase-link.exe .
 ```
-**Esperado:** `tsnet-node.exe` gerado sem erros
+**Esperado:** `cubicase-link.exe` gerado sem erros
 
 - [ ] 3.1 Sidecar compila
 
-### 3.2 Testar --stdin (modo novo)
+### 3.2 Rodar os testes do sidecar
 ```bash
-echo "{\"authKey\":\"teste\",\"hostname\":\"cf-teste\",\"mode\":\"host\",\"targetIp\":null,\"localPort\":25565}" | tsnet-node.exe --stdin
+go test ./... -count=1 -timeout 300s
 ```
-**Esperado:** O sidecar tenta conectar (vai falhar porque authKey é inválida, mas a leitura do stdin funciona)
+**Esperado:** todos passam (conexões WebRTC reais em loopback: host, convidado, relay simulado, retomada de ICE)
 
-- [ ] 3.2 Leitura de stdin funciona (não importa se falha depois)
-
-### 3.3 Testar --config (modo legado)
-```bash
-echo "{\"authKey\":\"teste\",\"hostname\":\"cf-teste\",\"mode\":\"host\",\"targetIp\":null,\"localPort\":25565}" > test_config.json
-tsnet-node.exe --config test_config.json
-```
-**Esperado:** Mesmo comportamento (tenta conectar, falha, mas leu o arquivo)
-
-- [ ] 3.3 Leitura de arquivo funciona
+- [ ] 3.2 Testes do sidecar passam
 
 ---
 
@@ -279,8 +270,8 @@ Use o Mock Provider para testar offline:
   }
 }
 ```
-2. No Tauri, clique em "Iniciar Rede Mesh"
-3. **Esperado:** A rede mesh entra como "online" com IP `100.99.99.99`
+2. No Tauri, inicie o servidor para amigos
+3. **Esperado:** A conexão entra como "online" (modo mock, IP simulado `100.99.99.99`)
 
 - [ ] 5.2 Mock provider funciona
 
@@ -315,7 +306,7 @@ No mesmo servidor importado:
 - [ ] 5.6 Remoção de servidor padrão deleta arquivos
 
 ### 5.7 Testar Bloqueio de Concorrência
-1. Inicie a rede mesh
+1. Inicie a conexão
 2. Tente clicar "Iniciar" novamente
 3. **Esperado (futuro):** Mensagem "Já existe uma operação em andamento"
 

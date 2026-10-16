@@ -1,6 +1,6 @@
 # cubicase-link
 
-Transporte P2P do Cubicase (WebRTC: ICE + DTLS + SCTP via `pion`). Substitui o `tsnet-node` (Tailscale).
+Transporte P2P do Cubicase (WebRTC: ICE + DTLS + SCTP via `pion`).
 Plano completo: `plans/p2p-link-transport-plan.md`. **Fase 1** (este diretório): sidecar autônomo, ainda
 não ligado ao app (a integração é a Fase 4).
 

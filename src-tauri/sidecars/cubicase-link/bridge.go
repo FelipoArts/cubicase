@@ -16,9 +16,8 @@ const (
 // pipe copia nos dois sentidos entre uma conexão TCP e um DataChannel (já "detached")
 // até qualquer lado terminar; aí fecha os dois. Bloqueia até acabar.
 //
-// Fechar os dois quando UM lado termina é o mesmo comportamento do proxy TCP que o
-// app já usava (handleProxy no tsnet-node) e é o que o Minecraft espera (um disconnect
-// de qualquer lado encerra a sessão).
+// Fechar os dois quando UM lado termina é o que o Minecraft espera (um disconnect de
+// qualquer lado encerra a sessão).
 func pipe(conn net.Conn, dc io.ReadWriteCloser) {
 	var once sync.Once
 	closeBoth := func() {
