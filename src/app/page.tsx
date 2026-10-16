@@ -1,6 +1,6 @@
 "use client";
 
-import { guestRouteFromDiscovery, pathLabelKey } from "@/lib/networkTransport";
+import { pathLabelKey } from "@/lib/networkTransport";
 import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
@@ -845,11 +845,6 @@ export default function Home() {
   }, []);
 
   // Transporte de rede preferido (quando este app HOSPEDA): o Rust lê isto ao subir a rede.
-  const networkTransport = useAppStore((s) => s.networkTransport);
-  useEffect(() => {
-    invoke("set_network_transport", { transport: networkTransport }).catch((err) => console.warn("[rede] set_network_transport falhou:", err));
-  }, [networkTransport]);
-
   // Modo privado: o Rust precisa da chave ligada/desligada e do token ATUAL da conta (a API confere o
   // Cubicase Plus com ele). O token renova sozinho, então reenvia a cada mudança de sessão.
   const privateMode = useAppStore((s) => s.privateMode);
@@ -922,7 +917,6 @@ export default function Home() {
     // host (session.hostIp) — sem isso não tem pra onde discar. O código de
     // convite sozinho (CF-XXXXXX) só carrega o shortCode, nunca um IP.
     let found = false;
-    let discoverySession: { provider?: string | null; hostIp?: string | null } | null = null;
     // Endereço de conexão personalizado (Cubicase Plus) — null se o host
     // nunca configurou um, e aí connectAddressFor cai pro padrão grátis
     // derivado do próprio shortCode.
@@ -943,16 +937,14 @@ export default function Home() {
         });
         discoveredName = server.name ?? null;
         found = true;
-        discoverySession = session;
         connectName = server.connectName ?? null;
       }
     } catch {
       // tratado abaixo pelo `!hostIp`
     }
 
-    // Host P2P (link-v1): o convidado só precisa do código; host antigo (Tailscale): precisa do IP.
-    const route = guestRouteFromDiscovery(found, discoverySession);
-    if (!route) {
+    // O convidado só precisa do código do servidor (conexão P2P): sem ele registrado, não há o que alcançar.
+    if (!found) {
       setNetStatus("offline");
       setNetMode(null);
       useAppStore.getState().setGuestConnectedShortCode(null);
@@ -970,9 +962,7 @@ export default function Home() {
       await invoke("start_network_node", {
         mode: "guest",
         shortCode: shortCodeClean,
-        targetIp: route.targetIp,
         localPort: minecraftPort,
-        launcher: route.launcher,
       });
       setNetStatus("online");
       setNetMode("guest");

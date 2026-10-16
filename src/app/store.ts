@@ -33,8 +33,8 @@ export interface KnownServer {
   version: string;
   serverType: string;
   description: string;
-  // Status da rede mesh do host (Tailscale) — só diz se dá pra alcançar o host
-  // pelo túnel do CubeForge, não se o Minecraft em si está de pé (ver minecraftStatus).
+  // Status da conexão do host (P2P) — só diz se dá pra alcançar o host pelo Cubicase,
+  // não se o Minecraft em si está de pé (ver minecraftStatus).
   status: ServerStatus;
   // Status do processo Java do Minecraft no host, reportado independente da rede
   // mesh (ver report_mc_status em lib.rs) — null quando a API Central nunca recebeu
@@ -60,8 +60,6 @@ export interface KnownServer {
   forgeVersion: string | null;
   modLoaderVersion: string | null;
 }
-
-export type NetworkTransport = "tailscale" | "link";
 
 /** Caminho da conexão P2P: direct-v4/direct-v6/punched/relay (ver cubicase-link). */
 /** Estado do relay informado pela API: "ok", "quota" (cota do mês esgotada), "off" (desligado) ou "private_locked" (modo privado recusado: precisa do Plus). */
@@ -98,9 +96,6 @@ interface AppSettings {
   // Quando o usuário aceitou o EULA do Minecraft (ISO). null = ainda não aceitou: a
   // criação/importação de servidor pede o aceite antes de gravar eula=true.
   eulaAcceptedAt: string | null;
-  // Transporte de rede usado quando ESTE app hospeda: "tailscale" (padrão) ou "link" (conexão
-  // direta P2P, beta). O convidado não escolhe: segue o que o host publica.
-  networkTransport: NetworkTransport;
   // Tipo de caminho da conexão P2P atual (direto/relay) e latência — runtime, não persistido.
   networkPath: NetworkPathInfo | null;
   // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
@@ -170,7 +165,6 @@ interface AppSettings {
   setMinecraftPort: (port: number) => void;
   setAutoBackupEnabled: (enabled: boolean) => void;
   acceptEula: () => void;
-  setNetworkTransport: (t: NetworkTransport) => void;
   setNetworkPath: (p: NetworkPathInfo | null) => void;
   setPrivateMode: (enabled: boolean) => void;
   setRelayStatus: (s: RelayStatus | null) => void;
@@ -211,7 +205,6 @@ export const useAppStore = create<AppSettings>()(
       minecraftPort: 25565,
       autoBackupEnabled: true,
       eulaAcceptedAt: null,
-      networkTransport: "tailscale",
       networkPath: null,
       privateMode: false,
       relayStatus: null,
@@ -238,7 +231,6 @@ export const useAppStore = create<AppSettings>()(
       setMinecraftPort: (port) => set({ minecraftPort: port }),
       setAutoBackupEnabled: (enabled) => set({ autoBackupEnabled: enabled }),
       acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
-      setNetworkTransport: (t) => set({ networkTransport: t }),
       setNetworkPath: (p) => set({ networkPath: p }),
       setPrivateMode: (enabled) => set({ privateMode: enabled }),
       setRelayStatus: (s) => set({ relayStatus: s }),
@@ -339,7 +331,6 @@ export const useAppStore = create<AppSettings>()(
         minecraftPort: state.minecraftPort,
         autoBackupEnabled: state.autoBackupEnabled,
         eulaAcceptedAt: state.eulaAcceptedAt,
-        networkTransport: state.networkTransport,
         privateMode: state.privateMode,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,

@@ -24,9 +24,9 @@ import { lookupModrinthByHashes } from "@/lib/modrinth";
 // ============================================================
 
 // Porta local fixa (só loopback, na máquina do convidado) que o sidecar Go
-// encaminha pela mesh até a porta 25566 do host — ver modsHttpLocalPort em
-// src-tauri/sidecars/tsnet-node/main.go. Só responde enquanto uma sessão de
-// convidado está conectada; se a mesh cair, as chamadas abaixo falham com
+// encaminha pelo P2P até a porta 25566 do host — ver modsPort em
+// src-tauri/sidecars/cubicase-link. Só responde enquanto uma sessão de
+// convidado está conectada; se a conexão cair, as chamadas abaixo falham com
 // erro de conexão recusada, tratado como "host inalcançável".
 const MODS_PROXY_BASE = "http://127.0.0.1:25568";
 

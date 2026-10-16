@@ -73,8 +73,6 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
   }, []);
 
   const defaultTab = useAppStore((s) => s.defaultTab);
-  const networkTransport = useAppStore((s) => s.networkTransport);
-  const setNetworkTransport = useAppStore((s) => s.setNetworkTransport);
   const privateMode = useAppStore((s) => s.privateMode);
   const setPrivateMode = useAppStore((s) => s.setPrivateMode);
   const relayStatus = useAppStore((s) => s.relayStatus);
@@ -386,73 +384,49 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-theme-secondary uppercase tracking-wide">{t("settings.network.label")}</label>
                     <p className="text-[10px] text-theme-secondary pb-1">{t("settings.network.hint")}</p>
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      {(["tailscale", "link"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setNetworkTransport(mode)}
-                          className={cn(
-                            "text-left p-4 rounded-2xl border transition-colors cursor-pointer",
-                            networkTransport === mode
-                              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
-                              : "border-theme-card hover:bg-theme-muted"
-                          )}
-                        >
-                          <Network className="w-4.5 h-4.5 text-indigo-600 mb-2" />
-                          <div className="text-sm font-bold text-theme-primary">{t(mode === "link" ? "settings.network.link" : "settings.network.standard")}</div>
-                          <div className="text-[10px] text-theme-secondary">{t(mode === "link" ? "settings.network.linkDesc" : "settings.network.standardDesc")}</div>
-                        </button>
-                      ))}
-                    </div>
-                    {networkTransport === "link" && (
-                      <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-2">{t("settings.network.betaNote")}</p>
-                    )}
-                    {networkTransport === "link" && relayStatus === "quota" && (
+                    {relayStatus === "quota" && (
                       <p className="text-[10px] text-sky-600 dark:text-sky-400 pt-1">{t("settings.network.quotaNote")}</p>
                     )}
-                    {networkTransport === "link" && (
-                      <div className="pt-4 space-y-2">
-                        <div className="flex items-start justify-between gap-4 p-4 rounded-2xl border border-theme-card">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-theme-primary">{t("settings.private.label")}</span>
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300">Plus</span>
-                            </div>
-                            <p className="text-[10px] text-theme-secondary mt-1 leading-relaxed">{t("settings.private.desc")}</p>
+                    <div className="pt-4 space-y-2">
+                      <div className="flex items-start justify-between gap-4 p-4 rounded-2xl border border-theme-card">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-theme-primary">{t("settings.private.label")}</span>
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300">Plus</span>
                           </div>
-                          <Switch
-                            checked={privateMode && isSubscriptionActive(subscription)}
-                            onChange={() => {
-                              if (isSubscriptionActive(subscription)) { setPrivateMode(!privateMode); setShowPrivateLocked(false); }
-                              else setShowPrivateLocked(true);
-                            }}
-                            title={isSubscriptionActive(subscription) ? undefined : t("settings.private.lockedTitle")}
-                          />
+                          <p className="text-[10px] text-theme-secondary mt-1 leading-relaxed">{t("settings.private.desc")}</p>
                         </div>
-                        {showPrivateLocked && !isSubscriptionActive(subscription) && (
-                          <div className="p-4 rounded-2xl bg-theme-muted border border-theme-card space-y-3">
-                            <p className="text-xs text-theme-secondary leading-relaxed">{t("settings.private.locked")}</p>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setCategory("assinatura")}
-                                className="h-9 px-4 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold transition-colors cursor-pointer"
-                              >
-                                {t("settings.private.seePlus")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { onClose(); useConnectionHelp.getState().show("private_locked"); }}
-                                className="h-9 px-4 rounded-xl border border-theme-card hover:bg-theme-card text-xs font-bold text-theme-primary transition-colors cursor-pointer"
-                              >
-                                {t("settings.private.withoutPlus")}
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <Switch
+                          checked={privateMode && isSubscriptionActive(subscription)}
+                          onChange={() => {
+                            if (isSubscriptionActive(subscription)) { setPrivateMode(!privateMode); setShowPrivateLocked(false); }
+                            else setShowPrivateLocked(true);
+                          }}
+                          title={isSubscriptionActive(subscription) ? undefined : t("settings.private.lockedTitle")}
+                        />
                       </div>
-                    )}
+                      {showPrivateLocked && !isSubscriptionActive(subscription) && (
+                        <div className="p-4 rounded-2xl bg-theme-muted border border-theme-card space-y-3">
+                          <p className="text-xs text-theme-secondary leading-relaxed">{t("settings.private.locked")}</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setCategory("assinatura")}
+                              className="h-9 px-4 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              {t("settings.private.seePlus")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { onClose(); useConnectionHelp.getState().show("private_locked"); }}
+                              className="h-9 px-4 rounded-xl border border-theme-card hover:bg-theme-card text-xs font-bold text-theme-primary transition-colors cursor-pointer"
+                            >
+                              {t("settings.private.withoutPlus")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

@@ -9,9 +9,9 @@
 // Campo independente do slug do link de convite (src/lib/inviteLink.ts): o
 // host pode ter nomes diferentes pra cada um.
 //
-// Só funciona pra convidados na mesh do próprio Cubicase: um registro DNS
+// Só funciona pra convidados conectados pelo próprio Cubicase: um registro DNS
 // wildcard `*.link.cubicase.net -> A 127.0.0.1`, mantido fora do app,
-// resolve qualquer nome sob esse domínio pro loopback onde o tsnet-node do
+// resolve qualquer nome sob esse domínio pro loopback onde o cubicase-link do
 // convidado já escuta depois de conectar (ver GuestView.tsx/page.tsx) — é
 // por isso que esse endereço só funciona enquanto o app está conectado
 // àquele servidor, exatamente como "localhost:<porta>" hoje.
@@ -48,7 +48,7 @@ export function defaultConnectNameFor(shortCode: string): string {
  * Monta o endereço que o convidado deve usar no Minecraft. Só omite a porta
  * quando for a padrão (25565) — o Minecraft já assume essa por conta própria;
  * qualquer outra precisa ser digitada, porque é a porta LOCAL do convidado
- * (onde o tsnet-node dele escuta), não uma escolha do host.
+ * (onde o cubicase-link dele escuta), não uma escolha do host.
  */
 export function connectAddressFor(server: { shortCode: string; connectName?: string | null }, port: number): string {
   const name = server.connectName ?? defaultConnectNameFor(server.shortCode);
