@@ -1210,3 +1210,16 @@ fn origem_de_mods_aceita_o_servidor_de_mods_do_host_so_na_rede_do_radmin() {
     assert!(!ok("https://26.202.7.93:25567/mods/file"), "só http na rede do Radmin");
     assert!(!ok("http://evil.example:25567/mods/file"));
 }
+
+
+#[test]
+fn lista_de_mods_do_radmin_so_monta_url_para_ip_do_radmin_e_codigo_simples() {
+    let ok = radmin_mods_url("26.202.7.93", "ABC123").unwrap();
+    assert_eq!(ok.as_str(), "http://26.202.7.93:25567/mods?code=ABC123");
+    for host in ["127.0.0.1", "192.168.1.5", "evil.example", "26.202.7.93:80", "26.1.1", "", "26.202.7.93/../x"] {
+        assert_eq!(radmin_mods_url(host, "ABC123").unwrap_err(), "INVALID_HOST", "{host}");
+    }
+    for code in ["", "AB C", "ABC&x=1", "../../etc", "A".repeat(17).as_str(), "ÁBC"] {
+        assert_eq!(radmin_mods_url("26.1.2.3", code).unwrap_err(), "INVALID_CODE", "{code}");
+    }
+}

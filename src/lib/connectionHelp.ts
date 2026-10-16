@@ -3,14 +3,11 @@ import { create } from "zustand";
 // ============================================================
 // Ajuda de conexão (plano B: Radmin VPN)
 // ============================================================
-// Quando a conexão direta entre os computadores não funciona e o relay não está disponível
-// (cota gratuita do mês acabou, modo privado bloqueado, relay fora do ar), o app não deve deixar o
-// usuário sem saída. Este store controla a janela que explica, para leigos, o caminho alternativo
-// — Radmin VPN, gratuito e sem abrir portas. Efêmero (não persiste): é uma ajuda pontual.
+// Quando a conexão direta entre os computadores não funciona e o relay não está disponível (cota do mês
+// esgotada, modo privado bloqueado, relay fora do ar), o app não deve deixar o usuário sem saída. Este store
+// controla a janela que guia, para leigos, o caminho alternativo — Radmin VPN, gratuito e sem abrir portas
+// (ver src/lib/radmin.ts e ConnectionHelpModal.tsx). Efêmero (não persiste): é uma ajuda pontual.
 // ============================================================
-
-/** Página oficial de download do Radmin VPN. */
-export const RADMIN_DOWNLOAD_URL = "https://www.radmin-vpn.com/";
 
 /** Por que a ajuda foi aberta: muda só a frase de contexto no topo da janela. */
 export type ConnectionHelpReason = "direct_failed" | "relay_quota" | "private_locked" | "manual";
@@ -26,17 +23,25 @@ export function isDirectFailureCode(code: string | undefined | null): boolean {
   return !!code && DIRECT_FAILURE_CODES.has(code);
 }
 
-/** Endereço que o amigo digita no Minecraft pelo Radmin: IP do host + porta (omitida se for 25565). */
-export function radminJoinAddress(ip: string, port: number): string {
-  return port === 25565 ? ip : `${ip}:${port}`;
+/** O servidor que o convidado estava tentando alcançar (a janela guia a entrada nele). */
+export interface GuestTarget {
+  shortCode: string;
+  name: string;
 }
 
 interface ConnectionHelpState {
   open: boolean;
   reason: ConnectionHelpReason;
+  /** Servidor que o convidado tentava alcançar; null = a janela abriu sem contexto (ex.: Central de Ajuda). */
+  target: GuestTarget | null;
   /** Quando a ajuda foi aberta sozinha pela última vez (ms), para não reabrir a cada falha repetida. */
   lastAutoOpenAt: number;
+  /** Abre sem contexto de servidor (botão da Central de Ajuda). */
   show: (reason: ConnectionHelpReason) => void;
+  /** Abre guiando a entrada num servidor específico. */
+  showForServer: (target: GuestTarget, reason?: ConnectionHelpReason) => void;
+  /** Lembra o servidor da tentativa em andamento, sem abrir nada (uma falha logo depois abre a janela com ele). */
+  setTarget: (target: GuestTarget | null) => void;
   /** Abre sozinha, no máximo uma vez a cada `cooldownMs` (a reconexão automática falha em laço). */
   showAuto: (reason: ConnectionHelpReason, cooldownMs?: number) => boolean;
   close: () => void;
@@ -45,8 +50,11 @@ interface ConnectionHelpState {
 export const useConnectionHelp = create<ConnectionHelpState>((set, get) => ({
   open: false,
   reason: "manual",
+  target: null,
   lastAutoOpenAt: 0,
-  show: (reason) => set({ open: true, reason }),
+  show: (reason) => set({ open: true, reason, target: null }),
+  showForServer: (target, reason = "manual") => set({ open: true, reason, target }),
+  setTarget: (target) => set({ target }),
   showAuto: (reason, cooldownMs = 10 * 60 * 1000) => {
     const now = Date.now();
     if (get().open || now - get().lastAutoOpenAt < cooldownMs) return false;

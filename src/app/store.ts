@@ -65,6 +65,16 @@ export interface KnownServer {
 /** Estado do relay informado pela API: "ok", "quota" (cota do mês esgotada), "off" (desligado) ou "private_locked" (modo privado recusado: precisa do Plus). */
 export type RelayStatus = "ok" | "quota" | "off" | "private_locked";
 
+/** Conexão do convidado pelo plano B (Radmin VPN): no lugar do túnel P2P, o Minecraft vai direto ao IP do host. */
+export interface RadminRoute {
+  shortCode: string;
+  /** IP do host na rede do Radmin (26.x.x.x). */
+  host: string;
+  port: number;
+  /** O que o jogador digita no Minecraft (IP, ou IP:porta se não for a padrão). */
+  address: string;
+}
+
 export interface NetworkPathInfo {
   path: string;
   rttMs: number | null;
@@ -102,6 +112,8 @@ interface AppSettings {
   privateMode: boolean;
   // Estado do relay informado pela API na última conexão (cota do mês esgotada, relay desligado...) — runtime.
   relayStatus: RelayStatus | null;
+  // Conexão do convidado pelo Radmin (plano B), se for essa a ativa — runtime.
+  radminRoute: RadminRoute | null;
   backupRetentionCount: number;
   // Intervalo (em horas) do backup de segurança para sessões longas que
   // nunca são paradas manualmente — ver uso em page.tsx.
@@ -168,6 +180,7 @@ interface AppSettings {
   setNetworkPath: (p: NetworkPathInfo | null) => void;
   setPrivateMode: (enabled: boolean) => void;
   setRelayStatus: (s: RelayStatus | null) => void;
+  setRadminRoute: (r: RadminRoute | null) => void;
   setBackupRetentionCount: (count: number) => void;
   setBackupSafetyNetIntervalHours: (hours: number) => void;
   setSelectedServer: (name: string | null) => void;
@@ -208,6 +221,7 @@ export const useAppStore = create<AppSettings>()(
       networkPath: null,
       privateMode: false,
       relayStatus: null,
+      radminRoute: null,
       backupRetentionCount: 10,
       backupSafetyNetIntervalHours: 6,
       selectedServer: null,
@@ -234,6 +248,7 @@ export const useAppStore = create<AppSettings>()(
       setNetworkPath: (p) => set({ networkPath: p }),
       setPrivateMode: (enabled) => set({ privateMode: enabled }),
       setRelayStatus: (s) => set({ relayStatus: s }),
+      setRadminRoute: (r) => set({ radminRoute: r }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
       setBackupSafetyNetIntervalHours: (hours) => set({ backupSafetyNetIntervalHours: hours }),
       setSelectedServer: (name) => set({ selectedServer: name }),

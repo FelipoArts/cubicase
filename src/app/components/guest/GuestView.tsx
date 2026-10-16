@@ -18,6 +18,7 @@ import {
   Check,
   RefreshCw,
   Play,
+  LifeBuoy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,6 +35,7 @@ import {
   findInstalledFabricVersion,
   findInstalledForgeVersion,
 } from "@/lib/clientSetup";
+import { useConnectionHelp } from "@/lib/connectionHelp";
 import { planModSync, runModSync, planLocalModSync, runLocalModSync, INITIAL_PREP_STATE, type PrepState } from "@/lib/modSync";
 import { connectAddressFor } from "@/lib/connectAddress";
 import { ModSyncModal } from "./ModSyncModal";
@@ -77,9 +79,14 @@ export function GuestView({
     localServers,
     guestConnectedShortCode: connectedShortCode,
     setGuestConnectedShortCode: setConnectedShortCode,
+    radminRoute,
     pendingJoinShortCode,
     setPendingJoinShortCode,
   } = useAppStore();
+
+  /** O que o jogador digita no Minecraft para este servidor: o IP do host (Radmin) ou o endereço do túnel P2P. */
+  const addressFor = (server: KnownServer): string =>
+    radminRoute && radminRoute.shortCode === server.shortCode ? radminRoute.address : connectAddressFor(server, minecraftPort);
 
   const [showAddModal, setShowAddModal] = useState(false);
   useLockBodyScroll(showAddModal);
@@ -150,7 +157,7 @@ export function GuestView({
     if ((server.serverType === "forge" || server.serverType === "neoforge") && !server.forgeVersion) {
       patchPrepState(server.shortCode, {
         phase: "error",
-        errorMessage: tn("guest.prep.unknownLoaderVersion", { loader: loaderLabel(server.serverType), address: connectAddressFor(server, minecraftPort) }),
+        errorMessage: tn("guest.prep.unknownLoaderVersion", { loader: loaderLabel(server.serverType), address: addressFor(server) }),
       });
       return;
     }
@@ -217,7 +224,7 @@ export function GuestView({
       if (prepResult === "not_found") {
         patchPrepState(server.shortCode, {
           phase: "error",
-          errorMessage: tn("guest.prep.minecraftNotFound", { address: connectAddressFor(server, minecraftPort) }),
+          errorMessage: tn("guest.prep.minecraftNotFound", { address: addressFor(server) }),
         });
         return;
       }
@@ -1003,7 +1010,7 @@ export function GuestView({
                   // via mesh, então isso resolve pro loopback (127.0.0.1) do próprio
                   // convidado — só passa a rotear de fato depois de clicar em
                   // "Conectar" (ver connectAddressFor em src/lib/connectAddress.ts).
-                  const connectAddress = connectAddressFor(server, minecraftPort);
+                  const connectAddress = addressFor(server);
                   return isThisConnected ? (
                   // Conectado: em vez de uma div separada abaixo da lista, as informações
                   // de conexão ficam centralizadas dentro do próprio card (que já mudou
@@ -1052,6 +1059,17 @@ export function GuestView({
 
               {/* Ações do card */}
               <div className="px-5 pb-5 pt-0 flex items-center gap-2">
+                {!isThisConnected && !stale && server.status === "online" && !server.isOwnServer && (
+                  <button
+                    type="button"
+                    onClick={() => useConnectionHelp.getState().showForServer({ shortCode: server.shortCode, name: server.name })}
+                    title={t("connhelp.openTitle")}
+                    aria-label={t("connhelp.open")}
+                    className="h-10 w-10 shrink-0 rounded-xl border border-theme-card hover:bg-theme-muted text-theme-secondary hover:text-indigo-500 flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <LifeBuoy className="w-4 h-4" />
+                  </button>
+                )}
                 {isThisConnected ? (
                   <>
                     <button

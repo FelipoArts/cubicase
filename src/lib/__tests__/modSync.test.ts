@@ -10,7 +10,7 @@ const lookupMock = vi.fn();
 vi.mock("@/lib/modrinth", () => ({ lookupModrinthByHashes: (...a: unknown[]) => lookupMock(...a) }));
 vi.mock("@/i18n", () => ({ t: (k: string) => k }));
 
-const { isSafeModFilename, sanitizeRemoteMods, runModSync } = await import("@/lib/modSync");
+const { isSafeModFilename, sanitizeRemoteMods, runModSync, fetchRemoteModsList, setModsSource } = await import("@/lib/modSync");
 
 const SHA = "a".repeat(40);
 
@@ -90,5 +90,52 @@ describe("runModSync", () => {
     await runModSync({ shortCode: "ABC", instanceModsDir: "/inst/mods", remoteMods: mods, entries, onProgress: () => {} });
     expect(invokeMock).not.toHaveBeenCalled();
     expect(entries[0].status).toBe("failed");
+  });
+});
+
+describe("origem dos mods no plano B (Radmin)", () => {
+  const entry = (filename: string) => ({ filename, sizeBytes: 1, source: "mesh" as const, status: "pending" as const });
+
+  it("sem Modrinth, o arquivo vem do servidor de mods do host na rede do Radmin", async () => {
+    lookupMock.mockResolvedValue(new Map());
+    invokeMock.mockResolvedValue(undefined);
+    setModsSource({ kind: "radmin", host: "26.202.7.93" });
+    try {
+      const mods = [{ filename: "a.jar", size_bytes: 1, sha1: SHA, source: "unknown" as const, url: null }];
+      await runModSync({ shortCode: "ABC", instanceModsDir: "/inst/mods", remoteMods: mods, entries: [entry("a.jar")], onProgress: () => {} });
+      const call = invokeMock.mock.calls[0][1] as { url: string };
+      expect(call.url).toBe("http://26.202.7.93:25567/mods/file?code=ABC&name=a.jar");
+    } finally {
+      setModsSource({ kind: "proxy" });
+    }
+  });
+
+  it("a lista de mods é buscada pelo Rust (comando validado), e os erros viram as mesmas mensagens do P2P", async () => {
+    setModsSource({ kind: "radmin", host: "26.202.7.93" });
+    try {
+      invokeMock.mockResolvedValueOnce(JSON.stringify([{ filename: "a.jar", size_bytes: 1, sha1: SHA, source: "unknown", url: null }]));
+      const list = await fetchRemoteModsList("ABC");
+      expect(invokeMock).toHaveBeenCalledWith("fetch_radmin_mods_list", { host: "26.202.7.93", code: "ABC" });
+      expect(list).toHaveLength(1);
+
+      invokeMock.mockRejectedValueOnce("NOT_HOSTING");
+      await expect(fetchRemoteModsList("ABC")).rejects.toThrow("modsync.notHosting");
+      invokeMock.mockRejectedValueOnce("UNREACHABLE");
+      await expect(fetchRemoteModsList("ABC")).rejects.toThrow("modsync.hostUnreachable");
+      invokeMock.mockResolvedValueOnce("isto não é json");
+      expect(await fetchRemoteModsList("ABC")).toEqual([]);
+    } finally {
+      setModsSource({ kind: "proxy" });
+    }
+  });
+
+  it("voltar para o P2P restaura o proxy local", async () => {
+    setModsSource({ kind: "radmin", host: "26.1.2.3" });
+    setModsSource({ kind: "proxy" });
+    lookupMock.mockResolvedValue(new Map());
+    invokeMock.mockResolvedValue(undefined);
+    const mods = [{ filename: "a.jar", size_bytes: 1, sha1: SHA, source: "unknown" as const, url: null }];
+    await runModSync({ shortCode: "ABC", instanceModsDir: "/inst/mods", remoteMods: mods, entries: [entry("a.jar")], onProgress: () => {} });
+    expect((invokeMock.mock.calls[0][1] as { url: string }).url.startsWith("http://127.0.0.1:25568/")).toBe(true);
   });
 });

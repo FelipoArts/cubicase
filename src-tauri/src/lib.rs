@@ -5842,6 +5842,40 @@ async fn radmin_probe(host: String, port: u16) -> bool {
     tauri::async_runtime::spawn_blocking(move || radmin::probe(&host, port, Duration::from_millis(2500))).await.unwrap_or(false)
 }
 
+/// URL da lista de mods do host na rede do Radmin. Só aceita IP do Radmin e código alfanumérico: o
+/// endereço, a porta (25567) e o caminho são fixos, então o comando não serve para consultar mais nada.
+fn radmin_mods_url(host: &str, code: &str) -> Result<reqwest::Url, String> {
+    if !radmin::is_radmin_ip(host) {
+        return Err("INVALID_HOST".into());
+    }
+    if code.is_empty() || code.len() > 16 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("INVALID_CODE".into());
+    }
+    reqwest::Url::parse_with_params(&format!("http://{}:25567/mods", host), &[("code", code)]).map_err(|_| "INVALID_HOST".to_string())
+}
+
+/// Lista de mods do servidor hospedado, buscada no host pela rede do Radmin (plano B). É feita aqui, e não
+/// pela interface, porque a permissão de rede do webview não consegue expressar "qualquer IP do Radmin"
+/// (o Tauri lê "26." como início de um IPv4 e o converte), e liberar a porta para qualquer endereço seria largo demais.
+/// Erros: "INVALID_HOST" | "INVALID_CODE" | "UNREACHABLE" | "NOT_HOSTING" | "HTTP_<n>" | "TOO_LARGE".
+#[tauri::command]
+async fn fetch_radmin_mods_list(host: String, code: String) -> Result<String, String> {
+    let url = radmin_mods_url(&host, &code)?;
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().map_err(|_| "UNREACHABLE".to_string())?;
+    let resp = client.get(url).send().await.map_err(|_| "UNREACHABLE".to_string())?;
+    let status = resp.status();
+    if status.as_u16() == 404 {
+        return Err("NOT_HOSTING".into());
+    }
+    if !status.is_success() {
+        return Err(format!("HTTP_{}", status.as_u16()));
+    }
+    if resp.content_length().map_or(false, |n| n > 5_000_000) {
+        return Err("TOO_LARGE".into());
+    }
+    resp.text().await.map_err(|_| "UNREACHABLE".to_string())
+}
+
 /// O firewall já deixa o Minecraft/app receberem conexões da rede do Radmin? (false = falta criar regra)
 #[tauri::command]
 async fn radmin_firewall_ok(app: tauri::AppHandle) -> bool {
@@ -6654,6 +6688,7 @@ pub fn run() {
        radmin_winget_available,
        install_radmin,
        radmin_probe,
+       fetch_radmin_mods_list,
        radmin_firewall_ok,
        allow_radmin_firewall,
        arm_wake_on_demand,

@@ -35,6 +35,8 @@ import { UpdateButton } from "@/app/components/UpdateButton";
 import { HelpCenter } from "@/app/components/HelpCenter";
 import { ConnectionHelpModal } from "@/app/components/ConnectionHelpModal";
 import { isDirectFailureCode, useConnectionHelp } from "@/lib/connectionHelp";
+import { setModsSource } from "@/lib/modSync";
+import { radminAddress, radminProbe } from "@/lib/radmin";
 import { useUpdaterStore } from "@/app/updater";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
@@ -362,6 +364,7 @@ export default function Home() {
       const unPath = await listen<{ path: string; rttMs: number | null }>("network-path", (event) => {
         const prev = useAppStore.getState().networkPath;
         useAppStore.getState().setNetworkPath({ path: event.payload.path, rttMs: event.payload.rttMs ?? null });
+        useConnectionHelp.getState().setTarget(null);
         if (prev?.path !== event.payload.path) {
           const rtt = event.payload.rttMs != null ? ` · ${event.payload.rttMs} ms` : "";
           setLogs((logs) => [...logs, t("net.path.log", { label: t(pathLabelKey(event.payload.path)), rtt })]);
@@ -387,6 +390,7 @@ export default function Home() {
       if (cancelled) unRelay(); else unlistenRelay = unRelay;
 
       const unStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
+        if (event.payload.status !== "online" && useAppStore.getState().radminRoute) return;
         const newNetStatus = event.payload.status === "online" ? "online" : "offline";
         setNetStatus(newNetStatus);
         if (event.payload.status !== "online") {
@@ -903,7 +907,43 @@ export default function Home() {
   };
 
   // --- Guest Handlers ---
-  const handleGuestConnect = async (inviteCode: string) => {
+  // Plano B: o convidado entra pelo Radmin VPN em vez do túnel P2P. Só continua se o host responder DE VERDADE
+  // pela rede do Radmin (a verdade é o teste de conexão, nunca o que se supõe sobre a rede).
+  const connectViaRadmin = async (shortCode: string, name: string | null, hostIp: string | null, hostPort: number | null) => {
+    const fail = (message: string) => {
+      setNetStatus("offline");
+      setNetMode(null);
+      useAppStore.getState().setGuestConnectedShortCode(null);
+      useAppStore.getState().setRadminRoute(null);
+      setModsSource({ kind: "proxy" });
+      setLogs((prev) => [...prev, message]);
+      pushDiagnostic({ level: "error", source: t("diag.source.network"), title: t("radmin.connectFailed.title"), message });
+    };
+    if (!hostIp) return fail(t("radmin.err.hostNotOnRadmin"));
+    const port = hostPort ?? 25565;
+    const address = radminAddress(hostIp, port);
+    if (!(await radminProbe(hostIp, port))) return fail(t("radmin.err.unreachable", { address }));
+
+    // A rota entra ANTES de parar o túnel P2P que sobrou da tentativa: o aviso de "rede offline" que isso gera
+    // é ignorado enquanto a rota do Radmin existe (ver o ouvinte de network-status).
+    useAppStore.getState().setRadminRoute({ shortCode, host: hostIp, port, address });
+    setModsSource({ kind: "radmin", host: hostIp });
+    await invoke("stop_network_node").catch(() => {});
+    useAppStore.getState().setGuestConnectedShortCode(shortCode);
+    setMode("guest");
+    setNetStatus("online");
+    setNetMode("guest");
+    setLogs((prev) => [...prev, t("radmin.connected", { address })]);
+    try {
+      const result = await invoke<string>("add_minecraft_server_entry", { name: name ?? t("app.guest.defaultEntryName"), address });
+      setLogs((prev) => [...prev, result === "added" ? t("app.guest.addedToList") : t("app.guest.launcherNotFound", { address })]);
+    } catch (err) {
+      console.warn("[Guest] Falha ao adicionar servidor ao cliente Minecraft:", err);
+      setLogs((prev) => [...prev, t("app.guest.addFailed", { address })]);
+    }
+  };
+
+  const handleGuestConnect = async (inviteCode: string, opts?: { via?: "radmin" }) => {
     setLogs([]);
     setDiscoveredServer(null);
     setNetStatus("connecting");
@@ -921,6 +961,9 @@ export default function Home() {
     // nunca configurou um, e aí connectAddressFor cai pro padrão grátis
     // derivado do próprio shortCode.
     let connectName: string | null = null;
+    // Plano B: IP do host na rede do Radmin e a porta do Minecraft, se ele estiver nela agora.
+    let radminIp: string | null = null;
+    let hostMcPort: number | null = null;
     try {
       const response = await fetch(`https://cubeforge-api.cubeforge.workers.dev/api/v1/servers/${shortCodeClean}`);
       if (response.ok) {
@@ -938,6 +981,10 @@ export default function Home() {
         discoveredName = server.name ?? null;
         found = true;
         connectName = server.connectName ?? null;
+        radminIp = typeof session.radminIp === "string" ? session.radminIp : null;
+        hostMcPort = typeof session.minecraftPort === "number" ? session.minecraftPort : null;
+        // Se a conexão P2P falhar logo depois, a janela de ajuda abre já sabendo de qual servidor se trata.
+        useConnectionHelp.getState().setTarget({ shortCode: shortCodeClean, name: server.name ?? shortCodeClean });
       }
     } catch {
       // tratado abaixo pelo `!hostIp`
@@ -957,6 +1004,15 @@ export default function Home() {
       });
       return;
     }
+
+    if (opts?.via === "radmin") {
+      await connectViaRadmin(shortCodeClean, discoveredName, radminIp, hostMcPort);
+      return;
+    }
+
+    // Conexão P2P normal: se antes estava pelo Radmin, volta à origem de mods do P2P.
+    useAppStore.getState().setRadminRoute(null);
+    setModsSource({ kind: "proxy" });
 
     try {
       await invoke("start_network_node", {
@@ -1004,6 +1060,9 @@ export default function Home() {
   };
 
   const handleGuestDisconnect = async () => {
+    useAppStore.getState().setRadminRoute(null);
+    setModsSource({ kind: "proxy" });
+    useConnectionHelp.getState().setTarget(null);
     try {
       await invoke("stop_network_node");
       setNetStatus("offline");
@@ -1094,7 +1153,7 @@ export default function Home() {
       </header>
 
       <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
-      <ConnectionHelpModal />
+      <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
       <AppSettingsPanel
         isOpen={showAppSettings}
         onClose={() => setShowAppSettings(false)}

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isDirectFailureCode, radminJoinAddress, RADMIN_DOWNLOAD_URL, useConnectionHelp } from "../connectionHelp";
+import { isDirectFailureCode, useConnectionHelp } from "../connectionHelp";
 
 describe("connectionHelp", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    useConnectionHelp.setState({ open: false, reason: "manual", lastAutoOpenAt: 0 });
+    useConnectionHelp.setState({ open: false, reason: "manual", target: null, lastAutoOpenAt: 0 });
   });
   afterEach(() => vi.useRealTimers());
 
@@ -15,11 +15,6 @@ describe("connectionHelp", () => {
     expect(isDirectFailureCode("signal_unreachable")).toBe(false);
     expect(isDirectFailureCode("connection_lost")).toBe(false);
     expect(isDirectFailureCode(undefined)).toBe(false);
-  });
-
-  it("o endereço do Radmin omite a porta padrão do Minecraft", () => {
-    expect(radminJoinAddress("26.202.7.93", 25565)).toBe("26.202.7.93");
-    expect(radminJoinAddress("26.202.7.93", 25570)).toBe("26.202.7.93:25570");
   });
 
   it("abre sozinha no máximo uma vez a cada 10 minutos", () => {
@@ -47,7 +42,19 @@ describe("connectionHelp", () => {
     expect(useConnectionHelp.getState().showAuto("relay_quota")).toBe(false);
   });
 
-  it("aponta para o site oficial do Radmin VPN", () => {
-    expect(new URL(RADMIN_DOWNLOAD_URL).hostname).toBe("www.radmin-vpn.com");
+  it("o botão da Central de Ajuda abre sem servidor; abrir por um servidor guarda qual é", () => {
+    useConnectionHelp.getState().showForServer({ shortCode: "ABC123", name: "Meu mundo" });
+    expect(useConnectionHelp.getState().target).toEqual({ shortCode: "ABC123", name: "Meu mundo" });
+    useConnectionHelp.getState().close();
+    useConnectionHelp.getState().show("manual");
+    expect(useConnectionHelp.getState().target).toBeNull();
+  });
+
+  it("a tentativa em andamento guarda o servidor, e uma falha logo depois abre a janela já com ele", () => {
+    vi.setSystemTime(new Date("2026-10-11T12:00:00Z"));
+    useConnectionHelp.getState().setTarget({ shortCode: "ABC123", name: "Meu mundo" });
+    expect(useConnectionHelp.getState().open).toBe(false);
+    expect(useConnectionHelp.getState().showAuto("direct_failed")).toBe(true);
+    expect(useConnectionHelp.getState().target?.shortCode).toBe("ABC123");
   });
 });

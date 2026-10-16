@@ -30,6 +30,26 @@ import { lookupModrinthByHashes } from "@/lib/modrinth";
 // erro de conexão recusada, tratado como "host inalcançável".
 const MODS_PROXY_BASE = "http://127.0.0.1:25568";
 
+/**
+ * De onde vêm a lista e os arquivos de mods do host: do proxy do P2P (padrão) ou, no plano B, do servidor de
+ * mods do host na rede do Radmin (IP 26.x.x.x, porta 25567). A escolha vale enquanto durar a conexão.
+ */
+export type ModsSource = { kind: "proxy" } | { kind: "radmin"; host: string };
+let modsSource: ModsSource = { kind: "proxy" };
+
+export function setModsSource(source: ModsSource): void {
+  modsSource = source;
+}
+
+export function currentModsSource(): ModsSource {
+  return modsSource;
+}
+
+/** Base HTTP (sem caminho) de onde os arquivos de mods são baixados agora. */
+function modsBase(): string {
+  return modsSource.kind === "radmin" ? `http://${modsSource.host}:25567` : MODS_PROXY_BASE;
+}
+
 /** Um mod da pasta mods/ do host, como a rota "GET /mods" devolve (ver ModManifestEntry em lib.rs). */
 export interface RemoteModEntry {
   filename: string;
@@ -100,6 +120,7 @@ export function sanitizeRemoteMods(raw: unknown): RemoteModEntry[] {
 
 /** Busca, pela mesh, a lista de mods que o servidor hospedado precisa agora. Lança se o host não responder. */
 export async function fetchRemoteModsList(shortCode: string): Promise<RemoteModEntry[]> {
+  if (modsSource.kind === "radmin") return fetchRemoteModsListViaRadmin(modsSource.host, shortCode);
   let res: Response;
   try {
     res = await fetch(`${MODS_PROXY_BASE}/mods?code=${encodeURIComponent(shortCode)}`);
@@ -113,6 +134,22 @@ export async function fetchRemoteModsList(shortCode: string): Promise<RemoteModE
     throw new Error(`O host respondeu com erro ao listar os mods (HTTP ${res.status}).`);
   }
   return sanitizeRemoteMods(await res.json().catch(() => []));
+}
+
+/** Plano B: a lista vem do host pela rede do Radmin, buscada pelo Rust (ver fetch_radmin_mods_list em lib.rs). */
+async function fetchRemoteModsListViaRadmin(host: string, shortCode: string): Promise<RemoteModEntry[]> {
+  let body: string;
+  try {
+    body = await invoke<string>("fetch_radmin_mods_list", { host, code: shortCode });
+  } catch (err) {
+    const code = String(err);
+    if (code.includes("NOT_HOSTING")) throw new Error(t("modsync.notHosting"));
+    if (code.startsWith("HTTP_")) throw new Error(`O host respondeu com erro ao listar os mods (HTTP ${code.slice(5)}).`);
+    throw new Error(t("modsync.hostUnreachable"));
+  }
+  let parsed: unknown = [];
+  try { parsed = JSON.parse(body); } catch { /* lista inválida: trata como vazia, como no caminho do P2P */ }
+  return sanitizeRemoteMods(parsed);
 }
 
 /** Mapa nome-do-arquivo -> sha1 dos .jar já presentes na pasta mods/ da instância isolada local. */
@@ -241,7 +278,7 @@ export async function runModSync(opts: RunModSyncOptions): Promise<void> {
 
     const destPath = await join(instanceModsDir, entry.filename);
     const verified = entry.source === "modrinth" ? verifiedUrls.get(mod.sha1.toLowerCase()) : undefined;
-    const url = verified?.url ?? `${MODS_PROXY_BASE}/mods/file?code=${encodeURIComponent(shortCode)}&name=${encodeURIComponent(entry.filename)}`;
+    const url = verified?.url ?? `${modsBase()}/mods/file?code=${encodeURIComponent(shortCode)}&name=${encodeURIComponent(entry.filename)}`;
 
     try {
       await invoke("download_mod_file", { url, destPath, expectedSha1: mod.sha1 });
