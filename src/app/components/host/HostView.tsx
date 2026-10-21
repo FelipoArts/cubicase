@@ -326,7 +326,9 @@ export function HostView({
             }
           } catch (err) {
             console.warn(`Erro ao escanear servidor importado em ${path}:`, err);
-            // Path não é mais acessível — remover da lista persistida
+            // Erro de leitura (permissão, disco ocupado...) NÃO prova que a pasta sumiu: mantém na lista.
+            // Só some quando a pasta realmente não existe mais (o scan devolve null).
+            validImportedPaths.push(path);
           }
         }
 
@@ -531,6 +533,7 @@ export function HostView({
   const handleSelectDir = async () => {
     const selected = await open({
       directory: true,
+      recursive: true,
       multiple: false,
       defaultPath: serverDir || undefined,
     });
@@ -662,6 +665,7 @@ export function HostView({
       setIsImporting(true);
       const selected = await open({
         directory: true,
+        recursive: true, // libera o conteúdo da pasta para o app ler/gravar (escopo do plugin fs)
         multiple: false,
         title: "Selecione a pasta do servidor Minecraft",
       });

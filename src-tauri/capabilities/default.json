@@ -39,8 +39,7 @@
       "allow": [
         { "path": "$APPLOCALDATA/**/*", "recursive": true },
         { "path": "$DOCUMENT/CubicaseServers/**/*", "recursive": true },
-        { "path": "$DOCUMENT/CubicaseServers", "recursive": false },
-        { "path": "**", "recursive": true }
+        { "path": "$DOCUMENT/CubicaseServers", "recursive": false }
       ]
     },
     {
@@ -54,17 +53,15 @@
       "identifier": "fs:allow-read-text-file",
       "allow": [
         { "path": "$APPLOCALDATA/**/*", "recursive": true },
-        { "path": "$DOCUMENT/CubicaseServers/**/*", "recursive": true },
-        { "path": "**", "recursive": true }
+        { "path": "$DOCUMENT/CubicaseServers/**/*", "recursive": true }
       ]
     },
     {
       "identifier": "fs:allow-read-dir",
       "allow": [
         { "path": "$DOCUMENT/CubicaseServers/**/*", "recursive": true },
-        { "path": "$DOCUMENT/CubicaseServers", "recursive": false },
-        { "path": "$HOME/**/*", "recursive": true },
-        { "path": "**", "recursive": true }
+        { "path": "$APPLOCALDATA/**/*", "recursive": true },
+        { "path": "$DOCUMENT/CubicaseServers", "recursive": false }
       ]
     },
     {

@@ -1280,3 +1280,25 @@ fn extracao_da_jre_so_apaga_pastas_dentro_de_runtime() {
         assert!(!is_jre_extract_target(std::path::Path::new(bad)), "{bad}");
     }
 }
+
+#[test]
+fn so_pasta_de_servidor_de_verdade_pode_ser_liberada_ao_frontend() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().to_path_buf();
+    // só marcadores de nome não bastam
+    fs::write(dir.join("server.properties"), "server-port=25565
+motd=x
+").unwrap();
+    fs::write(dir.join("eula.txt"), "eula=true
+").unwrap();
+    assert!(!is_server_dir_candidate(&dir), "sem nada para iniciar");
+    // user_jvm_args + args file: Forge moderno
+    fs::write(dir.join("user_jvm_args.txt"), "-Xmx2G
+").unwrap();
+    let d = dir.join("libraries/net/minecraftforge/forge/1.20.1-47.2.0");
+    fs::create_dir_all(&d).unwrap();
+    fs::write(d.join("win_args.txt"), "x").unwrap();
+    assert!(is_server_dir_candidate(&dir));
+    assert!(!is_server_dir_candidate(&dir.join("..").join(dir.file_name().unwrap())), "com ..");
+    assert!(!is_server_dir_candidate(std::path::Path::new("server")), "relativo");
+}

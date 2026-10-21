@@ -12,6 +12,7 @@ use tauri::{Manager, Emitter};
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_fs::FsExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use std::thread;
 use std::path::PathBuf;
@@ -34,6 +35,7 @@ mod pack;
 mod hosting;
 mod mod_identity;
 mod owner_secret;
+mod server_inspect;
 mod account_auth;
 mod radmin;
 #[cfg(test)]
@@ -3408,6 +3410,28 @@ async fn delete_mod(state: tauri::State<'_, AppState>, server_dir: String, file_
     std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
+/// A pasta é mesmo de um servidor Minecraft (reconhecido pelo conteúdo — ver server_inspect.rs)?
+/// É o que impede `grant_server_dirs` de liberar uma pasta qualquer do computador.
+fn is_server_dir_candidate(p: &std::path::Path) -> bool {
+    is_plain_absolute_path(p) && server_inspect::inspect_server_folder(p).valid
+}
+
+/// O acesso do frontend a arquivos (plugin fs) é limitado às pastas do app, mas servidores IMPORTADOS ficam
+/// onde o usuário já os tinha. A pasta escolhida no diálogo é liberada na hora (pelo próprio diálogo); esta
+/// chamada libera de novo, a cada abertura do app, as que já estão na lista de importados — só as que
+/// parecem pasta de servidor. Devolve as liberadas.
+#[tauri::command]
+fn grant_server_dirs(app: tauri::AppHandle, paths: Vec<String>) -> Vec<String> {
+    let scope = app.fs_scope();
+    let mut granted = Vec::new();
+    for p in paths.into_iter().take(200) {
+        if is_server_dir_candidate(std::path::Path::new(&p)) && scope.allow_directory(&p, true).is_ok() {
+            granted.push(p);
+        }
+    }
+    granted
+}
+
 /// Abre uma pasta no gerenciador de arquivos do sistema, criando-a se ainda não existir.
 #[tauri::command]
 fn open_path_in_explorer(path: String) -> Result<(), String> {
@@ -6741,6 +6765,8 @@ pub fn run() {
        toggle_mod,
        delete_mod,
        open_path_in_explorer,
+       grant_server_dirs,
+       server_inspect::inspect_server_folder_cmd,
        list_world_backups,
        backup_world,
        restore_world_backup,

@@ -600,6 +600,12 @@ export async function detectServerVersion(serverPath: string): Promise<string | 
     } catch { /* ignora */ }
   }
 
+  // Estratégia 1b: o próprio servidor (version.json / patch.properties do jar, pasta do Forge)
+  try {
+    const inspected = await inspectServerFolder(serverPath);
+    if (inspected.valid && inspected.mcVersion) return inspected.mcVersion;
+  } catch { /* ignora */ }
+
   // Estratégia 2: Comentário no server.properties
   const propsPath = await join(serverPath, "server.properties");
   if (await exists(propsPath)) {
@@ -730,77 +736,53 @@ async function findForgeArgsDir(serverPath: string): Promise<string | null> {
   return scan(librariesPath, "libraries", 0);
 }
 
+/** Resultado de `inspect_server_folder` (src-tauri/src/server_inspect.rs). */
+export interface ServerInspection {
+  valid: boolean;
+  kind: string;
+  launchMode: "jar" | "argfile" | null;
+  jarName: string | null;
+  argsDir: string | null;
+  mcVersion: string | null;
+  confidence: "high" | "medium" | "low" | string;
+  /** NOT_A_DIRECTORY | TOO_BROAD | CLIENT_INSTALL | PROXY | ONLY_INSTALLER | NO_LAUNCHABLE */
+  reason: string | null;
+  signals: string[];
+  candidates: string[];
+}
+
 /**
- * Detecta como iniciar um servidor Minecraft existente sem depender do nome
- * do arquivo escolhido por quem o criou. Usada para validar e importar uma
- * pasta externa qualquer — diferente de `detectForgeJar` (que assume um
- * Forge/NeoForge recém-instalado por este app), aqui a pasta pode ter vindo
- * de qualquer launcher/host (Paper oficial, um modpack, um servidor Fabric
- * baixado manualmente etc.), então nada pode ser assumido sobre nomes.
- *
- * Estratégias, em ordem:
- * 1. Layout moderno Forge/NeoForge (1.17+): não há JAR único, roda via
- *    `@user_jvm_args.txt @libraries/.../win_args.txt` — já é independente de nome.
- * 2. Nomes de arquivo conhecidos dos principais loaders/distribuições.
- * 3. Único .jar "não-instalador" na raiz da pasta.
- * 4. Múltiplos candidatos sem nome reconhecível: usa o maior arquivo (instaladores
- *    e bootstraps tendem a ser bem menores que o JAR completo do servidor).
+ * Examina a pasta pelo CONTEÚDO (o backend abre os .jar e confere Main-Class e classes do servidor, o layout
+ * do Forge/NeoForge moderno etc.) — nunca só pelo nome dos arquivos. Ver server_inspect.rs.
+ */
+export async function inspectServerFolder(path: string): Promise<ServerInspection> {
+  return await invoke<ServerInspection>("inspect_server_folder_cmd", { path });
+}
+
+/** Mensagem (traduzida) que explica por que a pasta não foi aceita como servidor. */
+export function inspectionRefusalMessage(reason: string | null): string {
+  switch (reason) {
+    case "CLIENT_INSTALL": return tn("srv.err.folderClient");
+    case "TOO_BROAD": return tn("srv.err.folderTooBroad");
+    case "PROXY": return tn("srv.err.folderProxy");
+    case "ONLY_INSTALLER": return tn("srv.err.folderInstaller");
+    default: return tn("srv.err.invalidFolder");
+  }
+}
+
+/**
+ * Detecta como iniciar um servidor Minecraft existente SEM depender do nome do arquivo escolhido por quem o
+ * criou. Usada para validar e importar uma pasta externa qualquer (Paper oficial, modpack, Fabric baixado
+ * manualmente, fork desconhecido...). A decisão é do backend (`inspect_server_folder`), que reconhece o jar
+ * pelo conteúdo e tem degraus de reserva para não reprovar servidor legítimo.
  */
 export async function detectServerLaunchInfo(
   serverPath: string
 ): Promise<{ mode: "jar"; jarName: string } | { mode: "argfile"; argsDir: string } | null> {
-  // 1. Layout moderno Forge/NeoForge
-  if (await exists(await join(serverPath, "user_jvm_args.txt"))) {
-    const argsDir = await findForgeArgsDir(serverPath);
-    if (argsDir) return { mode: "argfile", argsDir };
-  }
-
-  let entries;
-  try {
-    entries = await readDir(serverPath);
-  } catch {
-    return null;
-  }
-  const jars = entries.filter(e => !e.isDirectory && e.name.toLowerCase().endsWith(".jar"));
-  if (jars.length === 0) return null;
-
-  // 2. Padrões de nome conhecidos (do mais específico ao mais genérico)
-  const knownPatterns: RegExp[] = [
-    /^server\.jar$/i,
-    /-shim\.jar$/i,
-    /-universal\.jar$/i,
-    /^purpur-/i,
-    /^paper-/i,
-    /^spigot-/i,
-    /^craftbukkit/i,
-    /^bukkit-/i,
-    /^fabric-server/i,
-    /^quilt-server/i,
-    /^neoforge-/i,
-    /^forge-/i,
-    /^minecraft_server\./i,
-    /^sponge/i,
-  ];
-  for (const pattern of knownPatterns) {
-    const match = jars.find(j => pattern.test(j.name));
-    if (match) return { mode: "jar", jarName: match.name };
-  }
-
-  // 3. Fallback: sobrando um único .jar que não pareça instalador, usa ele
-  const candidates = jars.filter(j => !/install/i.test(j.name));
-  const pool = candidates.length > 0 ? candidates : jars;
-  if (pool.length === 1) return { mode: "jar", jarName: pool[0].name };
-
-  // 4. Vários candidatos ambíguos: usa o maior arquivo
-  let biggest: { name: string; fileSize: number } | null = null;
-  for (const jarEntry of pool) {
-    try {
-      const fileSize = await size(await join(serverPath, jarEntry.name));
-      if (!biggest || fileSize > biggest.fileSize) biggest = { name: jarEntry.name, fileSize };
-    } catch { /* ignora */ }
-  }
-  if (biggest) return { mode: "jar", jarName: biggest.name };
-
+  const r = await inspectServerFolder(serverPath);
+  if (!r.valid) return null;
+  if (r.launchMode === "argfile" && r.argsDir) return { mode: "argfile", argsDir: r.argsDir };
+  if (r.launchMode === "jar" && r.jarName) return { mode: "jar", jarName: r.jarName };
   return null;
 }
 
@@ -1481,10 +1463,14 @@ export async function acceptEula(serverPath: string): Promise<void> {
  */
 export async function importExistingServer(path: string): Promise<ServerInfo> {
   // Validar e descobrir como este servidor é iniciado
-  const launchInfo = await detectServerLaunchInfo(path);
-  if (!launchInfo) {
-    throw new Error(tn("srv.err.invalidFolder"));
+  const inspection = await inspectServerFolder(path);
+  if (!inspection.valid) {
+    throw new Error(inspectionRefusalMessage(inspection.reason));
   }
+  const launchInfo: { mode: "jar"; jarName: string } | { mode: "argfile"; argsDir: string } =
+    inspection.launchMode === "argfile" && inspection.argsDir
+      ? { mode: "argfile", argsDir: inspection.argsDir }
+      : { mode: "jar", jarName: inspection.jarName ?? "" };
   const serverJar = launchInfo.mode === 'jar' ? launchInfo.jarName : null;
   const launchArgsDir = launchInfo.mode === 'argfile' ? launchInfo.argsDir : null;
 
@@ -1631,6 +1617,8 @@ export async function updateWakeOnDemandConfig(
  * Não modifica a pasta.
  */
 export async function scanExternalServer(serverPath: string): Promise<ServerInfo | null> {
+  // Servidor importado vive fora das pastas do app: o backend (re)libera o acesso a ele a cada abertura.
+  await invoke("grant_server_dirs", { paths: [serverPath] }).catch(() => {});
   if (!(await exists(serverPath))) return null;
 
   const launchInfo = await detectServerLaunchInfo(serverPath);
