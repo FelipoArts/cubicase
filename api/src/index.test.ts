@@ -17,7 +17,7 @@ const BASE = "https://example.com";
 async function createTestServer(name = "TesteAutomatizado") {
   const res = await SELF.fetch(`${BASE}/api/v1/servers`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": `10.1.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
     body: JSON.stringify({ name, version: "1.20.1", serverType: "vanilla", description: "" }),
   });
   const body = await res.json();
@@ -522,7 +522,7 @@ describe("app antigo (Tailscale foi descontinuado)", () => {
       body: JSON.stringify({ requestId: crypto.randomUUID(), correlationId: "c", clientVersion: "t", installationId: "install-aaaaaaaa", mode: "guest", launcher: "link-v1" }),
     })).json();
     const res = await SELF.fetch(`${BASE}/api/v1/connection-sessions/${created.data.sessionId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "online", hostIp: "8.8.8.8" }),
+      method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${created.data.credentials.signalToken}` }, body: JSON.stringify({ status: "online", hostIp: "8.8.8.8" }),
     });
     expect(res.status).toBe(200);
   });

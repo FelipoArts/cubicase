@@ -31,6 +31,7 @@ export const MAX_SIGNAL_CHARS = 64 * 1024;
 const RATE_WINDOW_MS = 10_000;
 const RATE_MAX_MESSAGES = 120; // por conexão, a cada 10 s (trickle ICE de uma conexão cabe com folga)
 const DEFAULT_MAX_GUESTS = 50;
+const REVOKED_PREFIX = 'revoked:';
 const ALLOWED_FROM_GUEST = new Set(['hello', 'offer', 'ice', 'bye']);
 const ALLOWED_FROM_HOST = new Set(['hello', 'answer', 'ice', 'error', 'bye']);
 
@@ -59,6 +60,7 @@ export class LinkRoom {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/close') return this.handleClose();
     if (request.method === 'GET' && url.pathname === '/presence') return this.handlePresence();
+    if (request.method === 'POST' && url.pathname === '/revoke') return this.handleRevoke(request);
     if (request.headers.get('Upgrade') === 'websocket') return this.handleUpgrade(request, url);
     return new Response('Not found', { status: 404 });
   }
@@ -86,6 +88,28 @@ export class LinkRoom {
     return new Response(null, { status: 204 });
   }
 
+  /**
+   * Revoga uma sessão (peerId): derruba as conexões dela e passa a recusar o token. O token é um JWT que vale
+   * dias; sem esta lista, uma sessão apagada ou substituída continuaria entrando na sala. A lista vive no
+   * storage do DO (consistência forte) — o KV levaria até ~1 min para propagar e deixaria uma janela aberta.
+   */
+  private async handleRevoke(request: Request): Promise<Response> {
+    let pid: unknown;
+    try { pid = ((await request.json()) as { pid?: unknown }).pid; } catch { /* corpo inválido */ }
+    if (typeof pid !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(pid)) return new Response('pid inválido', { status: 400 });
+    const now = Date.now();
+    await this.ctx.storage.put(REVOKED_PREFIX + pid, now);
+    // Poda quem já passou da vida máxima do token (o token venceria sozinho de qualquer forma).
+    const old = await this.ctx.storage.list<number>({ prefix: REVOKED_PREFIX });
+    const stale = [...old].filter(([, at]) => now - at > (LINK_TOKEN_TTL_SECONDS + 3600) * 1000).map(([k]) => k);
+    if (stale.length) await this.ctx.storage.delete(stale);
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (att?.pid === pid) { try { ws.close(4001, 'session-revoked'); } catch { /* já fechando */ } }
+    }
+    return new Response(null, { status: 204 });
+  }
+
   private async handleUpgrade(request: Request, url: URL): Promise<Response> {
     const shortCode = url.pathname.match(/\/api\/v1\/link\/ws\/([A-Za-z0-9]+)$/)?.[1]?.toUpperCase();
     if (!shortCode) return new Response('sala ausente na URL', { status: 400 });
@@ -94,6 +118,7 @@ export class LinkRoom {
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
     const claims = await verifyLinkToken(this.env, token);
     if (!claims || claims.sc !== shortCode) return new Response('token inválido', { status: 401 });
+    if (await this.ctx.storage.get(REVOKED_PREFIX + claims.pid)) return new Response('sessão revogada', { status: 401 });
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);

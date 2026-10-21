@@ -44,6 +44,7 @@ export const EN_MESSAGES: Record<string, string> = {
   'correlationId, clientVersion, installationId obrigatórios.': 'correlationId, clientVersion, installationId are required.',
   'mode precisa ser "host" ou "guest".': 'mode must be "host" or "guest".',
   'Segredo do dono ausente ou inválido.': 'Owner secret missing or invalid.',
+  'Token da sessão ausente ou inválido.': 'Session token missing or invalid.',
   'Você não é o dono deste servidor.': 'You are not the owner of this server.',
   'Campos inválidos ou grandes demais.': 'Invalid or oversized fields.',
   'shortCode inválido.': 'Invalid shortCode.',

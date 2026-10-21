@@ -41,6 +41,20 @@ export interface LinkClaims {
  */
 export const LINK_TOKEN_TTL_SECONDS = 7 * 24 * 3600;
 
+/**
+ * Vida das credenciais do relay de um CONVIDADO. O consumo só é medido quando a alocação TURN termina
+ * (linha "usage:" do coturn), então uma alocação que dura dias nunca entra na cota. Com credenciais curtas
+ * a alocação do convidado cai sozinha e a próxima sessão dele já enfrenta a cota do mês. O host mantém
+ * a vida longa do token (fica semanas ligado).
+ */
+export const TURN_GUEST_TTL_SECONDS = 12 * 3600;
+
+/** Token `Bearer` do cabeçalho Authorization, se houver. */
+export function bearerToken(req: Request): string | null {
+  const auth = req.headers.get('Authorization');
+  return auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+}
+
 const DEFAULT_STUN = ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
 
 const enc = new TextEncoder();
@@ -110,11 +124,11 @@ export interface TurnCredentials {
  * credential = base64(HMAC-SHA1(segredo, username)). null se o relay não está
  * configurado ou foi desligado (TURN_DISABLED=1).
  */
-export async function makeTurnCredentials(env: LinkEnv, peerId: string, nowMs = Date.now()): Promise<TurnCredentials | null> {
+export async function makeTurnCredentials(env: LinkEnv, peerId: string, nowMs = Date.now(), ttlSeconds = LINK_TOKEN_TTL_SECONDS): Promise<TurnCredentials | null> {
   if (env.TURN_DISABLED === '1' || !env.TURN_SECRET || !env.TURN_URLS) return null;
   const urls = env.TURN_URLS.split(',').map((s) => s.trim()).filter(Boolean);
   if (urls.length === 0) return null;
-  const expiry = Math.floor(nowMs / 1000) + LINK_TOKEN_TTL_SECONDS;
+  const expiry = Math.floor(nowMs / 1000) + ttlSeconds;
   const username = `${expiry}:${peerId}`;
   const credential = btoa(String.fromCharCode(...(await hmac('SHA-1', env.TURN_SECRET, username))));
   return { urls, username, credential };
@@ -142,7 +156,7 @@ export async function buildLinkCredentials(
 ): Promise<LinkCredentials> {
   const signalToken = await signLinkToken(env, { sc: opts.shortCode, role: opts.role, pid: opts.peerId });
   const relayAllowed = opts.relayAllowed !== false;
-  const turn = relayAllowed ? await makeTurnCredentials(env, opts.peerId) : null;
+  const turn = relayAllowed ? await makeTurnCredentials(env, opts.peerId, Date.now(), opts.role === 'guest' ? TURN_GUEST_TTL_SECONDS : LINK_TOKEN_TTL_SECONDS) : null;
   const relay: RelayState = turn ? 'ok' : relayAllowed ? 'off' : 'quota';
   const wsOrigin = opts.origin.replace(/^http/, 'ws'); // https → wss, http → ws
   const stunUrls = env.STUN_URLS ? env.STUN_URLS.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_STUN;

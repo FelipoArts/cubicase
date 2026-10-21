@@ -118,6 +118,16 @@ pub struct HttpTransport {
     client_version: String,
     installation_id: String,
     metrics: std::sync::Mutex<ApiClientMetrics>,
+    /// Token de sinalização de cada ConnectionSession criada neste processo (id da sessão -> token). A API
+    /// exige esse token (Bearer) para atualizar/encerrar a sessão: o id sozinho não é segredo.
+    session_tokens: std::sync::Mutex<HashMap<String, String>>,
+}
+
+/// Id da sessão em `/api/v1/connection-sessions/{id}[/heartbeat][?query]`.
+fn session_id_from_path(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/api/v1/connection-sessions/")?;
+    let id = rest.split(|c| c == '/' || c == '?').next()?;
+    if id.is_empty() { None } else { Some(id) }
 }
 
 impl HttpTransport {
@@ -141,6 +151,7 @@ impl HttpTransport {
             client_version: config.client_version.clone(),
             installation_id: config.installation_id.clone(),
             metrics: std::sync::Mutex::new(ApiClientMetrics::default()),
+            session_tokens: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -195,6 +206,17 @@ impl ApiTransport for HttpTransport {
             }
         }
 
+        // Atualizar/encerrar uma sessão exige o token que ela recebeu ao ser criada.
+        let session_id = session_id_from_path(&request.path).map(str::to_string);
+        if let Some(id) = &session_id {
+            let token = self.session_tokens.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+            if let Some(token) = token {
+                req = req.header("Authorization", format!("Bearer {}", token));
+            }
+        }
+        let is_create = request.method == "POST" && request.path.ends_with("/connection-sessions");
+        let is_delete = request.method == "DELETE" && session_id.is_some();
+
         // Body
         if let Some(body) = request.body {
             req = req.json(&body);
@@ -240,6 +262,22 @@ impl ApiTransport for HttpTransport {
                 });
             }
         };
+
+        // Guarda o token da sessão recém-criada; esquece o de uma sessão encerrada.
+        if body.success {
+            let mut tokens = self.session_tokens.lock().unwrap_or_else(|e| e.into_inner());
+            if is_create {
+                let sid = body.data.as_ref().and_then(|d| d.get("sessionId")).and_then(|v| v.as_str());
+                let tok = body.data.as_ref().and_then(|d| d.get("credentials")).and_then(|c| c.get("signalToken")).and_then(|v| v.as_str());
+                if let (Some(sid), Some(tok)) = (sid, tok) {
+                    tokens.insert(sid.to_string(), tok.to_string());
+                }
+            } else if is_delete {
+                if let Some(id) = &session_id {
+                    tokens.remove(id);
+                }
+            }
+        }
 
         // Atualizar métricas
         {
@@ -521,5 +559,18 @@ impl ApiClient {
         // Se o transport for HttpTransport, obtém métricas
         // (cast simples para debug)
         ApiClientMetrics::default()
+    }
+}
+#[cfg(test)]
+mod session_path_tests {
+    use super::session_id_from_path;
+
+    #[test]
+    fn extrai_o_id_da_sessao_do_caminho() {
+        assert_eq!(session_id_from_path("/api/v1/connection-sessions/abc-123"), Some("abc-123"));
+        assert_eq!(session_id_from_path("/api/v1/connection-sessions/abc-123/heartbeat"), Some("abc-123"));
+        assert_eq!(session_id_from_path("/api/v1/connection-sessions/abc-123?reason=x&requestId=y"), Some("abc-123"));
+        assert_eq!(session_id_from_path("/api/v1/servers/ABC123/connection-sessions"), None);
+        assert_eq!(session_id_from_path("/api/v1/connection-sessions/"), None);
     }
 }

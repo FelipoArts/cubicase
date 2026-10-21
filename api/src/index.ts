@@ -2,7 +2,7 @@ import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from '
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { localizeResponse } from './i18n';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
-import { buildLinkCredentials, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
+import { buildLinkCredentials, bearerToken, verifyLinkToken, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
 export { LinkRoom } from './durable-objects/link-room';
 
@@ -150,6 +150,7 @@ const CONNECT_NAME_DOMAIN = 'link.cubicase.net';
 // (isso já é papel de uma regra de rate-limit no dashboard da Cloudflare).
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 const JOIN_RATE_LIMIT = 30;      // connection-sessions: emite token de sala e credenciais do relay, mais sensível
+const CREATE_SERVER_RATE_LIMIT = 20; // cadastro/retry de servidor por IP/min: a fila de sync de quem tem vários servidores cabe com folga
 const REGEN_CODE_RATE_LIMIT = 5; // regenerar código: ação manual e rara, sem motivo legítimo pra repetir muitas vezes por minuto
 const SUB_CHECKOUT_RATE_LIMIT = 5;  // assinar: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const SUB_PORTAL_RATE_LIMIT = 10;   // gerenciar assinatura: pode ser reaberto ao focar o painel de configurações
@@ -501,7 +502,7 @@ async function terminateActiveSessionsForShortCode(env: Env, shortCode: string):
   for (const k of listed.keys) slots.push(k.name);
   for (const slot of slots) {
     const csid = await env.CUBEFORGE_REGISTRY.get(slot);
-    if (csid) await revokeConnectionSession(env, csid);
+    if (csid) await revokeConnectionSession(env, csid, shortCode);
     await env.CUBEFORGE_REGISTRY.delete(slot);
   }
 }
@@ -511,9 +512,37 @@ function sessionSlotKey(shortCode: string, mode: 'host' | 'guest', installationI
   return mode === 'host' ? `csession-by-shortcode:${shortCode}:host` : `csession-by-install:${shortCode}:${installationId}`;
 }
 
-/** Apaga a ConnectionSession (o token de sinalização expira sozinho; a sala confere a sessão ao conectar). */
-async function revokeConnectionSession(env: Env, sessionId: string): Promise<void> {
+/**
+ * Apaga a ConnectionSession E revoga o token de sinalização na sala (o JWT valeria por dias). A sala guarda a
+ * revogação no próprio storage — ver LinkRoom.handleRevoke.
+ */
+async function revokeConnectionSession(env: Env, sessionId: string, shortCodeHint?: string): Promise<void> {
+  let shortCode = shortCodeHint;
+  if (!shortCode) {
+    const raw = await env.CUBEFORGE_REGISTRY.get(`csession:${sessionId}`);
+    try { shortCode = raw ? (JSON.parse(raw) as ConnectionSessionEntity).shortCode : undefined; } catch { /* sessão corrompida */ }
+  }
   await env.CUBEFORGE_REGISTRY.delete(`csession:${sessionId}`);
+  if (!shortCode) return;
+  try {
+    await env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode)).fetch('https://link-room.internal/revoke', {
+      method: 'POST',
+      body: JSON.stringify({ pid: sessionId }),
+    });
+  } catch { /* melhor esforço: o token ainda vence sozinho */ }
+}
+
+/**
+ * As rotas /connection-sessions/{id} agem sobre uma sessão específica, mas o id dela não é segredo (a sala o
+ * repassa aos convidados e ele é o usuário TURN). A prova de posse é o token de sinalização que a própria
+ * sessão recebeu ao ser criada (`Authorization: Bearer`): precisa ser válido E ser desta sessão.
+ */
+async function requireSessionToken(req: Request, env: Env, sessionId: string, cors: Record<string, string>): Promise<Response | null> {
+  const claims = await verifyLinkToken(env, bearerToken(req));
+  if (!claims || claims.pid !== sessionId) {
+    return json(fail(ResponseCodes.FORBIDDEN, 'Token da sessão ausente ou inválido.'), 401, cors);
+  }
+  return null;
 }
 
 async function handleDeleteServer(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
@@ -658,7 +687,7 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   }
   const slotKey = sessionSlotKey(shortCode, mode, body.installationId);
   const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
-  if (existingSessionId) await revokeConnectionSession(env, existingSessionId);
+  if (existingSessionId) await revokeConnectionSession(env, existingSessionId, shortCode);
 
   return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors);
 }
@@ -754,6 +783,8 @@ async function handleRelayUsage(req: Request, env: Env, cors: Record<string, str
 // ============================================================
 
 async function handleUpdateConnectionSession(sessionId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireSessionToken(req, env, sessionId, cors);
+  if (denied) return denied;
   const key = `csession:${sessionId}`;
   const raw = await env.CUBEFORGE_REGISTRY.get(key);
   if (!raw) return json(fail(ResponseCodes.SESSION_NOT_FOUND, 'Sessão não encontrada.'), 404, cors);
@@ -779,6 +810,8 @@ async function handleUpdateConnectionSession(sessionId: string, req: Request, en
 }
 
 async function handleConnectionSessionHeartbeat(sessionId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireSessionToken(req, env, sessionId, cors);
+  if (denied) return denied;
   const key = `csession:${sessionId}`;
   const raw = await env.CUBEFORGE_REGISTRY.get(key);
   if (!raw) return json(fail(ResponseCodes.SESSION_NOT_FOUND, 'Sessão não encontrada.'), 404, cors);
@@ -794,13 +827,15 @@ async function handleConnectionSessionHeartbeat(sessionId: string, req: Request,
   return json(ok(ResponseCodes.HEARTBEAT_RECEIVED, 'Heartbeat recebido.', { expiresAt: exp.toISOString() }), 200, cors);
 }
 
-async function handleDeleteConnectionSession(sessionId: string, env: Env, cors: Record<string, string>): Promise<Response> {
+async function handleDeleteConnectionSession(sessionId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireSessionToken(req, env, sessionId, cors);
+  if (denied) return denied;
   const key = `csession:${sessionId}`;
   const raw = await env.CUBEFORGE_REGISTRY.get(key);
   if (!raw) return json(ok(ResponseCodes.SESSION_DELETED, 'Sessão já não existe.'), 200, cors);
   const session: ConnectionSessionEntity = JSON.parse(raw);
 
-  await env.CUBEFORGE_REGISTRY.delete(key);
+  await revokeConnectionSession(env, sessionId, session.shortCode);
   const shortcodeKey = sessionSlotKey(session.shortCode, session.mode, session.installationId);
   const csid = await env.CUBEFORGE_REGISTRY.get(shortcodeKey);
   if (csid === sessionId) await env.CUBEFORGE_REGISTRY.delete(shortcodeKey);
@@ -1051,7 +1086,7 @@ async function supabaseRestUpsertSubscription(env: Env, row: {
   user_id: string;
   stripe_customer_id: string;
   stripe_subscription_id: string;
-  plan: SubscriptionPlan;
+  plan?: SubscriptionPlan;
   status: string;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
@@ -1242,9 +1277,22 @@ async function handleStripeWebhook(req: Request, env: Env, cors: Record<string, 
   ) {
     const sub = event.data?.object;
     const userId = sub?.metadata?.supabase_user_id;
+    // O Stripe não garante a ordem de entrega: um `updated` antigo (ex.: incomplete) chegando depois de um
+    // `active` sobrescreveria o estado e o usuário perderia o Plus. Guardamos o `created` do último evento
+    // aplicado por usuário e ignoramos os mais velhos (iguais passam: o Stripe carimba em segundos).
+    const eventCreated = typeof event.created === 'number' ? event.created : null;
+    const orderKey = userId ? `substate:${userId}` : null;
+    if (sub && userId && eventCreated !== null && orderKey) {
+      const last = Number(await env.CUBEFORGE_REGISTRY.get(orderKey));
+      if (Number.isFinite(last) && last > eventCreated) {
+        return json(ok(ResponseCodes.SUCCESS, 'ok'), 200, cors); // evento velho: já há um mais novo aplicado
+      }
+      await env.CUBEFORGE_REGISTRY.put(orderKey, String(eventCreated), { expirationTtl: 90 * 24 * 3600 });
+    }
     if (sub && userId) {
       const priceId = sub.items?.data?.[0]?.price?.id;
       const plan = planForPriceId(priceId);
+      if (!plan) console.error('Webhook de assinatura com preço desconhecido:', priceId, event.id);
       // current_period_end mudou de lugar entre versões da API do Stripe
       // (do topo da Subscription pra dentro de cada item) — lê defensivo.
       const periodEndUnix = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
@@ -1252,7 +1300,8 @@ async function handleStripeWebhook(req: Request, env: Env, cors: Record<string, 
         user_id: userId,
         stripe_customer_id: sub.customer,
         stripe_subscription_id: sub.id,
-        plan: plan ?? 'monthly',
+        // Preço desconhecido: não chuta 'monthly' — omite o campo e o upsert mantém o plano que já estava gravado.
+        ...(plan ? { plan } : {}),
         status: event.type === 'customer.subscription.deleted' ? 'canceled' : sub.status,
         current_period_end: periodEndUnix ? new Date(periodEndUnix * 1000).toISOString() : null,
         cancel_at_period_end: !!sub.cancel_at_period_end,
@@ -1598,7 +1647,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       // PATCH/DELETE /api/v1/connection-sessions/{id}
       const m1u = p.match(/^\/api\/v1\/connection-sessions\/([A-Za-z0-9-]+)$/);
       if (m === 'PATCH' && m1u) return await handleUpdateConnectionSession(m1u[1], req, env, cors);
-      if (m === 'DELETE' && m1u) return await handleDeleteConnectionSession(m1u[1], env, cors);
+      if (m === 'DELETE' && m1u) return await handleDeleteConnectionSession(m1u[1], req, env, cors);
 
       // POST /api/v1/connection-sessions/{id}/heartbeat
       const m1h = p.match(/^\/api\/v1\/connection-sessions\/([A-Za-z0-9-]+)\/heartbeat$/);
@@ -1609,7 +1658,11 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (m === 'POST' && m2) return await handleHeartbeat(m2[1].toUpperCase(), req, env, cfg, cors);
 
       // POST /api/v1/servers
-      if (m === 'POST' && p === '/api/v1/servers') return await handleCreateServer(req, env, cors);
+      if (m === 'POST' && p === '/api/v1/servers') {
+        // Cadastro e retries da fila de sync: sem limite, um script enchia o KV de servidores.
+        if (!(await checkRateLimit(env, 'create-server', clientIp(req), CREATE_SERVER_RATE_LIMIT))) return rateLimitedResponse(cors);
+        return await handleCreateServer(req, env, cors);
+      }
 
       // GET /api/v1/servers/{sc}
       // Sem checkRateLimit aqui de propósito: essa é a rota mais chamada de

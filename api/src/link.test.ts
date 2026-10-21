@@ -79,7 +79,7 @@ describe("credenciais do relay (TURN)", () => {
 async function createServer() {
   const res = await SELF.fetch(`${BASE}/api/v1/servers`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": `10.2.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
     body: JSON.stringify({ name: "Teste", version: "1.20.1", serverType: "vanilla" }),
   });
   const body: any = await res.json();
@@ -283,7 +283,7 @@ describe("sala de sinalização: encaminhamento", () => {
     expect(back.peerId).toBe(host2.sessionId);
   });
 
-  it("host novo SUBSTITUI o antigo sem avisar host_left aos convidados", async () => {
+  it("host novo SUBSTITUI o antigo: a sessão velha é revogada e o convidado renegocia com o novo", async () => {
     const { shortCode, secret, host } = await room();
     const h1 = asConn(await connect(shortCode, host.credentials.signalToken));
     const g = asConn(await connect(shortCode, await guestToken(shortCode, "install-aaaaaaaa")));
@@ -292,8 +292,64 @@ describe("sala de sinalização: encaminhamento", () => {
     asConn(await connect(shortCode, host2.credentials.signalToken));
     await g.waitFor((m) => m.t === "host_online" && m.peerId === host2.sessionId);
     await new Promise((r) => setTimeout(r, 200));
-    expect(g.msgs.find((m) => m.t === "host_left")).toBeUndefined();
-    expect(h1.closes.some((c) => c.reason === "replaced")).toBe(true);
+    expect(h1.closes.some((c) => c.reason === "session-revoked")).toBe(true);
+    // e o token antigo não entra mais na sala
+    expect(await connect(shortCode, host.credentials.signalToken)).toMatchObject({ status: 401 });
+  });
+});
+
+// ---------------- autenticação e revogação das sessões ----------------
+
+describe("rotas /connection-sessions exigem o token da própria sessão", () => {
+  const call = (method: string, sid: string, token?: string, path = "") =>
+    SELF.fetch(`${BASE}/api/v1/connection-sessions/${sid}${path}`, {
+      method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: method === "DELETE" ? undefined : JSON.stringify({ status: "online" }),
+    });
+
+  it("sem token ou com o token de OUTRA sessão: 401 e nada muda", async () => {
+    const { shortCode, secret } = await createServer();
+    const host = (await createLinkSession(shortCode, "host", { secret })).body.data;
+    const guest = (await createLinkSession(shortCode, "guest")).body.data;
+    for (const method of ["PATCH", "DELETE"]) {
+      expect((await call(method, host.sessionId)).status).toBe(401);
+      // o convidado conhece o id do host (a sala o repassa), mas não tem o token dele
+      expect((await call(method, host.sessionId, guest.credentials.signalToken)).status).toBe(401);
+    }
+    expect((await call("POST", host.sessionId, undefined, "/heartbeat")).status).toBe(401);
+    expect(await env.CUBEFORGE_REGISTRY.get(`csession:${host.sessionId}`)).not.toBeNull();
+  });
+
+  it("com o token da própria sessão funciona, e o DELETE revoga o token na sala", async () => {
+    const { shortCode, secret } = await createServer();
+    const host = (await createLinkSession(shortCode, "host", { secret })).body.data;
+    const tok = host.credentials.signalToken;
+    expect((await call("PATCH", host.sessionId, tok)).status).toBe(200);
+    const conn = asConn(await connect(shortCode, tok));
+    expect((await call("DELETE", host.sessionId, tok)).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(conn.closes.some((c) => c.reason === "session-revoked")).toBe(true);
+    expect(await connect(shortCode, tok)).toMatchObject({ status: 401 });
+  });
+});
+
+describe("credenciais do relay e cadastro", () => {
+  it("o relay do convidado vence antes do token (a alocação cai e o consumo é medido)", async () => {
+    const { shortCode, secret } = await createServer();
+    const now = Math.floor(Date.now() / 1000);
+    const g = (await createLinkSession(shortCode, "guest")).body.data.credentials.ice.turn;
+    const h = (await createLinkSession(shortCode, "host", { secret })).body.data.credentials.ice.turn;
+    const exp = (t: any) => Number(t.username.split(":")[0]) - now;
+    expect(exp(g)).toBeLessThanOrEqual(12 * 3600 + 5);
+    expect(exp(h)).toBeGreaterThan(24 * 3600);
+  });
+
+  it("POST /servers tem limite por IP", async () => {
+    const headers = { "Content-Type": "application/json", "CF-Connecting-IP": "198.51.100.77" };
+    await env.CUBEFORGE_REGISTRY.delete("ratelimit:create-server:198.51.100.77");
+    const post = () => SELF.fetch(`${BASE}/api/v1/servers`, { method: "POST", headers, body: JSON.stringify({ name: "x", version: "1", serverType: "vanilla" }) });
+    let last = 201;
+    for (let i = 0; i < 25; i++) last = (await post()).status;
+    expect(last).toBe(429);
   });
 });
 
