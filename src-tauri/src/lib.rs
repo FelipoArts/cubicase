@@ -1284,10 +1284,49 @@ fn open_minecraft_launcher() -> Result<(), String> {
 // Comandos de Gerenciamento do Servidor Minecraft
 // ============================================================
 
-/// Baixa o server.jar diretamente via reqwest em Rust.
-/// Remove qualquer dependência de PowerShell para o download.
+/// Domínios (e subdomínios) de onde o app baixa servidor, Java, instaladores e mods. Qualquer outro host é
+/// recusado: a URL pode vir de um pacote ou de uma lista de mods de terceiros.
+const ALLOWED_DOWNLOAD_DOMAINS: &[&str] = &[
+    "mojang.com", "mojang.net", "minecraft.net", "papermc.io", "fabricmc.net", "minecraftforge.net",
+    "neoforged.net", "adoptium.net", "github.com", "githubusercontent.com", "modrinth.com",
+    "forgecdn.net", "curseforge.com", "gitlab.com",
+];
+
+fn is_allowed_download_origin(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" || url.port().is_some() {
+        return false;
+    }
+    let Some(host) = url.host_str() else { return false };
+    let host = host.to_ascii_lowercase();
+    ALLOWED_DOWNLOAD_DOMAINS.iter().any(|d| host == *d || host.ends_with(&format!(".{}", d)))
+}
+
+/// Caminho de destino que o frontend pode pedir: absoluto e sem ".." (nunca relativo ao diretório de trabalho).
+fn is_plain_absolute_path(p: &std::path::Path) -> bool {
+    p.is_absolute() && !p.components().any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+fn validate_download_request(url: &str, dest_path: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "URL de download inválida.".to_string())?;
+    if !is_allowed_download_origin(&parsed) {
+        return Err(format!("Origem de download não permitida: {}", parsed.host_str().unwrap_or("?")));
+    }
+    if !is_plain_absolute_path(std::path::Path::new(dest_path)) {
+        return Err("Destino de download inválido.".to_string());
+    }
+    Ok(())
+}
+
+/// Teto de um download feito por `download_server_jar` (Java ~200 MB, mods e instaladores bem menos).
+const MAX_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Baixa um arquivo diretamente via reqwest em Rust (sem PowerShell). Vai em streaming para um `.part` ao
+/// lado do destino — nada fica inteiro na memória — e só vira o arquivo final depois que o tamanho e o
+/// checksum conferem; uma falha nunca deixa um arquivo truncado no destino.
 #[tauri::command]
 async fn download_server_jar(url: String, dest_path: String, expected_sha1: Option<String>, expected_sha256: Option<String>) -> Result<(), String> {
+    validate_download_request(&url, &dest_path)?;
+
     // Cria o diretório de destino se necessário (ex: pasta "mods"/"plugins" de um
     // servidor recém-criado, que só existe fisicamente quando o primeiro arquivo é
     // adicionado). A raiz do servidor já existe nos usos originais (server.jar/builds
@@ -1295,46 +1334,65 @@ async fn download_server_jar(url: String, dest_path: String, expected_sha1: Opti
     if let Some(parent) = std::path::Path::new(&dest_path).parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    let part_path = format!("{}.part", dest_path);
 
     const MAX_ATTEMPTS: u32 = 3;
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300)) // 5 minutos de timeout para arquivos grandes
+        .timeout(Duration::from_secs(900)) // arquivos grandes em link lento
+        // Um redirecionamento também só pode ir para uma origem permitida.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() < 10 && is_allowed_download_origin(attempt.url()) { attempt.follow() } else { attempt.stop() }
+        }))
         .build()
         .map_err(|e| e.to_string())?;
 
     let mut last_err = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
         let result: Result<(), String> = async {
-            let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+            let mut response = client.get(&url).send().await.map_err(|e| e.to_string())?;
             if !response.status().is_success() {
                 return Err(tr!("err.downloadHttp", status = response.status()));
             }
-            let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+            if response.content_length().map_or(false, |n| n > MAX_DOWNLOAD_BYTES) {
+                return Err("Arquivo grande demais para baixar.".to_string());
+            }
 
             // Verificar integridade contra o checksum esperado (SHA1 para o manifest da
-            // Mojang, SHA256 para builds do PaperMC). Sem isso, um download
+            // Mojang, SHA256 para builds do PaperMC e Adoptium). Sem isso, um download
             // truncado/corrompido só era percebido bem depois, quando o servidor
             // falhava ao iniciar com um erro genérico e opaco.
+            use sha2::Digest;
+            let mut sha1 = sha1_smol::Sha1::new();
+            let mut sha256 = sha2::Sha256::new();
+            let mut total: u64 = 0;
+            {
+                let mut file = File::create(&part_path).map_err(|e| e.to_string())?;
+                while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+                    total += chunk.len() as u64;
+                    if total > MAX_DOWNLOAD_BYTES {
+                        return Err("Arquivo grande demais para baixar.".to_string());
+                    }
+                    sha1.update(&chunk);
+                    sha256.update(&chunk);
+                    file.write_all(&chunk).map_err(|e| e.to_string())?;
+                }
+                file.flush().map_err(|e| e.to_string())?;
+            }
+
             if let Some(expected) = &expected_sha1 {
-                let mut hasher = sha1_smol::Sha1::new();
-                hasher.update(&bytes);
-                let actual = hasher.digest().to_string();
+                let actual = sha1.digest().to_string();
                 if !actual.eq_ignore_ascii_case(expected) {
                     return Err(tr!("err.checksumSha1", expected = expected, actual = actual));
                 }
             }
             if let Some(expected) = &expected_sha256 {
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let actual = format!("{:x}", hasher.finalize());
+                let actual = format!("{:x}", sha256.finalize());
                 if !actual.eq_ignore_ascii_case(expected) {
                     return Err(tr!("err.checksumSha256", expected = expected, actual = actual));
                 }
             }
 
-            let mut file = File::create(&dest_path).map_err(|e| e.to_string())?;
-            file.write_all(&bytes).map_err(|e| e.to_string())?;
+            std::fs::rename(&part_path, &dest_path).map_err(|e| e.to_string())?;
             Ok(())
         }.await;
 
@@ -1342,7 +1400,7 @@ async fn download_server_jar(url: String, dest_path: String, expected_sha1: Opti
             Ok(()) => return Ok(()),
             Err(e) => {
                 // Não deixar um arquivo truncado/corrompido no disco entre tentativas.
-                let _ = std::fs::remove_file(&dest_path);
+                let _ = std::fs::remove_file(&part_path);
                 last_err = e;
                 if attempt < MAX_ATTEMPTS {
                     tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempt - 1))).await;
@@ -1352,6 +1410,17 @@ async fn download_server_jar(url: String, dest_path: String, expected_sha1: Opti
     }
 
     Err(tr!("err.downloadAttempts", attempts = MAX_ATTEMPTS, error = last_err))
+}
+
+/// Limites da extração do Java (um JDK tem na casa de 500 entradas e ~400 MB descompactado).
+const MAX_JRE_ZIP_ENTRIES: usize = 20_000;
+const MAX_JRE_UNPACKED_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+
+/// `extract_jre_zip` apaga o destino: só aceita `<...>/runtime/<pasta>`, absoluto e sem "..".
+fn is_jre_extract_target(p: &std::path::Path) -> bool {
+    is_plain_absolute_path(p)
+        && p.parent().and_then(|d| d.file_name()).map_or(false, |n| n.eq_ignore_ascii_case("runtime"))
+        && p.file_name().is_some()
 }
 
 /// Extrai o zip da JRE (baixado via `download_server_jar`, já com verificação de
@@ -1364,6 +1433,10 @@ async fn download_server_jar(url: String, dest_path: String, expected_sha1: Opti
 #[tauri::command]
 async fn extract_jre_zip(zip_path: String, extract_path: String) -> Result<(), String> {
     let extract_root = PathBuf::from(&extract_path);
+    // O destino é apagado antes de extrair: só pode ser uma pasta de runtime do app (".../runtime/<java-N>").
+    if !is_jre_extract_target(&extract_root) || !is_plain_absolute_path(std::path::Path::new(&zip_path)) {
+        return Err("Destino da extração inválido.".to_string());
+    }
     if extract_root.exists() {
         std::fs::remove_dir_all(&extract_root).map_err(|e| e.to_string())?;
     }
@@ -1373,9 +1446,17 @@ async fn extract_jre_zip(zip_path: String, extract_path: String) -> Result<(), S
         let file = File::open(&zip_path).map_err(|e| tr!("err.openFile", error = e))?;
         let mut archive = zip::ZipArchive::new(file)
             .map_err(|e| tr!("err.invalidArchive", error = e))?;
+        if archive.len() > MAX_JRE_ZIP_ENTRIES {
+            return Err(tr!("err.invalidArchive", error = "entradas demais"));
+        }
 
+        let mut extracted_total: u64 = 0;
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+            extracted_total = extracted_total.saturating_add(entry.size());
+            if extracted_total > MAX_JRE_UNPACKED_BYTES {
+                return Err(tr!("err.invalidArchive", error = "conteúdo grande demais"));
+            }
             let enclosed = match entry.enclosed_name() {
                 Some(p) => p,
                 None => continue,
@@ -3298,6 +3379,9 @@ fn ensure_mc_server_stopped(state: &AppState) -> Result<(), String> {
 #[tauri::command]
 async fn toggle_mod(state: tauri::State<'_, AppState>, server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
     ensure_mc_server_stopped(&state)?;
+    if !is_safe_relative_component(&file_name) || !folder_name.as_deref().map_or(true, is_safe_relative_component) {
+        return Err(tr!("err.modNotFound", file = file_name));
+    }
     let mods_dir = PathBuf::from(&server_dir).join(folder_name.as_deref().unwrap_or("mods"));
     let from = mods_dir.join(&file_name);
     if !from.is_file() {
@@ -3314,6 +3398,9 @@ async fn toggle_mod(state: tauri::State<'_, AppState>, server_dir: String, file_
 #[tauri::command]
 async fn delete_mod(state: tauri::State<'_, AppState>, server_dir: String, file_name: String, folder_name: Option<String>) -> Result<(), String> {
     ensure_mc_server_stopped(&state)?;
+    if !is_safe_relative_component(&file_name) || !folder_name.as_deref().map_or(true, is_safe_relative_component) {
+        return Err(tr!("err.modNotFound", file = file_name));
+    }
     let path = PathBuf::from(&server_dir).join(folder_name.as_deref().unwrap_or("mods")).join(&file_name);
     if !path.is_file() {
         return Err(tr!("err.modNotFound", file = file_name));
@@ -3325,8 +3412,15 @@ async fn delete_mod(state: tauri::State<'_, AppState>, server_dir: String, file_
 #[tauri::command]
 fn open_path_in_explorer(path: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
+    // Só abre PASTAS: o explorer executaria um .exe/.bat se recebesse o caminho de um arquivo.
+    if !is_plain_absolute_path(&target) {
+        return Err("Caminho inválido.".to_string());
+    }
     if !target.exists() {
         std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+    }
+    if !target.is_dir() {
+        return Err("Caminho inválido.".to_string());
     }
     let result = if cfg!(target_os = "windows") {
         std::process::Command::new("explorer").arg(&path).spawn()
@@ -3517,6 +3611,9 @@ async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupI
 #[tauri::command]
 async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: String, backups_dir: String, file_name: String) -> Result<(), String> {
     ensure_mc_server_stopped(&state)?;
+    if !is_safe_relative_component(&file_name) {
+        return Err(tr!("backup.notFound", file = file_name));
+    }
     let zip_path = PathBuf::from(&backups_dir).join(&file_name);
     if !zip_path.is_file() {
         return Err(tr!("backup.notFound", file = file_name));
@@ -3631,6 +3728,9 @@ async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: Str
 
 #[tauri::command]
 async fn delete_world_backup(backups_dir: String, file_name: String) -> Result<(), String> {
+    if !is_safe_relative_component(&file_name) {
+        return Err(tr!("backup.notFound", file = file_name));
+    }
     let path = PathBuf::from(&backups_dir).join(&file_name);
     if !path.is_file() {
         return Err(tr!("backup.notFound", file = file_name));

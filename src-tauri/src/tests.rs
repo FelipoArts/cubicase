@@ -1223,3 +1223,60 @@ fn lista_de_mods_do_radmin_so_monta_url_para_ip_do_radmin_e_codigo_simples() {
         assert_eq!(radmin_mods_url("26.1.2.3", code).unwrap_err(), "INVALID_CODE", "{code}");
     }
 }
+
+// ------------------------------------------------------------
+// Validação dos comandos que recebem caminho/URL do frontend
+// (segunda linha de defesa: um XSS ou um pacote forjado não pode virar
+// download de qualquer lugar, nem apagar/abrir pastas arbitrárias).
+// ------------------------------------------------------------
+
+#[test]
+fn download_so_aceita_https_de_origens_conhecidas() {
+    let ok = |u: &str| is_allowed_download_origin(&reqwest::Url::parse(u).unwrap());
+    for u in [
+        "https://piston-data.mojang.com/v1/objects/x/server.jar",
+        "https://fill-data.papermc.io/v1/objects/x/paper.jar",
+        "https://maven.minecraftforge.net/net/minecraftforge/forge/1/forge-installer.jar",
+        "https://github.com/adoptium/temurin21-binaries/releases/download/x/y.zip",
+        "https://objects.githubusercontent.com/x",
+        "https://cdn.modrinth.com/data/a/versions/b/m.jar",
+        "https://edge.forgecdn.net/files/1/2/m.jar",
+    ] {
+        assert!(ok(u), "{u}");
+    }
+    for u in [
+        "http://piston-data.mojang.com/x.jar",          // sem TLS
+        "https://evil.example/x.jar",
+        "https://mojang.com.evil.example/x.jar",         // sufixo falso
+        "https://notmojang.com/x.jar",
+        "https://cdn.modrinth.com:8443/x.jar",           // porta fora do padrão
+        "http://127.0.0.1:25568/mods/file",
+        "file:///C:/Windows/System32/x",
+    ] {
+        assert!(!ok(u), "{u}");
+    }
+}
+
+#[test]
+fn destino_de_download_precisa_ser_absoluto_e_sem_pontos_pontos() {
+    let url = "https://cdn.modrinth.com/data/a/m.jar";
+    assert!(validate_download_request(url, r"C:\Users\ana\Documents\CubicaseServers\s\mods\m.jar").is_ok());
+    for bad in ["m.jar", r"..\m.jar", r"C:\Users\ana\..\..\Windows\m.jar"] {
+        assert!(validate_download_request(url, bad).is_err(), "{bad}");
+    }
+    assert!(validate_download_request("https://evil.example/m.jar", r"C:\x\m.jar").is_err());
+}
+
+#[test]
+fn extracao_da_jre_so_apaga_pastas_dentro_de_runtime() {
+    assert!(is_jre_extract_target(std::path::Path::new(r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\java-21")));
+    for bad in [
+        r"C:\Users\ana\Documents",
+        r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime",
+        r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\..\..\Documents",
+        r"runtime\java-21",
+        r"C:\",
+    ] {
+        assert!(!is_jre_extract_target(std::path::Path::new(bad)), "{bad}");
+    }
+}

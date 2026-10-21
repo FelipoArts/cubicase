@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "object-src 'none'; base-uri 'self'; frame-src 'none'"
     }
   },
   "plugins": {
