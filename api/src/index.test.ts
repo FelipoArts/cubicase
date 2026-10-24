@@ -9,7 +9,7 @@
 // @cloudflare/vitest-pool-workers), então não precisa limpar KV manualmente.
 // ============================================================
 
-import { SELF } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const BASE = "https://example.com";
@@ -572,5 +572,42 @@ describe("plano B: IP do Radmin no heartbeat do host", () => {
     const { shortCode } = await createTestServer();
     const r = await SELF.fetch(`${BASE}/api/v1/servers/${shortCode}/heartbeat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ radminIp: "26.1.2.3" }) });
     expect(r.status).toBe(401);
+  });
+});
+
+describe("webhook do Stripe: ordem dos eventos de assinatura", () => {
+  const SECRET = "whsec_segredo_de_teste";
+  const sign = async (payload: string) => {
+    const t = Math.floor(Date.now() / 1000);
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${t}.${payload}`)));
+    return `t=${t},v1=${Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+  };
+  const send = async (userId: string, created: number, status: string) => {
+    const payload = JSON.stringify({
+      id: `evt_${created}`, type: "customer.subscription.updated", created,
+      data: { object: { id: "sub_1", customer: "cus_1", status, metadata: { supabase_user_id: userId }, items: { data: [{ price: { id: "price_desconhecido" } }] } } },
+    });
+    return SELF.fetch(`${BASE}/api/v1/donations/webhook`, { method: "POST", headers: { "Stripe-Signature": await sign(payload) }, body: payload });
+  };
+  const applied = (userId: string) => env.CUBEFORGE_REGISTRY.get(`substate:${userId}`);
+
+  it("assinatura inválida é recusada", async () => {
+    const res = await SELF.fetch(`${BASE}/api/v1/donations/webhook`, { method: "POST", headers: { "Stripe-Signature": "t=1,v1=00" }, body: "{}" });
+    expect(res.status).toBe(400);
+  });
+
+  it("evento mais antigo que o último aplicado é ignorado; mais novo (ou igual) é aplicado", async () => {
+    const user = `u-${crypto.randomUUID()}`;
+    expect((await send(user, 1000, "active")).status).toBe(200);
+    expect(await applied(user)).toBe("1000");
+
+    // chegou atrasado: não pode sobrescrever o estado mais novo
+    expect((await send(user, 900, "incomplete")).status).toBe(200);
+    expect(await applied(user)).toBe("1000");
+
+    expect((await send(user, 1000, "past_due")).status).toBe(200); // mesmo segundo: passa
+    expect((await send(user, 1100, "canceled")).status).toBe(200);
+    expect(await applied(user)).toBe("1100");
   });
 });

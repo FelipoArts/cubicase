@@ -11,6 +11,7 @@ export default defineConfig({
           LINK_TOKEN_SECRET: "segredo-de-teste-do-link-0123456789",
           TURN_SECRET: "segredo-turn-de-teste",
           LINK_MAX_GUESTS: "3",
+          STRIPE_WEBHOOK_SECRET: "whsec_segredo_de_teste",
           TURN_URLS: "turn:turn.exemplo.test:3478,turns:turn.exemplo.test:443?transport=tcp",
         },
       },
