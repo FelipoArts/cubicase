@@ -1048,7 +1048,7 @@ interface FabricInstallerVersion {
 const fabricLoaderCache: Map<string, { builds: FabricLoaderBuild[]; fetchedAt: number }> = new Map();
 let fabricInstallerCache: { versions: FabricInstallerVersion[]; fetchedAt: number } | null = null;
 const FABRIC_CACHE_TTL = 5 * 60 * 1000; // 5 min
-const FABRIC_SERVER_JAR_NAME = "fabric-server-launch.jar";
+export const FABRIC_SERVER_JAR_NAME = "fabric-server-launch.jar";
 
 /**
  * Busca as versões do Fabric Loader compatíveis com uma versão do Minecraft
@@ -1082,7 +1082,7 @@ export async function getFabricLoaderVersions(mcVersion: string): Promise<Fabric
  * é um detalhe técnico do processo de geração do server jar; o Cubicase
  * sempre escolhe a build estável mais recente automaticamente.
  */
-async function getFabricInstallerVersions(): Promise<FabricInstallerVersion[]> {
+export async function getFabricInstallerVersions(): Promise<FabricInstallerVersion[]> {
   if (fabricInstallerCache && Date.now() - fabricInstallerCache.fetchedAt < FABRIC_CACHE_TTL) {
     return fabricInstallerCache.versions;
   }
@@ -1099,7 +1099,7 @@ async function getFabricInstallerVersions(): Promise<FabricInstallerVersion[]> {
 }
 
 /** Escolhe o item estável mais recente de uma lista; cai para o primeiro disponível se nenhum for estável. */
-function pickStable<T extends { stable: boolean }>(list: T[]): T | null {
+export function pickStable<T extends { stable: boolean }>(list: T[]): T | null {
   return list.find(v => v.stable) ?? list[0] ?? null;
 }
 
@@ -1901,7 +1901,7 @@ const forgeProvider = new ForgeProviderImpl();
 const neoforgeProvider = new NeoForgeProviderImpl();
 
 /** Resolve o objeto provider a partir do nome salvo numa build ('forge' ou 'neoforge'). */
-function getProviderByName(name: string): ForgeProvider {
+export function getProviderByName(name: string): ForgeProvider {
   return name === 'neoforge' ? neoforgeProvider : forgeProvider;
 }
 
@@ -1957,7 +1957,7 @@ function getForgeFallbackVersions(mcVersion: string): ForgeBuild[] {
 }
 
 /** Verifica via HEAD se uma URL de instalador realmente existe antes de tentar baixá-la. */
-async function urlExists(url: string): Promise<boolean> {
+export async function urlExists(url: string): Promise<boolean> {
   try {
     const res = await fetch(url, { method: 'HEAD' });
     return res.ok;
@@ -1975,7 +1975,7 @@ async function urlExists(url: string): Promise<boolean> {
 /// com um erro opaco do instalador Java, sem indicar que o download é que
 /// tinha vindo ruim. Best-effort: se não existir ou vier num formato
 /// inesperado, segue sem verificação (mesmo comportamento de antes).
-async function fetchMavenSha1(jarUrl: string): Promise<string | null> {
+export async function fetchMavenSha1(jarUrl: string): Promise<string | null> {
   try {
     const res = await fetch(`${jarUrl}.sha1`);
     if (!res.ok) return null;

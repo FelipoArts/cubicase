@@ -403,3 +403,69 @@ export async function installModrinthFile(
   await writeModInstallRegistry(serverDir, registry);
   onProgress({ status: t("modrinth.installedDone"), percent: 100 });
 }
+
+// ============================================================
+// Consultas em lote por hash (usadas pela atualização de versão do servidor)
+// ============================================================
+
+/**
+ * Identifica na Modrinth, de uma vez, as versões a que pertencem estes arquivos (pelo SHA-1). Chaves em
+ * minúsculas. Nunca lança: falha de rede = nenhum identificado (o chamador trata como "não verificado").
+ */
+export async function lookupVersionsByHashes(sha1s: string[]): Promise<Map<string, ModrinthVersion>> {
+  const found = new Map<string, ModrinthVersion>();
+  const unique = [...new Set(sha1s.map((h) => h.toLowerCase()))];
+  for (let i = 0; i < unique.length; i += HASH_LOOKUP_BATCH) {
+    try {
+      const res = await fetch(`${MODRINTH_API}/version_files`, {
+        method: "POST",
+        headers: { "User-Agent": MODRINTH_USER_AGENT, "Content-Type": "application/json" },
+        body: JSON.stringify({ hashes: unique.slice(i, i + HASH_LOOKUP_BATCH), algorithm: "sha1" }),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as Record<string, ModrinthVersion>;
+      for (const [hash, version] of Object.entries(data)) found.set(hash.toLowerCase(), version);
+    } catch {
+      // segue com o que já foi encontrado
+    }
+  }
+  return found;
+}
+
+/**
+ * Para cada arquivo (pelo SHA-1), a versão MAIS NOVA do mesmo projeto que serve para `mcVersion` com algum dos
+ * `loaders`. Arquivo ausente do resultado = o projeto não tem versão compatível. Lança se a consulta falhar:
+ * aqui "sem resposta" não pode ser confundido com "incompatível".
+ */
+export async function latestCompatibleByHashes(
+  sha1s: string[],
+  loaders: string[],
+  mcVersion: string
+): Promise<Map<string, ModrinthVersion>> {
+  const found = new Map<string, ModrinthVersion>();
+  const unique = [...new Set(sha1s.map((h) => h.toLowerCase()))];
+  for (let i = 0; i < unique.length; i += HASH_LOOKUP_BATCH) {
+    const res = await fetch(`${MODRINTH_API}/version_files/update`, {
+      method: "POST",
+      headers: { "User-Agent": MODRINTH_USER_AGENT, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hashes: unique.slice(i, i + HASH_LOOKUP_BATCH),
+        algorithm: "sha1",
+        loaders,
+        game_versions: [mcVersion],
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as Record<string, ModrinthVersion>;
+    for (const [hash, version] of Object.entries(data)) found.set(hash.toLowerCase(), version);
+  }
+  return found;
+}
+
+/** Versões de um projeto que servem para `mcVersion` com algum dos `loaders` (a mais nova primeiro). */
+export async function getProjectVersionsFor(projectId: string, loaders: string[], mcVersion: string): Promise<ModrinthVersion[]> {
+  const gameVersions = encodeURIComponent(JSON.stringify([mcVersion]));
+  const loaderParam = encodeURIComponent(JSON.stringify(loaders));
+  const res = await modrinthFetch(`${MODRINTH_API}/project/${encodeURIComponent(projectId)}/version?game_versions=${gameVersions}&loaders=${loaderParam}`);
+  return (await res.json()) as ModrinthVersion[];
+}
