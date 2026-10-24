@@ -16,10 +16,12 @@
 // continuam valendo, então o app só gera uma sugestão na tela e a verdade é sempre o teste de alcance.
 // ============================================================
 
+use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -32,6 +34,68 @@ pub struct RadminStatus {
     pub running: bool,
     /// IPv4 do adaptador do Radmin (faixa 26.x.x.x), se ele estiver conectado a alguma rede.
     pub ip: Option<String>,
+}
+
+// ---------------- processos externos com limite de tempo ----------------
+// `sc`, `ipconfig`, `netsh` e `winget` são programas do Windows; se um deles travar (serviço preso, disco lento,
+// winget esperando uma fonte), a chamada não pode prender a thread do app para sempre.
+
+const SHORT_CMD_TIMEOUT: Duration = Duration::from_secs(15);
+/// O winget baixa e instala o Radmin (e o Windows pede a confirmação de administrador no meio).
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// O PowerShell elevado espera o usuário aceitar (ou recusar) a janela do Windows.
+const ELEVATED_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// Roda o comando e devolve a saída; `None` se não iniciou ou estourou o tempo (o processo é encerrado).
+fn output_with_timeout(mut cmd: Command, timeout: Duration) -> Option<Output> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().ok()?;
+    // Lê as saídas em threads: um comando que escreve muito travaria se ninguém esvaziasse o pipe.
+    fn reader<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    }
+    let h_out = reader(child.stdout.take());
+    let h_err = reader(child.stderr.take());
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Some(Output { status, stdout: h_out.join().unwrap_or_default(), stderr: h_err.join().unwrap_or_default() });
+            }
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None; // as threads de leitura terminam sozinhas quando o pipe fecha
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Como `output_with_timeout`, mas sem capturar saída (instaladores e janelas elevadas).
+fn status_with_timeout(mut cmd: Command, timeout: Duration) -> Option<ExitStatus> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = cmd.spawn().ok()?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(_) => return None,
+        }
+    }
 }
 
 // ---------------- partes puras (testadas) ----------------
@@ -62,8 +126,15 @@ pub fn parse_service_state(sc_output: &str) -> Option<u32> {
     })
 }
 
+/// Porta TCP em que o próprio app serve os mods na rede do Radmin (ver o servidor local de mods).
+pub const APP_MODS_PORT: u16 = 25567;
+
+/// Nome da regra antiga do app, que liberava o executável inteiro (qualquer porta). Hoje a regra do app só
+/// libera a porta dos mods; a antiga é apagada quando a nova é criada.
+const LEGACY_APP_RULE: &str = "Cubicase Radmin - app";
+
 /// Rótulo estável de uma regra de firewall a partir do executável: `…\runtime\java-17\bin\java.exe` →
-/// "java-17"; qualquer outro (o próprio app) → "app".
+/// "java-17"; qualquer outro (o próprio app) → "app-mods".
 pub fn rule_label(program: &Path) -> String {
     let comps: Vec<String> = program.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
     if let Some(i) = comps.iter().rposition(|c| c.eq_ignore_ascii_case("runtime")) {
@@ -71,7 +142,7 @@ pub fn rule_label(program: &Path) -> String {
             return name.clone();
         }
     }
-    "app".to_string()
+    "app-mods".to_string()
 }
 
 pub fn rule_name(program: &Path) -> String {
@@ -85,14 +156,24 @@ fn path_is_script_safe(p: &Path) -> bool {
 }
 
 /// Script (PowerShell) que recria, de forma idempotente, as regras de entrada: permitir o programa só para
-/// quem vem da faixa 26.0.0.0/8 (a rede do Radmin), em qualquer perfil de rede.
+/// quem vem da faixa 26.0.0.0/8 (a rede do Radmin), em qualquer perfil de rede. A regra do próprio app vale
+/// só para a porta TCP dos mods (`APP_MODS_PORT`); a do Java (servidor Minecraft) vale para o programa,
+/// porque a porta do servidor pode ser trocada pelo usuário.
 pub fn build_firewall_script(rules: &[(String, PathBuf)]) -> String {
     let mut s = String::from("$ErrorActionPreference = 'Stop'\n");
     for (name, program) in rules {
+        let port = if rule_label(program) == "app-mods" {
+            // A regra antiga do app liberava o executável em qualquer porta: sai junto com a criação da nova.
+            s.push_str(&format!("netsh advfirewall firewall delete rule name=\"{}\" | Out-Null\n", LEGACY_APP_RULE));
+            format!(" protocol=TCP localport={}", APP_MODS_PORT)
+        } else {
+            String::new()
+        };
         s.push_str(&format!(
-            "netsh advfirewall firewall delete rule name=\"{n}\" | Out-Null\nnetsh advfirewall firewall add rule name=\"{n}\" dir=in action=allow program=\"{p}\" remoteip=26.0.0.0/8 profile=any enable=yes description=\"Cubicase: amigos na rede do Radmin VPN\" | Out-Null\nif ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}\n",
+            "netsh advfirewall firewall delete rule name=\"{n}\" | Out-Null\nnetsh advfirewall firewall add rule name=\"{n}\" dir=in action=allow program=\"{p}\" remoteip=26.0.0.0/8{port} profile=any enable=yes description=\"Cubicase: amigos na rede do Radmin VPN\" | Out-Null\nif ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}\n",
             n = name,
-            p = program.display()
+            p = program.display(),
+            port = port
         ));
     }
     s
@@ -122,7 +203,9 @@ pub fn is_installed() -> bool {
 pub fn service_running() -> bool {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = crate::silent_command("sc").args(["query", "RvControlSvc"]).output() {
+        let mut cmd = crate::silent_command("sc");
+        cmd.args(["query", "RvControlSvc"]);
+        if let Some(out) = output_with_timeout(cmd, SHORT_CMD_TIMEOUT) {
             return parse_service_state(&String::from_utf8_lossy(&out.stdout)) == Some(4);
         }
     }
@@ -132,7 +215,7 @@ pub fn service_running() -> bool {
 fn read_ip() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let out = crate::silent_command("ipconfig").output().ok()?;
+        let out = output_with_timeout(crate::silent_command("ipconfig"), SHORT_CMD_TIMEOUT)?;
         return parse_radmin_ip(&String::from_utf8_lossy(&out.stdout));
     }
     #[allow(unreachable_code)]
@@ -191,7 +274,9 @@ pub fn probe(host: &str, port: u16, timeout: Duration) -> bool {
 pub fn winget_available() -> bool {
     #[cfg(target_os = "windows")]
     {
-        return crate::silent_command("winget").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
+        let mut cmd = crate::silent_command("winget");
+        cmd.arg("--version");
+        return output_with_timeout(cmd, SHORT_CMD_TIMEOUT).map(|o| o.status.success()).unwrap_or(false);
     }
     #[allow(unreachable_code)]
     false
@@ -209,12 +294,12 @@ pub fn install_with_winget() -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = crate::silent_command("winget")
-            .args([
-                "install", "--id", "Famatech.RadminVPN", "--exact", "--silent",
-                "--accept-package-agreements", "--accept-source-agreements",
-            ])
-            .status();
+        let mut cmd = crate::silent_command("winget");
+        cmd.args([
+            "install", "--id", "Famatech.RadminVPN", "--exact", "--silent",
+            "--accept-package-agreements", "--accept-source-agreements",
+        ]);
+        let _ = status_with_timeout(cmd, INSTALL_TIMEOUT);
         // O código de saída do winget não é confiável (já instalado, reinício pendente...): vale o que existe no disco.
         for _ in 0..20 {
             if is_installed() {
@@ -250,11 +335,9 @@ fn rule_exists(name: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
         // `netsh ... show rule` sai com erro quando nenhuma regra tem esse nome (não depende do idioma).
-        return crate::silent_command("netsh")
-            .args(["advfirewall", "firewall", "show", "rule", &format!("name={}", name)])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let mut cmd = crate::silent_command("netsh");
+        cmd.args(["advfirewall", "firewall", "show", "rule", &format!("name={}", name)]);
+        return output_with_timeout(cmd, SHORT_CMD_TIMEOUT).map(|o| o.status.success()).unwrap_or(false);
     }
     #[allow(unreachable_code)]
     false
@@ -285,11 +368,9 @@ pub fn allow_firewall(app_data_dir: &Path) -> Result<(), String> {
             "Start-Process -FilePath powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'",
             encoded
         );
-        let ok = crate::silent_command("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &launcher])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let mut cmd = crate::silent_command("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &launcher]);
+        let ok = status_with_timeout(cmd, ELEVATED_TIMEOUT).map(|s| s.success()).unwrap_or(false);
         if !ok {
             return Err("CANCELLED".into()); // não aceitou a confirmação do Windows
         }
@@ -358,7 +439,7 @@ mod tests {
     fn regra_de_firewall_tem_nome_estavel_por_runtime() {
         let java = Path::new(r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\java-17\bin\java.exe");
         assert_eq!(rule_name(java), "Cubicase Radmin - java-17");
-        assert_eq!(rule_name(Path::new(r"C:\Users\ana\AppData\Local\Cubicase\app.exe")), "Cubicase Radmin - app");
+        assert_eq!(rule_name(Path::new(r"C:\Users\ana\AppData\Local\Cubicase\app.exe")), "Cubicase Radmin - app-mods");
     }
 
     #[test]
@@ -370,6 +451,38 @@ mod tests {
         assert!(s.contains("dir=in action=allow"));
         assert!(s.contains("delete rule name=\"Cubicase Radmin - java-17\""), "recria sem duplicar");
         assert!(!s.contains("remoteip=any") && !s.contains("remoteip=*"));
+    }
+
+    #[test]
+    fn regra_do_app_vale_so_para_a_porta_dos_mods_e_apaga_a_antiga() {
+        let rules = vec![
+            ("Cubicase Radmin - app-mods".to_string(), PathBuf::from(r"C:\Cubicase\app.exe")),
+            ("Cubicase Radmin - java-21".to_string(), PathBuf::from(r"C:\x\runtime\java-21\bin\java.exe")),
+        ];
+        let s = build_firewall_script(&rules);
+        assert!(s.contains("program=\"C:\\Cubicase\\app.exe\" remoteip=26.0.0.0/8 protocol=TCP localport=25567"), "{s}");
+        assert!(s.contains("delete rule name=\"Cubicase Radmin - app\""), "apaga a regra antiga, que liberava o app inteiro");
+        // a do Java (servidor Minecraft) não fixa porta: o usuário pode trocar a porta do servidor
+        let java_line = s.lines().find(|l| l.contains("add rule") && l.contains("java-21")).unwrap();
+        assert!(!java_line.contains("localport"), "{java_line}");
+    }
+
+    #[test]
+    fn processo_que_trava_e_encerrado_no_limite_de_tempo() {
+        // Um comando que dorme muito mais que o limite devolve None em vez de prender a thread.
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("ping");
+            cmd.args(["-n", "30", "127.0.0.1"]);
+            let started = Instant::now();
+            assert!(output_with_timeout(cmd, Duration::from_millis(300)).is_none());
+            assert!(started.elapsed() < Duration::from_secs(5));
+
+            let mut ok = Command::new("cmd");
+            ok.args(["/C", "echo oi"]);
+            let out = output_with_timeout(ok, Duration::from_secs(10)).unwrap();
+            assert!(String::from_utf8_lossy(&out.stdout).contains("oi"));
+        }
     }
 
     #[test]
