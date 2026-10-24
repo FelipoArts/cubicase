@@ -1473,3 +1473,49 @@ fn so_o_java_do_proprio_app_pode_ser_executado() {
         assert!(!ok(bad), "{bad}");
     }
 }
+
+#[tokio::test]
+async fn restaurar_backup_completo_devolve_mods_e_versao_sem_misturar_com_os_novos() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("srv");
+    fs::create_dir_all(&dir).unwrap();
+    let dir_str = dir.to_string_lossy().to_string();
+    let w = |rel: &str, body: &str| {
+        let p = dir.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, body).unwrap();
+    };
+    // estado ANTES da atualização
+    w("world/level.dat", "mundo antigo");
+    w("mods/sodium-1.20.1.jar", "mod antigo");
+    w("config/x.toml", "config antiga");
+    w("cubicase-meta.json", r#"{"version":"1.20.1"}"#);
+    w("fabric-server-launch.jar", "launcher antigo");
+    let backups = backups_dir_for(&tmp);
+    let full = upgrade::create_full_backup(&dir, std::path::Path::new(&backups), "ANTES-DE-ATUALIZAR_").unwrap();
+    assert_eq!(full.kind, "pre_upgrade");
+
+    // depois da atualização (e de jogar um pouco na versão nova)
+    fs::remove_file(dir.join("mods/sodium-1.20.1.jar")).unwrap();
+    w("mods/sodium-1.20.4.jar", "mod novo");
+    w("world/level.dat", "mundo convertido para 1.20.4");
+    w("cubicase-meta.json", r#"{"version":"1.20.4"}"#);
+    w("fabric-server-launch.jar", "launcher novo");
+
+    let app_state = AppState::default();
+    let safety = restore_world_backup(state_from(&app_state), dir_str.clone(), backups.clone(), full.file_name)
+        .await
+        .unwrap()
+        .expect("havia estado atual: deve existir a cópia de segurança");
+
+    assert_eq!(fs::read_to_string(dir.join("world/level.dat")).unwrap(), "mundo antigo");
+    assert_eq!(fs::read_to_string(dir.join("mods/sodium-1.20.1.jar")).unwrap(), "mod antigo");
+    assert!(!dir.join("mods/sodium-1.20.4.jar").exists(), "o mod da versão nova não pode ficar misturado");
+    assert_eq!(fs::read_to_string(dir.join("cubicase-meta.json")).unwrap(), r#"{"version":"1.20.1"}"#);
+    assert_eq!(fs::read_to_string(dir.join("fabric-server-launch.jar")).unwrap(), "launcher antigo");
+    // O estado que estava valendo (versão nova) ficou salvo, inteiro, antes de ser substituído.
+    assert_eq!(safety.kind, "pre_restore");
+    let zip = zip::ZipArchive::new(fs::File::open(std::path::Path::new(&backups).join(&safety.file_name)).unwrap()).unwrap();
+    let names: Vec<String> = zip.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
+    assert!(names.iter().any(|n| n == "mods/sodium-1.20.4.jar"), "{names:?}");
+}

@@ -173,6 +173,17 @@ messages! {
 
     // ---------- Backups do mundo ----------
     "backup.noWorld" => ("Nenhuma pasta de mundo encontrada para fazer backup.", "No world folder found to back up."),
+    "backup.preUpgradePrefix" => ("ANTES-DE-ATUALIZAR_", "BEFORE-UPGRADE_"),
+    "upgrade.err.invalidDir" => ("Pasta de servidor inválida.", "Invalid server folder."),
+    "upgrade.err.busy" => ("Já existe uma atualização ou exportação em andamento neste servidor.", "An upgrade or export is already running for this server."),
+    "upgrade.err.notStarted" => ("A atualização não foi iniciada ou expirou. Comece de novo.", "The upgrade wasn't started or has expired. Start again."),
+    "upgrade.err.blocksStart" => ("Este servidor está sendo atualizado. Aguarde terminar para iniciá-lo.", "This server is being upgraded. Wait for it to finish before starting it."),
+    "upgrade.err.invalidPlan" => ("Plano de atualização inválido.", "Invalid upgrade plan."),
+    "upgrade.err.backupFailed" => ("Não foi possível fazer o backup completo antes de atualizar ({error}). Nada foi alterado.", "Couldn't make the full backup before upgrading ({error}). Nothing was changed."),
+    "upgrade.err.missingStaged" => ("Arquivo preparado não encontrado: {file}", "Prepared file not found: {file}"),
+    "upgrade.err.metaUnreadable" => ("Não foi possível ler o cubicase-meta.json do servidor ({error}).", "Couldn't read the server's cubicase-meta.json ({error})."),
+    "upgrade.err.rolledBack" => ("A atualização falhou ({error}). Tudo foi desfeito: o servidor continua como estava.", "The upgrade failed ({error}). Everything was undone: the server is as it was."),
+    "upgrade.err.rollbackFailed" => ("A atualização falhou ({error}) e não foi possível desfazer tudo. Arquivos para conferir: {files}. Se o servidor não iniciar, restaure o backup completo.", "The upgrade failed ({error}) and not everything could be undone. Files to check: {files}. If the server won't start, restore the full backup."),
     "backup.preResetPrefix" => ("ANTES-DO-RESET_", "BEFORE-RESET_"),
     "backup.preRestorePrefix" => ("ANTES-DE-RESTAURAR_", "BEFORE-RESTORE_"),
     "backup.restoreBackupFailed" => ("Não foi possível criar o backup de segurança do mundo atual antes de restaurar ({error}). Nada foi alterado.", "Couldn't create the safety backup of the current world before restoring ({error}). Nothing was changed."),

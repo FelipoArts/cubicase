@@ -36,6 +36,7 @@ mod hosting;
 mod mod_identity;
 mod owner_secret;
 mod server_inspect;
+mod upgrade;
 mod account_auth;
 mod radmin;
 #[cfg(test)]
@@ -2001,6 +2002,10 @@ async fn start_minecraft_server(
     if pack::export_in_progress_for(&server_dir) {
         return Err(tr!("pack.err.exportingBlocksStart"));
     }
+    // Atualização de versão em andamento: o servidor não pode subir no meio da troca de arquivos.
+    if upgrade::upgrade_in_progress_for(&server_dir) {
+        return Err(tr!("upgrade.err.blocksStart"));
+    }
     // Servidor importado de um pacote leve com mods ainda por baixar.
     if pack::has_pending_mods(&server_dir) {
         return Err(tr!("pack.err.pendingBlocksStart"));
@@ -3332,7 +3337,8 @@ struct BackupInfo {
     size_bytes: u64,
     created_at: String,
     /// "manual" (backup normal, manual ou automático), "pre_reset" (cópia de segurança feita
-    /// automaticamente ANTES de resetar o mundo) ou "pre_restore" (idem, ANTES de restaurar um backup).
+    /// automaticamente ANTES de resetar o mundo), "pre_restore" (idem, ANTES de restaurar um backup) ou
+    /// "pre_upgrade" (backup COMPLETO do servidor feito antes de atualizar a versão).
     #[serde(default)]
     kind: String,
 }
@@ -3344,12 +3350,17 @@ const PRE_RESET_PREFIX_EN: &str = "BEFORE-RESET_";
 /// Idem, para a cópia feita antes de RESTAURAR um backup por cima do mundo atual.
 const PRE_RESTORE_PREFIX_PT: &str = "ANTES-DE-RESTAURAR_";
 const PRE_RESTORE_PREFIX_EN: &str = "BEFORE-RESTORE_";
+/// Idem, para o backup COMPLETO do servidor feito antes de atualizar a versão (ver upgrade.rs).
+const PRE_UPGRADE_PREFIX_PT: &str = "ANTES-DE-ATUALIZAR_";
+const PRE_UPGRADE_PREFIX_EN: &str = "BEFORE-UPGRADE_";
 
 fn backup_kind(file_name: &str) -> &'static str {
     if file_name.starts_with(PRE_RESET_PREFIX_PT) || file_name.starts_with(PRE_RESET_PREFIX_EN) {
         "pre_reset"
     } else if file_name.starts_with(PRE_RESTORE_PREFIX_PT) || file_name.starts_with(PRE_RESTORE_PREFIX_EN) {
         "pre_restore"
+    } else if file_name.starts_with(PRE_UPGRADE_PREFIX_PT) || file_name.starts_with(PRE_UPGRADE_PREFIX_EN) {
+        "pre_upgrade"
     } else {
         "manual"
     }
@@ -3782,19 +3793,45 @@ async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: Str
     }
 
     let level_name = read_level_name(&server_dir);
-    let folders = world_folder_paths(&server_dir, &level_name);
+    let mut folders = world_folder_paths(&server_dir, &level_name);
 
-    // 1b. Cópia de segurança do mundo ATUAL, antes de qualquer mudança: se a restauração não for o que o
-    //     usuário queria, o mundo de antes continua salvo (ANTES-DE-RESTAURAR_...). Sem mundo atual, não há o
-    //     que salvar. Se a cópia falhar, nada é tocado.
+    // Backup COMPLETO do servidor (feito antes de atualizar a versão): além do mundo, devolve mods/plugins,
+    // config etc. Então TODAS as pastas de topo que o zip traz são trocadas de uma vez — senão os mods novos da
+    // versão atualizada ficariam misturados com os antigos restaurados.
+    let is_full = backup_kind(&file_name) == "pre_upgrade";
+    if is_full {
+        let mut tops = std::collections::BTreeSet::new();
+        for i in 0..archive.len() {
+            let Ok(entry) = archive.by_index(i) else { continue };
+            let Some(path) = entry.enclosed_name() else { continue };
+            let mut comps = path.components();
+            if let (Some(std::path::Component::Normal(first)), second) = (comps.next(), comps.next()) {
+                if second.is_some() || entry.is_dir() {
+                    tops.insert(first.to_string_lossy().to_string());
+                }
+            }
+        }
+        for top in tops {
+            let p = PathBuf::from(&server_dir).join(&top);
+            if is_safe_relative_component(&top) && !top.starts_with(".restore_staging_") && p.is_dir() && !folders.contains(&p) {
+                folders.push(p);
+            }
+        }
+    }
+
+    // 1b. Cópia de segurança do que vai ser substituído, antes de qualquer mudança: se a restauração não for o
+    //     que o usuário queria, o estado de antes continua salvo (ANTES-DE-RESTAURAR_...). Sem nada para
+    //     substituir, não há o que salvar. Se a cópia falhar, nada é tocado.
     let safety = if folders.is_empty() {
         None
     } else {
         let prefix = tr!("backup.preRestorePrefix");
-        Some(
+        let made = if is_full {
+            upgrade::create_full_backup(std::path::Path::new(&server_dir), std::path::Path::new(&backups_dir), &prefix)
+        } else {
             create_world_backup(&server_dir, &backups_dir, &prefix)
-                .map_err(|e| tr!("backup.restoreBackupFailed", error = e))?,
-        )
+        };
+        Some(made.map_err(|e| tr!("backup.restoreBackupFailed", error = e))?)
     };
 
     // 2. Mover (não apagar) as pastas do mundo atual para uma área de staging,
@@ -6957,6 +6994,11 @@ pub fn run() {
        delete_mod,
        open_path_in_explorer,
        grant_server_dirs,
+       upgrade::begin_server_upgrade,
+       upgrade::end_server_upgrade,
+       upgrade::estimate_server_backup,
+       upgrade::backup_server_full,
+       upgrade::commit_server_upgrade,
        server_inspect::inspect_server_folder_cmd,
        list_world_backups,
        backup_world,
