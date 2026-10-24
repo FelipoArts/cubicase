@@ -451,18 +451,32 @@ func (g *Guest) reportPathForce(p *guestPeer, rtt int64) {
 // ---------------- listeners locais ----------------
 
 func (g *Guest) acceptLoop(ctx context.Context, ln net.Listener, prefix string) {
+	delay := time.Duration(0)
+	warned := false
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return // encerrando, ou o listener foi fechado de propósito
+			}
+			// Erro transitório (sem descritores de arquivo livres, falha momentânea do sistema...): antes
+			// o laço terminava aqui e a porta local do jogo deixava de aceitar conexões sem ninguém notar.
+			// Espera um pouco (com teto) e tenta de novo, avisando uma vez por sequência de falhas.
+			if !warned {
+				emitWarning(g.em, "local_accept_failed", prefix+": "+describe(err))
+				warned = true
+			}
+			if delay == 0 {
+				delay = 50 * time.Millisecond
+			} else if delay < time.Second {
+				delay *= 2
+			}
+			if !sleepCtx(ctx, delay) {
 				return
 			}
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
-				continue
-			}
-			return // listener fechado
+			continue
 		}
+		delay, warned = 0, false
 		go g.handleConn(ctx, conn, prefix)
 	}
 }
