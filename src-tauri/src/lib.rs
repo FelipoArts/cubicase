@@ -1049,8 +1049,13 @@ fn add_minecraft_server_entry(app: tauri::AppHandle, name: String, address: Stri
 
     let mut blob = if path.exists() {
         let bytes = std::fs::read(&path).map_err(|e| tr!("err.serversDatRead", error = e))?;
-        // Um servers.dat corrompido não deve travar a conexão: tratamos como vazio.
-        nbt::Blob::from_reader(&mut &bytes[..]).unwrap_or_else(|_| nbt::Blob::new())
+        // Arquivo vazio: lista nova. Arquivo com conteúdo que não conseguimos ler: NÃO sobrescreve — antes
+        // era tratado como vazio e a lista de servidores do jogador era apagada e trocada só pela nossa.
+        if bytes.is_empty() {
+            nbt::Blob::new()
+        } else {
+            nbt::Blob::from_reader(&mut &bytes[..]).map_err(|_| tr!("err.serversDatUnreadable"))?
+        }
     } else {
         nbt::Blob::new()
     };
@@ -1080,7 +1085,12 @@ fn add_minecraft_server_entry(app: tauri::AppHandle, name: String, address: Stri
 
     let mut out: Vec<u8> = Vec::new();
     blob.to_writer(&mut out).map_err(|e| tr!("err.serversDatSerialize", error = e))?;
-    std::fs::write(&path, out).map_err(|e| tr!("err.serversDatWrite", error = e))?;
+    // Cópia do arquivo atual antes de mexer (o jogo só mantém o servers.dat_old dele mesmo) e escrita atômica:
+    // uma queda no meio não deixa a lista do jogador truncada.
+    if path.is_file() {
+        let _ = std::fs::copy(&path, dir.join("servers.dat.cubicase-bak"));
+    }
+    atomic_write(&path, &out).map_err(|e| tr!("err.serversDatWrite", error = e))?;
 
     Ok("added".to_string())
 }
@@ -1222,7 +1232,7 @@ fn prepare_launcher_profile(
 
         let out = serde_json::to_vec_pretty(&root)
             .map_err(|e| tr!("err.fileSerialize", file = filename, error = e))?;
-        std::fs::write(&path, out).map_err(|e| tr!("err.fileWrite", file = filename, error = e))?;
+        atomic_write(&path, &out).map_err(|e| tr!("err.fileWrite", file = filename, error = e))?;
     }
 
     if !touched_any {
@@ -1414,6 +1424,30 @@ async fn download_server_jar(url: String, dest_path: String, expected_sha1: Opti
     Err(tr!("err.downloadAttempts", attempts = MAX_ATTEMPTS, error = last_err))
 }
 
+/// O Java que o Cubicase executa vive sempre em `<dados do app>/runtime/<java-N>/bin/java(.exe)` (baixado
+/// por ele). Qualquer outro executável é recusado: o caminho vem do frontend.
+fn is_app_java_path(p: &std::path::Path) -> bool {
+    let name_ok = p.file_name().and_then(|n| n.to_str()).map_or(false, |n| {
+        n.eq_ignore_ascii_case("java.exe") || n.eq_ignore_ascii_case("javaw.exe") || n == "java"
+    });
+    let bin_ok = p.parent().and_then(|d| d.file_name()).map_or(false, |n| n.eq_ignore_ascii_case("bin"));
+    let runtime_ok = p
+        .parent()
+        .and_then(|bin| bin.parent())
+        .and_then(|jre| jre.parent())
+        .and_then(|rt| rt.file_name())
+        .map_or(false, |n| n.eq_ignore_ascii_case("runtime"));
+    is_plain_absolute_path(p) && name_ok && bin_ok && runtime_ok
+}
+
+fn check_app_java_path(java_path: &str) -> Result<(), String> {
+    if is_app_java_path(std::path::Path::new(java_path)) {
+        Ok(())
+    } else {
+        Err(tr!("err.javaPathInvalid"))
+    }
+}
+
 /// Limites da extração do Java (um JDK tem na casa de 500 entradas e ~400 MB descompactado).
 const MAX_JRE_ZIP_ENTRIES: usize = 20_000;
 const MAX_JRE_UNPACKED_BYTES: u64 = 3 * 1024 * 1024 * 1024;
@@ -1532,6 +1566,16 @@ async fn list_local_server_mods(server_dir: String) -> Result<Vec<ModManifestEnt
 /// usado pelo fluxo "Jogar" do próprio host, ver `list_local_server_mods`).
 #[tauri::command]
 async fn copy_local_mod_file(from_path: String, to_path: String) -> Result<(), String> {
+    // Só copia um .jar existente para um destino .jar absoluto e sem "..": não serve para sobrescrever
+    // qualquer arquivo do computador.
+    let is_jar = |p: &str| std::path::Path::new(p).extension().map_or(false, |e| e.eq_ignore_ascii_case("jar"));
+    if !is_jar(&from_path) || !is_jar(&to_path)
+        || !is_plain_absolute_path(std::path::Path::new(&from_path))
+        || !is_plain_absolute_path(std::path::Path::new(&to_path))
+        || !std::path::Path::new(&from_path).is_file()
+    {
+        return Err(tr!("err.modCopyInvalid"));
+    }
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         if let Some(parent) = std::path::Path::new(&to_path).parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1926,7 +1970,27 @@ async fn start_minecraft_server(
     server_jar_name: Option<String>,  // "forge-1.20.1-47.1.0-shim.jar" para Forge (versões antigas)
     launch_args_dir: Option<String>,  // "libraries/net/minecraftforge/forge/1.20.1-47.1.0" para Forge/NeoForge modernos (1.17+), sem JAR único
 ) -> Result<(), String> {
+    check_app_java_path(&java_path)?;
+    if ram_gb == 0 {
+        return Err(tr!("err.javaPathInvalid"));
+    }
     let jar_name = server_jar_name.unwrap_or_else(|| "server.jar".to_string());
+    // O .jar e a pasta de argumentos vão direto na linha de comando do Java: nome simples / caminho relativo
+    // sem "..", e nunca uma opção (começando com "-" ou "@").
+    if !is_safe_relative_component(&jar_name) || jar_name.starts_with('-') || jar_name.starts_with('@') {
+        return Err(tr!("err.javaPathInvalid"));
+    }
+    if let Some(dir) = &launch_args_dir {
+        let p = std::path::Path::new(dir);
+        let bad = dir.is_empty()
+            || dir.starts_with('-')
+            || dir.starts_with('@')
+            || p.is_absolute()
+            || p.components().any(|c| !matches!(c, std::path::Component::Normal(_)));
+        if bad {
+            return Err(tr!("err.javaPathInvalid"));
+        }
+    }
     log_to_file(&app, &format!(
         "=== INICIANDO SERVIDOR MC (dir={}, porta={}, ram={}GB, jar={}, argsDir={:?}) ===",
         server_dir, local_port, ram_gb, jar_name, launch_args_dir
@@ -2545,6 +2609,7 @@ async fn run_forge_installer(
     java_path: String,
     installer_path: String,
 ) -> Result<(), String> {
+    check_app_java_path(&java_path)?;
     log_to_file(&app, &format!("=== INSTALANDO FORGE (java={}, installer={}) ===", java_path, installer_path));
     
     // Extrair diretório do installer
@@ -2669,6 +2734,7 @@ async fn run_fabric_client_installer(
     installer_path: String,
     mc_version: String,
 ) -> Result<String, String> {
+    check_app_java_path(&java_path)?;
     log_to_file(&app, &format!("=== INSTALANDO FABRIC CLIENT (java={}, installer={}, mc={}) ===", java_path, installer_path, mc_version));
 
     let minecraft_dir = find_minecraft_dir(&app)
@@ -2819,6 +2885,7 @@ async fn run_forge_client_installer(
     mc_version: String,
     forge_version: String,
 ) -> Result<String, String> {
+    check_app_java_path(&java_path)?;
     log_to_file(&app, &format!("=== INSTALANDO FORGE CLIENT (java={}, installer={}, mc={}, forge={}) ===", java_path, installer_path, mc_version, forge_version));
 
     let minecraft_dir = find_minecraft_dir(&app)
@@ -3027,6 +3094,10 @@ async fn send_minecraft_command(
     command: String,
 ) -> Result<(), String> {
     let trimmed = command.trim();
+    // Uma linha só: quebra de linha ou outro caractere de controle viraria SEGUNDO comando no console.
+    if trimmed.is_empty() || trimmed.chars().any(|c| c.is_control()) {
+        return Err(tr!("err.commandInvalid"));
+    }
     
     // Se o comando for "stop" ou "/stop", marca como parada intencional
     if trimmed == "stop" || trimmed == "/stop" {
@@ -3142,6 +3213,13 @@ fn atomic_write(path: &std::path::Path, content: &[u8]) -> Result<(), String> {
 #[tauri::command]
 async fn write_server_properties(state: tauri::State<'_, AppState>, server_dir: String, props: HashMap<String, String>) -> Result<(), String> {
     ensure_mc_server_stopped(&state)?;
+    // Chave e valor vão para UMA linha do arquivo: um "\n" no valor (ex.: no MOTD) criaria propriedades novas
+    // (online-mode=false, rcon...) e uma chave com "=" ou espaço quebraria o formato.
+    for (key, value) in props.iter() {
+        if !is_valid_property_key(key) || value.chars().any(|c| c == '\n' || c == '\r' || c == '\0') {
+            return Err(tr!("props.invalidEntry", key = key));
+        }
+    }
     let path = format!("{}/server.properties", server_dir);
     // Read existing file lines if present
     let mut lines: Vec<String> = if let Ok(content) = std::fs::read_to_string(&path) {
@@ -3167,6 +3245,11 @@ async fn write_server_properties(state: tauri::State<'_, AppState>, server_dir: 
     atomic_write(std::path::Path::new(&path), new_content.as_bytes())
 }
 
+/// Chave de `server.properties`: letras, números, ponto, hífen e sublinhado.
+fn is_valid_property_key(key: &str) -> bool {
+    !key.is_empty() && key.len() <= 64 && key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
 /// Recorta a imagem para um quadrado centralizado e redimensiona para o tamanho
 /// de ícone do Minecraft (64x64), evitando distorção em imagens não-quadradas.
 fn crop_and_resize_icon(img: image::DynamicImage) -> image::DynamicImage {
@@ -3183,6 +3266,19 @@ fn crop_and_resize_icon(img: image::DynamicImage) -> image::DynamicImage {
 /// é recortada em um quadrado central e redimensionada para 64x64 antes de salvar.
 #[tauri::command]
 async fn set_server_icon(server_dir: String, image_path: String) -> Result<(), String> {
+    // Uma imagem enorme (ou "bomba de descompressão") não pode estourar a memória só para virar um ícone 64x64.
+    const MAX_ICON_FILE_BYTES: u64 = 25 * 1024 * 1024;
+    const MAX_ICON_SIDE: u32 = 8192;
+    if std::fs::metadata(&image_path).map(|m| m.len() > MAX_ICON_FILE_BYTES).unwrap_or(false) {
+        return Err(tr!("err.iconTooBig"));
+    }
+    let reader = image::ImageReader::open(&image_path)
+        .and_then(|r| r.with_guessed_format())
+        .map_err(|e| tr!("err.iconOpen", error = e))?;
+    let (w, h) = reader.into_dimensions().map_err(|e| tr!("err.iconOpen", error = e))?;
+    if w > MAX_ICON_SIDE || h > MAX_ICON_SIDE {
+        return Err(tr!("err.iconTooBig"));
+    }
     let img = image::open(&image_path)
         .map_err(|e| tr!("err.iconOpen", error = e))?;
     let icon = crop_and_resize_icon(img);
@@ -3944,12 +4040,14 @@ async fn resolve_player_uuid(server_dir: &str, name: &str) -> Result<String, Str
         id: String,
     }
 
-    let url = format!("https://api.mojang.com/users/profiles/minecraft/{}", name);
+    // O nome vai como UM segmento do caminho (codificado): "/", "?" ou ".." nele não mudam a rota consultada.
+    let mut url = reqwest::Url::parse("https://api.mojang.com/users/profiles/minecraft/").map_err(|e| e.to_string())?;
+    url.path_segments_mut().map_err(|_| "URL inválida".to_string())?.pop_if_empty().push(name);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
-    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let response = client.get(url.as_str()).send().await.map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
     if status == 204 || status == 404 {
         return Err(tr!("players.mojangNotFound", name = name));
@@ -3959,6 +4057,15 @@ async fn resolve_player_uuid(server_dir: &str, name: &str) -> Result<String, Str
     }
     let profile: MojangProfile = response.json().await.map_err(|e| e.to_string())?;
     Ok(format_uuid_with_dashes(&profile.id))
+}
+
+/// Nome de jogador aceito nos comandos de whitelist/op/ban: 1–16 caracteres ASCII visíveis (como o servidor
+/// vanilla aceita), sem espaço, quebra de linha ou controle. Nome de Bedrock/Floodgate começa com ".".
+fn check_player_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.chars().count() > 17 || !name.chars().all(|c| c.is_ascii_graphic()) {
+        return Err(tr!("players.invalidName", name = name));
+    }
+    Ok(())
 }
 
 fn current_ban_timestamp() -> String {
@@ -3973,6 +4080,7 @@ async fn list_whitelist(server_dir: String) -> Result<Vec<WhitelistEntry>, Strin
 #[tauri::command]
 async fn add_whitelist_player(state: tauri::State<'_, AppState>, server_dir: String, name: String) -> Result<WhitelistEntry, String> {
     ensure_mc_server_stopped(&state)?;
+    check_player_name(&name)?;
     let path = PathBuf::from(&server_dir).join("whitelist.json");
     let mut entries: Vec<WhitelistEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -4006,6 +4114,7 @@ async fn list_ops(server_dir: String) -> Result<Vec<OpEntry>, String> {
 #[tauri::command]
 async fn add_op(state: tauri::State<'_, AppState>, server_dir: String, name: String) -> Result<OpEntry, String> {
     ensure_mc_server_stopped(&state)?;
+    check_player_name(&name)?;
     let path = PathBuf::from(&server_dir).join("ops.json");
     let mut entries: Vec<OpEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -4039,6 +4148,7 @@ async fn list_banned_players(server_dir: String) -> Result<Vec<BannedPlayerEntry
 #[tauri::command]
 async fn ban_player(state: tauri::State<'_, AppState>, server_dir: String, name: String, reason: Option<String>) -> Result<BannedPlayerEntry, String> {
     ensure_mc_server_stopped(&state)?;
+    check_player_name(&name)?;
     let path = PathBuf::from(&server_dir).join("banned-players.json");
     let mut entries: Vec<BannedPlayerEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.name.eq_ignore_ascii_case(&name)) {
@@ -4081,6 +4191,11 @@ async fn list_banned_ips(server_dir: String) -> Result<Vec<BannedIpEntry>, Strin
 #[tauri::command]
 async fn ban_ip(state: tauri::State<'_, AppState>, server_dir: String, ip: String, reason: Option<String>) -> Result<BannedIpEntry, String> {
     ensure_mc_server_stopped(&state)?;
+    // O Minecraft descarta (ou recusa carregar) um banned-ips.json com endereço malformado.
+    let ip = ip.trim().to_string();
+    if ip.parse::<std::net::IpAddr>().is_err() {
+        return Err(tr!("players.invalidIp", ip = ip));
+    }
     let path = PathBuf::from(&server_dir).join("banned-ips.json");
     let mut entries: Vec<BannedIpEntry> = read_json_list(&path)?;
     if entries.iter().any(|e| e.ip == ip) {
@@ -4527,6 +4642,9 @@ fn start_registry_http_server(
 /// Um listener do servidor de registro/mods (só leitura) em `addr`. `stop` o encerra (checado a cada segundo).
 /// `radmin_peers_only`: aceita somente conexões vindas da faixa do Radmin (26.0.0.0/8) — uso do plano B, em que o
 /// listener fica preso ao IP do adaptador do Radmin (o Windows já não entrega nada de fora dessa rede).
+/// Pedidos simultâneos que o servidor local de mods atende (cada convidado baixa poucos mods por vez).
+const MAX_REGISTRY_IN_FLIGHT: usize = 64;
+
 fn start_registry_listener(
     addr: String,
     registry: Arc<ServerRegistry>,
@@ -4536,16 +4654,28 @@ fn start_registry_listener(
     radmin_peers_only: bool,
 ) {
     thread::spawn(move || {
-        let server = match tiny_http::Server::http(addr.as_str()) {
-            Ok(s) => {
-                eprintln!("[Registry] Servidor HTTP local iniciado em {}", addr);
-                s
-            }
-            Err(e) => {
-                eprintln!("[Registry] Falha ao iniciar servidor HTTP local em {}: {}", addr, e);
+        // A porta pode estar momentaneamente ocupada (listener antigo ainda soltando, outro programa): tenta de
+        // novo por ~30 s em vez de desistir de vez — sem este servidor a sincronização de mods fica indisponível.
+        let mut server = None;
+        for attempt in 1..=15 {
+            if stop.load(Ordering::SeqCst) {
                 return;
             }
-        };
+            match tiny_http::Server::http(addr.as_str()) {
+                Ok(s) => {
+                    eprintln!("[Registry] Servidor HTTP local iniciado em {}", addr);
+                    server = Some(s);
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("[Registry] Falha ao iniciar servidor HTTP local em {} (tentativa {}/15): {}", addr, attempt, e);
+                    thread::sleep(Duration::from_secs(2));
+                }
+            }
+        }
+        let Some(server) = server else { return };
+        // Teto de pedidos tratados ao mesmo tempo (um thread por pedido): quem insistir recebe 503.
+        let in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         while !stop.load(Ordering::SeqCst) {
             match server.recv_timeout(Duration::from_secs(1)) {
@@ -4557,11 +4687,18 @@ fn start_registry_listener(
                             continue;
                         }
                     }
+                    if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_REGISTRY_IN_FLIGHT {
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
+                        respond_json(request, 503, "{\"error\":\"busy\"}");
+                        continue;
+                    }
                     let registry = registry.clone();
                     let active_short_code = active_short_code.clone();
                     let active_server_dir = active_server_dir.clone();
+                    let in_flight = in_flight.clone();
                     thread::spawn(move || {
                         handle_registry_connection(request, &registry, &active_short_code, &active_server_dir);
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
                     });
                 }
                 Ok(None) => {}
@@ -5354,7 +5491,7 @@ fn save_sync_queue(app: &tauri::AppHandle, state: &SyncQueueState) {
     };
 
     if let Ok(content) = serde_json::to_string(state) {
-        let _ = std::fs::write(&path, &content);
+        let _ = atomic_write(&path, content.as_bytes());
     }
 }
 

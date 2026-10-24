@@ -1385,3 +1385,91 @@ async fn restaurar_sem_mundo_atual_nao_precisa_de_copia_de_seguranca() {
     assert!(safety.is_none());
     assert_eq!(fs::read(world.join("level.dat")).unwrap(), b"v1");
 }
+
+// ------------------------------------------------------------
+// Entradas que viram linha de arquivo ou linha de console
+// ------------------------------------------------------------
+
+#[tokio::test]
+async fn write_server_properties_recusa_valor_com_quebra_de_linha_e_chave_invalida() {
+    let tmp = TempDir::new().unwrap();
+    write_properties(&tmp, "level-name=world\nmotd=oi\n");
+    let app_state = AppState::default();
+
+    // MOTD com "\n" criaria uma propriedade nova (aqui: desligar a verificação de contas).
+    let mut props = HashMap::new();
+    props.insert("motd".to_string(), "oi\nonline-mode=false".to_string());
+    assert!(write_server_properties(state_from(&app_state), server_dir(&tmp), props).await.is_err());
+
+    for bad in ["", "a=b", "a b", "a\nb", "ç"] {
+        let mut props = HashMap::new();
+        props.insert(bad.to_string(), "x".to_string());
+        assert!(write_server_properties(state_from(&app_state), server_dir(&tmp), props).await.is_err(), "{bad:?}");
+    }
+    let content = fs::read_to_string(tmp.path().join("server.properties")).unwrap();
+    assert!(!content.contains("online-mode"), "{content}");
+    assert!(content.contains("motd=oi"));
+}
+
+#[tokio::test]
+async fn comando_do_console_so_aceita_uma_linha() {
+    let app_state = AppState::default();
+    for bad in ["", "   ", "say oi\nop atacante", "say oi\r\nstop", "say\u{0}x"] {
+        let err = send_minecraft_command(state_from(&app_state), bad.to_string()).await.unwrap_err();
+        assert!(!err.is_empty(), "{bad:?}");
+    }
+}
+
+#[test]
+fn nome_de_jogador_nos_comandos_de_lista_nao_aceita_espaco_nem_controle() {
+    for ok in ["Steve", "a_b-c", ".Bedrock", "A1234567890123456"[..16].as_ref()] {
+        assert!(check_player_name(ok).is_ok(), "{ok}");
+    }
+    for bad in ["", "a b", "a\nb", "../x", "ç", &"x".repeat(18)] {
+        if bad == "../x" { assert!(check_player_name(bad).is_ok(), "pontuação passa (vira segmento codificado na URL)"); continue; }
+        assert!(check_player_name(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[tokio::test]
+async fn ban_ip_recusa_endereco_malformado() {
+    let tmp = TempDir::new().unwrap();
+    let app_state = AppState::default();
+    for bad in ["", "abc", "1.2.3", "1.2.3.4.5", "1.2.3.4\n5.6.7.8"] {
+        assert!(ban_ip(state_from(&app_state), server_dir(&tmp), bad.to_string(), None).await.is_err(), "{bad:?}");
+    }
+    let ok = ban_ip(state_from(&app_state), server_dir(&tmp), " 203.0.113.9 ".to_string(), None).await.unwrap();
+    assert_eq!(ok.ip, "203.0.113.9");
+    assert!(ban_ip(state_from(&app_state), server_dir(&tmp), "2001:db8::1".to_string(), None).await.is_ok());
+}
+
+#[tokio::test]
+async fn copiar_mod_local_so_aceita_jar_com_caminho_completo() {
+    let tmp = TempDir::new().unwrap();
+    let from = tmp.path().join("a.jar");
+    fs::write(&from, b"x").unwrap();
+    let to = tmp.path().join("destino").join("a.jar");
+    let (f, t) = (from.to_string_lossy().to_string(), to.to_string_lossy().to_string());
+    assert!(copy_local_mod_file(f.clone(), t.clone()).await.is_ok());
+    assert!(to.is_file());
+    // outros destinos/origens: recusados
+    assert!(copy_local_mod_file(f.clone(), tmp.path().join("x.bat").to_string_lossy().to_string()).await.is_err());
+    assert!(copy_local_mod_file(f.clone(), "relativo.jar".to_string()).await.is_err());
+    assert!(copy_local_mod_file(format!("{}/../a.jar", tmp.path().display()), t.clone()).await.is_err());
+    assert!(copy_local_mod_file(tmp.path().join("nao-existe.jar").to_string_lossy().to_string(), t).await.is_err());
+}
+
+#[test]
+fn so_o_java_do_proprio_app_pode_ser_executado() {
+    let ok = |p: &str| is_app_java_path(std::path::Path::new(p));
+    assert!(ok(r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\java-21\bin\java.exe"));
+    for bad in [
+        r"C:\Windows\System32\cmd.exe",
+        r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\java-21\bin\cmd.exe",
+        r"C:\Users\ana\Downloads\java-21\bin\java.exe",
+        r"java.exe",
+        r"C:\Users\ana\AppData\Local\com.cubicase.app\runtime\..\..\x\bin\java.exe",
+    ] {
+        assert!(!ok(bad), "{bad}");
+    }
+}
