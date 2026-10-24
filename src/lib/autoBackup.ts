@@ -21,6 +21,8 @@ interface BackupInfo {
   file_name: string;
   size_bytes: number;
   created_at: string;
+  /** "pre_reset" / "pre_restore" = cópia de segurança feita antes de resetar/restaurar o mundo. */
+  kind?: string;
 }
 
 export type AutoBackupReason = "stop" | "crash" | "safety-net";
@@ -119,12 +121,14 @@ export function maybeBackupWorld(
 
 /**
  * Apaga os backups mais antigos além de `retentionCount`. A retenção conta
- * TODOS os backups da pasta, inclusive os manuais (o botão "Backup agora"
+ * os backups da pasta, inclusive os manuais (o botão "Backup agora"
  * usa o mesmo `backup_world`) — os arquivos não carregam metadado de origem.
  */
 async function pruneOldBackups(serverDir: string, backupsDir: string, retentionCount: number): Promise<void> {
   if (retentionCount <= 0) return; // <=0 desativa a poda, não apaga tudo
   try {
+    // Inclui os backups de segurança (antes de resetar/restaurar): contam no limite "Manter últimos N backups"
+    // como qualquer outro, e os mais antigos saem quando passa do limite.
     const backups = await invoke<BackupInfo[]>("list_world_backups", { serverDir, backupsDir });
     const surplus = backups.slice(retentionCount); // já vem ordenado do mais novo pro mais antigo
     for (const backup of surplus) {

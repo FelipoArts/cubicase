@@ -3235,6 +3235,28 @@ struct BackupInfo {
     file_name: String,
     size_bytes: u64,
     created_at: String,
+    /// "manual" (backup normal, manual ou automático), "pre_reset" (cópia de segurança feita
+    /// automaticamente ANTES de resetar o mundo) ou "pre_restore" (idem, ANTES de restaurar um backup).
+    #[serde(default)]
+    kind: String,
+}
+
+/// Prefixos do nome do backup de segurança feito antes de um reset (um por idioma). O nome do arquivo
+/// precisa deixar claro, até no Explorer, que aquilo é a cópia do mundo de ANTES do reset.
+const PRE_RESET_PREFIX_PT: &str = "ANTES-DO-RESET_";
+const PRE_RESET_PREFIX_EN: &str = "BEFORE-RESET_";
+/// Idem, para a cópia feita antes de RESTAURAR um backup por cima do mundo atual.
+const PRE_RESTORE_PREFIX_PT: &str = "ANTES-DE-RESTAURAR_";
+const PRE_RESTORE_PREFIX_EN: &str = "BEFORE-RESTORE_";
+
+fn backup_kind(file_name: &str) -> &'static str {
+    if file_name.starts_with(PRE_RESET_PREFIX_PT) || file_name.starts_with(PRE_RESET_PREFIX_EN) {
+        "pre_reset"
+    } else if file_name.starts_with(PRE_RESTORE_PREFIX_PT) || file_name.starts_with(PRE_RESTORE_PREFIX_EN) {
+        "pre_restore"
+    } else {
+        "manual"
+    }
 }
 
 /// Verifica que `name` é um único componente de caminho relativo "normal"
@@ -3516,7 +3538,8 @@ async fn list_world_backups(server_dir: String, backups_dir: String) -> Result<V
             .and_then(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default();
-        backups.push(BackupInfo { file_name, size_bytes, created_at });
+        let kind = backup_kind(&file_name).to_string();
+        backups.push(BackupInfo { file_name, size_bytes, created_at, kind });
     }
     backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(backups)
@@ -3568,6 +3591,13 @@ fn zip_add_dir(
 /// recuperação nenhuma.
 #[tauri::command]
 async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
+    create_world_backup(&server_dir, &backups_dir, "")
+}
+
+/// Cria o zip do mundo em `backups_dir`. `name_prefix` vai antes do nome do arquivo ("" no backup normal).
+fn create_world_backup(server_dir: &str, backups_dir: &str, name_prefix: &str) -> Result<BackupInfo, String> {
+    let server_dir = server_dir.to_string();
+    let backups_dir = backups_dir.to_string();
     let level_name = read_level_name(&server_dir);
     let folders = world_folder_paths(&server_dir, &level_name);
     if folders.is_empty() {
@@ -3578,7 +3608,7 @@ async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupI
     std::fs::create_dir_all(&backups_dir).map_err(|e| e.to_string())?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    let file_name = format!("{}_{}.zip", level_name, timestamp);
+    let file_name = format!("{}{}_{}.zip", name_prefix, level_name, timestamp);
     let zip_path = backups_dir.join(&file_name);
     // Escreve num arquivo temporario ("<nome>.zip.tmp", que list_world_backups nao
     // lista) e so renomeia para ".zip" depois de fechar e RELER o zip. Antes o zip
@@ -3619,10 +3649,12 @@ async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupI
     }
 
     let size_bytes = std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
+    let kind = backup_kind(&file_name).to_string();
     Ok(BackupInfo {
         file_name,
         size_bytes,
         created_at: chrono::Utc::now().to_rfc3339(),
+        kind,
     })
 }
 
@@ -3633,7 +3665,7 @@ async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupI
 /// é movido para uma pasta de staging (não apagado) durante a extração; se a
 /// extração falhar no meio, o mundo original é restaurado automaticamente.
 #[tauri::command]
-async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: String, backups_dir: String, file_name: String) -> Result<(), String> {
+async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: String, backups_dir: String, file_name: String) -> Result<Option<BackupInfo>, String> {
     ensure_mc_server_stopped(&state)?;
     if !is_safe_relative_component(&file_name) {
         return Err(tr!("backup.notFound", file = file_name));
@@ -3655,6 +3687,19 @@ async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: Str
 
     let level_name = read_level_name(&server_dir);
     let folders = world_folder_paths(&server_dir, &level_name);
+
+    // 1b. Cópia de segurança do mundo ATUAL, antes de qualquer mudança: se a restauração não for o que o
+    //     usuário queria, o mundo de antes continua salvo (ANTES-DE-RESTAURAR_...). Sem mundo atual, não há o
+    //     que salvar. Se a cópia falhar, nada é tocado.
+    let safety = if folders.is_empty() {
+        None
+    } else {
+        let prefix = tr!("backup.preRestorePrefix");
+        Some(
+            create_world_backup(&server_dir, &backups_dir, &prefix)
+                .map_err(|e| tr!("backup.restoreBackupFailed", error = e))?,
+        )
+    };
 
     // 2. Mover (não apagar) as pastas do mundo atual para uma área de staging,
     //    permitindo rollback caso a extração falhe no meio.
@@ -3714,7 +3759,7 @@ async fn restore_world_backup(state: tauri::State<'_, AppState>, server_dir: Str
     match extract_result {
         Ok(()) => {
             let _ = std::fs::remove_dir_all(&staging_dir);
-            Ok(())
+            Ok(safety)
         }
         Err(e) => {
             // Restaura cada pasta original a partir do staging. Diferente da versão
@@ -3762,19 +3807,28 @@ async fn delete_world_backup(backups_dir: String, file_name: String) -> Result<(
     std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
-/// Apaga as pastas do mundo atual sem gerar backup; o Minecraft regenera no próximo start.
+/// Apaga as pastas do mundo atual (o Minecraft gera um mundo novo no próximo start), MAS antes salva uma cópia
+/// de segurança na pasta de backups, com o nome começando por ANTES-DO-RESET_ (ou BEFORE-RESET_). Se a cópia
+/// não puder ser feita, o mundo NÃO é apagado. Devolve o backup criado.
 #[tauri::command]
-async fn reset_world(state: tauri::State<'_, AppState>, server_dir: String) -> Result<(), String> {
+async fn reset_world(state: tauri::State<'_, AppState>, server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
     ensure_mc_server_stopped(&state)?;
     let level_name = read_level_name(&server_dir);
     let folders = world_folder_paths(&server_dir, &level_name);
     if folders.is_empty() {
         return Err(tr!("backup.noWorldReset"));
     }
-    for folder in folders {
-        std::fs::remove_dir_all(&folder).map_err(|e| e.to_string())?;
+    if !is_plain_absolute_path(std::path::Path::new(&backups_dir)) {
+        return Err(tr!("backup.resetBackupFailed", error = "backups_dir"));
     }
-    Ok(())
+    let prefix = tr!("backup.preResetPrefix");
+    let backup = create_world_backup(&server_dir, &backups_dir, &prefix)
+        .map_err(|e| tr!("backup.resetBackupFailed", error = e))?;
+    for folder in folders {
+        std::fs::remove_dir_all(&folder)
+            .map_err(|e| tr!("backup.resetPartial", error = e, backup = backup.file_name))?;
+    }
+    Ok(backup)
 }
 
 // ============================================================

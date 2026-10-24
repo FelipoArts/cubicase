@@ -165,6 +165,11 @@ messages! {
 
     // ---------- Backups do mundo ----------
     "backup.noWorld" => ("Nenhuma pasta de mundo encontrada para fazer backup.", "No world folder found to back up."),
+    "backup.preResetPrefix" => ("ANTES-DO-RESET_", "BEFORE-RESET_"),
+    "backup.preRestorePrefix" => ("ANTES-DE-RESTAURAR_", "BEFORE-RESTORE_"),
+    "backup.restoreBackupFailed" => ("Não foi possível criar o backup de segurança do mundo atual antes de restaurar ({error}). Nada foi alterado.", "Couldn't create the safety backup of the current world before restoring ({error}). Nothing was changed."),
+    "backup.resetBackupFailed" => ("Não foi possível criar o backup de segurança antes do reset ({error}). O mundo NÃO foi apagado.", "Couldn't create the safety backup before the reset ({error}). The world was NOT erased."),
+    "backup.resetPartial" => ("O reset ficou incompleto ({error}). O backup de segurança de antes do reset está salvo: {backup}", "The reset didn't finish ({error}). The pre-reset safety backup is saved: {backup}"),
     "backup.noWorldReset" => ("Nenhuma pasta de mundo encontrada para resetar.", "No world folder found to reset."),
     "backup.notFound" => ("Backup não encontrado: {file}", "Backup not found: {file}"),
     "backup.openFailed" => ("Não foi possível abrir o backup: {error}", "Couldn't open the backup: {error}"),

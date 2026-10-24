@@ -732,12 +732,51 @@ async fn list_world_backups_migration_never_overwrites_existing_file_in_new_loca
 async fn reset_world_removes_folders_and_errors_when_nothing_to_reset() {
     let tmp = TempDir::new().unwrap();
     let app_state = AppState::default();
-    assert!(reset_world(state_from(&app_state), server_dir(&tmp)).await.is_err());
+    assert!(reset_world(state_from(&app_state), server_dir(&tmp), backups_dir_for(&tmp)).await.is_err());
 
     let world = make_world(&tmp, "world", "");
-    fs::write(world.join("level.dat"), b"x").unwrap();
-    reset_world(state_from(&app_state), server_dir(&tmp)).await.unwrap();
+    fs::write(world.join("level.dat"), b"mundo de antes do reset").unwrap();
+    let backup = reset_world(state_from(&app_state), server_dir(&tmp), backups_dir_for(&tmp)).await.unwrap();
     assert!(!world.exists());
+
+    // O mundo antigo ficou salvo, com o nome deixando claro que é o backup de antes do reset.
+    assert!(
+        backup.file_name.starts_with(PRE_RESET_PREFIX_PT) || backup.file_name.starts_with(PRE_RESET_PREFIX_EN),
+        "{}", backup.file_name
+    );
+    assert_eq!(backup.kind, "pre_reset");
+    let zip_path = std::path::Path::new(&backups_dir_for(&tmp)).join(&backup.file_name);
+    let mut zip = zip::ZipArchive::new(fs::File::open(zip_path).unwrap()).unwrap();
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("world/level.dat").unwrap(), &mut content).unwrap();
+    assert_eq!(content, "mundo de antes do reset");
+
+    // E aparece na lista de backups como "pre_reset" (a retenção automática não conta como backup comum).
+    let listed = list_world_backups(server_dir(&tmp), backups_dir_for(&tmp)).await.unwrap();
+    assert_eq!(listed.iter().filter(|b| b.kind == "pre_reset").count(), 1);
+}
+
+#[tokio::test]
+async fn reset_world_nao_apaga_o_mundo_se_o_backup_de_seguranca_falhar() {
+    let tmp = TempDir::new().unwrap();
+    let world = make_world(&tmp, "world", "");
+    fs::write(world.join("level.dat"), b"precisa continuar aqui").unwrap();
+    // "pasta" de backups que na verdade é um arquivo: criar o backup falha.
+    let not_a_dir = tmp.path().join("arquivo-no-lugar-da-pasta");
+    fs::write(&not_a_dir, b"x").unwrap();
+    let app_state = AppState::default();
+    let result = reset_world(state_from(&app_state), server_dir(&tmp), not_a_dir.to_string_lossy().to_string()).await;
+    assert!(result.is_err());
+    assert!(world.join("level.dat").exists(), "sem backup, sem reset");
+}
+
+#[test]
+fn backup_normal_e_de_seguranca_sao_distinguidos_pelo_nome() {
+    assert_eq!(backup_kind("world_20261024-101500.zip"), "manual");
+    assert_eq!(backup_kind("ANTES-DO-RESET_world_20261024-101500.zip"), "pre_reset");
+    assert_eq!(backup_kind("BEFORE-RESET_world_20261024-101500.zip"), "pre_reset");
+    assert_eq!(backup_kind("ANTES-DE-RESTAURAR_world_20261024-101500.zip"), "pre_restore");
+    assert_eq!(backup_kind("BEFORE-RESTORE_world_20261024-101500.zip"), "pre_restore");
 }
 
 // ------------------------------------------------------------
@@ -779,7 +818,7 @@ async fn reset_world_rejects_and_leaves_world_untouched_while_process_alive() {
     let app_state = AppState::default();
     *app_state.minecraft_process.lock().unwrap() = Some(spawn_fake_running_process());
 
-    let result = reset_world(state_from(&app_state), server_dir(&tmp)).await;
+    let result = reset_world(state_from(&app_state), server_dir(&tmp), backups_dir_for(&tmp)).await;
     assert!(result.is_err(), "reset_world não deveria rodar com o processo vivo");
     assert!(world.join("level.dat").exists(), "mundo não pode ter sido tocado");
 
@@ -1301,4 +1340,48 @@ motd=x
     assert!(is_server_dir_candidate(&dir));
     assert!(!is_server_dir_candidate(&dir.join("..").join(dir.file_name().unwrap())), "com ..");
     assert!(!is_server_dir_candidate(std::path::Path::new("server")), "relativo");
+}
+
+#[tokio::test]
+async fn restaurar_salva_antes_o_mundo_atual_num_backup_de_seguranca() {
+    let tmp = TempDir::new().unwrap();
+    let world = make_world(&tmp, "world", "");
+    fs::write(world.join("level.dat"), b"versao original").unwrap();
+    let app_state = AppState::default();
+    let backups_dir = backups_dir_for(&tmp);
+    let info = backup_world(server_dir(&tmp), backups_dir.clone()).await.unwrap();
+    assert_eq!(info.kind, "manual");
+
+    fs::write(world.join("level.dat"), b"progresso que a restauracao ia perder").unwrap();
+    let safety = restore_world_backup(state_from(&app_state), server_dir(&tmp), backups_dir.clone(), info.file_name)
+        .await
+        .unwrap()
+        .expect("havia um mundo atual: deve existir a cópia de segurança");
+
+    assert_eq!(fs::read(world.join("level.dat")).unwrap(), b"versao original");
+    assert_eq!(safety.kind, "pre_restore");
+    assert!(
+        safety.file_name.starts_with(PRE_RESTORE_PREFIX_PT) || safety.file_name.starts_with(PRE_RESTORE_PREFIX_EN),
+        "{}", safety.file_name
+    );
+    // O progresso "perdido" está dentro da cópia de segurança.
+    let zip_path = std::path::Path::new(&backups_dir).join(&safety.file_name);
+    let mut zip = zip::ZipArchive::new(fs::File::open(zip_path).unwrap()).unwrap();
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("world/level.dat").unwrap(), &mut content).unwrap();
+    assert_eq!(content, "progresso que a restauracao ia perder");
+}
+
+#[tokio::test]
+async fn restaurar_sem_mundo_atual_nao_precisa_de_copia_de_seguranca() {
+    let tmp = TempDir::new().unwrap();
+    let world = make_world(&tmp, "world", "");
+    fs::write(world.join("level.dat"), b"v1").unwrap();
+    let app_state = AppState::default();
+    let backups_dir = backups_dir_for(&tmp);
+    let info = backup_world(server_dir(&tmp), backups_dir.clone()).await.unwrap();
+    fs::remove_dir_all(&world).unwrap();
+    let safety = restore_world_backup(state_from(&app_state), server_dir(&tmp), backups_dir, info.file_name).await.unwrap();
+    assert!(safety.is_none());
+    assert_eq!(fs::read(world.join("level.dat")).unwrap(), b"v1");
 }

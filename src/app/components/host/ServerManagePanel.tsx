@@ -56,6 +56,8 @@ interface BackupInfo {
   file_name: string;
   size_bytes: number;
   created_at: string;
+  /** "pre_reset" = cópia de segurança feita automaticamente antes de resetar o mundo. */
+  kind?: "manual" | "pre_reset" | "pre_restore";
 }
 
 interface ServerManagePanelProps {
@@ -333,9 +335,26 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
         await loadBackups();
       } else if (pendingAction.kind === "restore-backup") {
         const backupsDir = await getBackupsDir(serverName);
-        await invoke("restore_world_backup", { serverDir, backupsDir, fileName: pendingAction.fileName });
+        const safety = await invoke<BackupInfo | null>("restore_world_backup", { serverDir, backupsDir, fileName: pendingAction.fileName });
+        if (safety) {
+          pushDiagnostic({
+            level: "info",
+            source: tn("diag.source.server"),
+            title: tn("manage.restore.done.title"),
+            message: tn("manage.restore.done.message", { file: safety.file_name }),
+          });
+        }
+        await loadBackups();
       } else if (pendingAction.kind === "reset-world") {
-        await invoke("reset_world", { serverDir });
+        const backupsDir = await getBackupsDir(serverName);
+        const safety = await invoke<BackupInfo>("reset_world", { serverDir, backupsDir });
+        pushDiagnostic({
+          level: "info",
+          source: tn("diag.source.server"),
+          title: tn("manage.reset.done.title"),
+          message: tn("manage.reset.done.message", { file: safety.file_name }),
+        });
+        await loadBackups();
       }
     } catch (err) {
       console.error(err);
@@ -688,6 +707,11 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
                     className="flex items-center justify-between gap-3 bg-theme-muted border border-theme-card rounded-2xl px-4 py-3"
                   >
                     <div className="min-w-0">
+                      {(backup.kind === "pre_reset" || backup.kind === "pre_restore") && (
+                        <span className="inline-block mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
+                          {backup.kind === "pre_restore" ? t("manage.backup.preRestoreBadge") : t("manage.backup.preResetBadge")}
+                        </span>
+                      )}
                       <p className="text-sm font-semibold text-theme-primary truncate">{backup.file_name}</p>
                       <p className="text-[11px] text-theme-secondary">
                         {formatDate(backup.created_at)} • {formatSize(backup.size_bytes)}

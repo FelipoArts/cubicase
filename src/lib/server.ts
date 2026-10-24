@@ -547,7 +547,8 @@ export async function installMinecraftServer(
 
 /**
  * Gera o conteúdo do server.properties com configurações adequadas para
- * uso com o Cubicase: offline-mode e porta padrão 25565 local.
+ * uso com o Cubicase: online-mode (só contas originais; dá para desligar nas
+ * configurações do servidor) e porta padrão 25565 local.
  *
  * `seed`, quando informada, só tem efeito porque o mundo ainda não existe
  * neste ponto (a instalação não gera o mundo — ver comentário em
@@ -558,7 +559,7 @@ function generateServerProperties(version: string, _ramGb: number, seed?: string
   const lines = [
     `# Gerado pelo Cubicase - versao ${version}`,
     `# Nao altere server-port manualmente; o Cubicase gerencia as portas.`,
-    `online-mode=false`,
+    `online-mode=true`,
     `server-port=25565`,
     `max-players=20`,
     `view-distance=10`,
