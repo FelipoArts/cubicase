@@ -1742,7 +1742,7 @@ interface ForgeProvider {
 }
 
 // Cache em memória para versões Forge
-let forgeVersionCache: Map<string, { builds: ForgeBuild[]; fetchedAt: number }> = new Map();
+const forgeVersionCache: Map<string, { builds: ForgeBuild[]; fetchedAt: number }> = new Map();
 const FORGE_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 /**
@@ -1763,7 +1763,7 @@ class ForgeProviderImpl implements ForgeProvider {
       const promotionsUrl = 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json';
       const res = await fetch(promotionsUrl);
       if (res.ok) {
-        const data = await res.json() as any;
+        const data = await res.json() as { promos?: Record<string, string> };
         const promos = data.promos || {};
         // Formato: "1.20.1-recommended": "47.1.0", "1.20.1-latest": "47.1.3"
         const recommendedKey = `${mcVersion}-recommended`;

@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { join } from "@tauri-apps/api/path";
 import { readTextFile } from "@tauri-apps/plugin-fs";
+import { errorMessage } from "@/lib/errorMessage";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useAppStore } from "@/app/store";
 import { Switch } from "@/app/components/Switch";
@@ -120,8 +121,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
     setSubError(null);
     try {
       await openSubscriptionCheckout(plan);
-    } catch (err: any) {
-      setSubError(err?.message || t("settings.sub.checkoutFailed"));
+    } catch (err) {
+      setSubError(errorMessage(err) || t("settings.sub.checkoutFailed"));
     } finally {
       setSubAction(null);
     }
@@ -132,8 +133,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
     setSubError(null);
     try {
       await openBillingPortal();
-    } catch (err: any) {
-      setSubError(err?.message || t("settings.sub.portalFailed"));
+    } catch (err) {
+      setSubError(errorMessage(err) || t("settings.sub.portalFailed"));
     } finally {
       setSubAction(null);
     }
@@ -204,8 +205,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
       });
       await updateWakeOnDemandConfig(serverInfo.path, { enabled: true, idleTimeoutMinutes: wakeIdleMinutes });
       patchServerInfo({ wakeOnDemandEnabled: true, idleTimeoutMinutes: wakeIdleMinutes });
-    } catch (err: any) {
-      setWakeError(err?.message || String(err));
+    } catch (err) {
+      setWakeError(errorMessage(err) || String(err));
     } finally {
       setWakeSubmitting(false);
     }
@@ -219,8 +220,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
       await invoke("disarm_wake_on_demand");
       await updateWakeOnDemandConfig(serverInfo.path, { enabled: false, idleTimeoutMinutes: wakeIdleMinutes });
       patchServerInfo({ wakeOnDemandEnabled: false });
-    } catch (err: any) {
-      setWakeError(err?.message || String(err));
+    } catch (err) {
+      setWakeError(errorMessage(err) || String(err));
     } finally {
       setWakeSubmitting(false);
     }
@@ -256,8 +257,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory }: AppSettin
     setLoginError(null);
     try {
       await requireAuth();
-    } catch (err: any) {
-      setLoginError(err?.message || t("settings.account.loginFailed"));
+    } catch (err) {
+      setLoginError(errorMessage(err) || t("settings.account.loginFailed"));
     } finally {
       setLoggingIn(false);
     }

@@ -273,7 +273,7 @@ export default function Home() {
       // pra saber de qual pasta ler mods/ quando alguém pedir este shortCode —
       // ver AppState::active_server_dir em lib.rs.
       serverDir: serverInfo.path,
-    }).then((responseJson: any) => {
+    }).then((responseJson: unknown) => {
       try {
         const response = typeof responseJson === "string" ? JSON.parse(responseJson) : responseJson;
         if (response.code === "SERVER_CREATED") {
@@ -330,7 +330,7 @@ export default function Home() {
       await startServerOrchestrated(serverInfo, {
         onInstallProgress: (p) => setServerInstallProgress(p),
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       useAppStore.getState().setMcLogs(serverInfo.name, prev => [...prev, t("app.mc.autoStartFailed", { error: String(err) })]);
       setServerStatus("offline");

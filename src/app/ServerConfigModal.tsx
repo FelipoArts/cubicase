@@ -5,6 +5,7 @@ import { join } from '@tauri-apps/api/path';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Check, X, AlertTriangle, Image as ImageIcon, Link as LinkIcon, Gamepad2, Copy } from 'lucide-react';
+import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/utils';
 import { useLockBodyScroll } from '@/lib/useLockBodyScroll';
 import { useAppStore } from '@/app/store';
@@ -198,8 +199,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       const saved = await setServerSlug(shortCode, slug);
       setCustomSlug(saved);
       setSlugInput(saved);
-    } catch (err: any) {
-      setSlugError(err?.message || t('config.slug.saveFailed'));
+    } catch (err) {
+      setSlugError(errorMessage(err) || t('config.slug.saveFailed'));
     } finally {
       setSlugSubmitting(false);
     }
@@ -213,8 +214,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       await removeServerSlug(shortCode);
       setCustomSlug(null);
       setSlugInput(defaultSlugFor(shortCode));
-    } catch (err: any) {
-      setSlugError(err?.message || t('config.slug.removeFailed'));
+    } catch (err) {
+      setSlugError(errorMessage(err) || t('config.slug.removeFailed'));
     } finally {
       setSlugSubmitting(false);
     }
@@ -241,8 +242,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       const saved = await setConnectName(shortCode, name);
       setCustomConnectName(saved);
       setConnectNameInput(saved);
-    } catch (err: any) {
-      setConnectNameError(err?.message || t('config.connect.saveFailed'));
+    } catch (err) {
+      setConnectNameError(errorMessage(err) || t('config.connect.saveFailed'));
     } finally {
       setConnectNameSubmitting(false);
     }
@@ -256,8 +257,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       await removeConnectName(shortCode);
       setCustomConnectName(null);
       setConnectNameInput(defaultConnectNameFor(shortCode));
-    } catch (err: any) {
-      setConnectNameError(err?.message || t('config.connect.removeFailed'));
+    } catch (err) {
+      setConnectNameError(errorMessage(err) || t('config.connect.removeFailed'));
     } finally {
       setConnectNameSubmitting(false);
     }
@@ -286,7 +287,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
         console.warn('Could not load server icon:', e);
       }
       try {
-        const props = await invoke<Record<string, any>>('read_server_properties', { serverDir });
+        const props = await invoke<Record<string, string>>('read_server_properties', { serverDir });
         // All values come from Rust as strings — convert booleans and numbers explicitly
         setMotd(props.motd ?? '');
         setGamemode(props.gamemode ?? 'survival');

@@ -40,8 +40,8 @@ function backupsDirFor(dir: string): string {
   return `/fake/backups/${nameFor(dir)}`;
 }
 
-function mockInvokeImpl(handlers: Record<string, (args: any) => unknown>) {
-  invokeMock.mockImplementation((cmd: string, args: any) => {
+function mockInvokeImpl(handlers: Record<string, (args: unknown) => unknown>) {
+  invokeMock.mockImplementation((cmd: string, args: unknown) => {
     const handler = handlers[cmd];
     if (!handler) throw new Error(`comando não mockado: ${cmd}`);
     return Promise.resolve(handler(args));

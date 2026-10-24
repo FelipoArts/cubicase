@@ -69,9 +69,9 @@ export function DeleteConfirmModal({
             <div className="space-y-4">
               <p className="text-sm text-theme-secondary leading-relaxed">
                 {isImported ? (
-                  <>{rich("host.delete.importedMsg", { name: <strong className="text-theme-primary">"{serverName}"</strong> })}</>
+                  <>{rich("host.delete.importedMsg", { name: <strong className="text-theme-primary">&quot;{serverName}&quot;</strong> })}</>
                 ) : (
-                  <>{rich("host.delete.msg", { name: <strong className="text-theme-primary">"{serverName}"</strong> })}</>
+                  <>{rich("host.delete.msg", { name: <strong className="text-theme-primary">&quot;{serverName}&quot;</strong> })}</>
                 )}
               </p>
               <div className="space-y-1.5">
