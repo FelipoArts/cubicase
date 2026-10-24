@@ -26,7 +26,7 @@ export async function getBackupsDir(serverName: string): Promise<string> {
 // plataforma que o Cubicase builda hoje — ver release.yml). `rename()` do
 // plugin-fs já falharia sozinho com um desses, mas validar antes dá uma
 // mensagem clara em vez do erro cru do sistema operacional.
-const INVALID_NAME_CHARS = /[\\/:*?"<>|]/;
+const INVALID_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/;
 
 // Nomes reservados pelo Windows para QUALQUER arquivo/pasta, com ou sem
 // extensão (ex: "CON", "com1.txt") — tentar criar/renomear pra um desses

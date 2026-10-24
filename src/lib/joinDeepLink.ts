@@ -35,10 +35,18 @@ import { t } from "@/i18n";
 
 const JOIN_PREFIX = "cubicase://join/";
 
-function extractShortCode(url: string): string | null {
-  if (!url.startsWith(JOIN_PREFIX)) return null;
+/** Mesmo formato que o Worker aceita (SHORT_CODE_RE): 4 a 12 letras/números. Qualquer outra coisa não é um convite. */
+const SHORT_CODE_RE = /^[A-Z0-9]{4,12}$/;
+
+/** O esquema da URL não diferencia maiúsculas de minúsculas (o sistema pode entregar "CUBICASE://"). */
+function isJoinUrl(url: string): boolean {
+  return url.slice(0, JOIN_PREFIX.length).toLowerCase() === JOIN_PREFIX;
+}
+
+export function extractShortCode(url: string): string | null {
+  if (!isJoinUrl(url)) return null;
   const code = url.slice(JOIN_PREFIX.length).split(/[/?#]/)[0]?.trim().toUpperCase();
-  return code || null;
+  return code && SHORT_CODE_RE.test(code) ? code : null;
 }
 
 function handleJoinUrl(url: string): void {
@@ -48,7 +56,7 @@ function handleJoinUrl(url: string): void {
   // URLs entregues ao app, não só as do seu próprio prefixo. Uma URL que
   // nem começa com JOIN_PREFIX simplesmente não é um convite e pertence a
   // outro handler — ignorar em silêncio, sem avisar o usuário.
-  if (!url.startsWith(JOIN_PREFIX)) return;
+  if (!isJoinUrl(url)) return;
 
   const code = extractShortCode(url);
   if (!code) {
