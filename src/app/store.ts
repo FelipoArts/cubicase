@@ -210,6 +210,48 @@ interface AppSettings {
 }
 
 
+const MAX_LOG_LINE_CHARS = 4000;
+
+/**
+ * localStorage pode lançar (bloqueado, cheio) — e uma exceção dentro do `set` do Zustand derrubaria a tela.
+ * Sem armazenamento, o app segue funcionando só em memória.
+ */
+const safeLocalStorage: Storage = {
+  get length() { try { return localStorage.length; } catch { return 0; } },
+  clear: () => { try { localStorage.clear(); } catch { /* sem armazenamento */ } },
+  getItem: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  key: (i) => { try { return localStorage.key(i); } catch { return null; } },
+  removeItem: (k) => { try { localStorage.removeItem(k); } catch { /* sem armazenamento */ } },
+  setItem: (k, v) => {
+    try { localStorage.setItem(k, v); } catch (err) { console.warn('[store] não foi possível salvar no localStorage:', err); }
+  },
+};
+
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** Descarta do estado salvo qualquer campo com tipo inesperado (o valor padrão do app assume no lugar). */
+export function sanitizePersisted(raw: unknown): Partial<AppSettings> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const src = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...src };
+  for (const key of ['importedServerPaths', 'logs']) {
+    if (key in out && !isStringArray(out[key])) delete out[key];
+  }
+  if ('knownServers' in out && !Array.isArray(out.knownServers)) delete out.knownServers;
+  if ('mcLogsByServer' in out) {
+    const m = out.mcLogsByServer;
+    if (typeof m !== 'object' || m === null || Array.isArray(m)) {
+      delete out.mcLogsByServer;
+    } else {
+      out.mcLogsByServer = Object.fromEntries(Object.entries(m as Record<string, unknown>).filter(([, v]) => isStringArray(v)));
+    }
+  }
+  for (const key of ['minecraftPort', 'backupRetentionCount', 'backupSafetyNetIntervalHours']) {
+    if (key in out && (typeof out[key] !== 'number' || !Number.isFinite(out[key] as number))) delete out[key];
+  }
+  return out as Partial<AppSettings>;
+}
+
 export const useAppStore = create<AppSettings>()(
   persist(
     (set) => ({
@@ -329,7 +371,9 @@ export const useAppStore = create<AppSettings>()(
       setMcLogs: (serverName, logs) => set((state) => {
         const prevLogs = state.mcLogsByServer[serverName] ?? [];
         const newLogs = typeof logs === 'function' ? logs(prevLogs) : logs;
-        return { mcLogsByServer: { ...state.mcLogsByServer, [serverName]: newLogs.slice(-500) } };
+        // Linhas gigantes (stack trace de mod, saída sem quebra) estourariam a cota do localStorage (~5 MB).
+        const bounded = newLogs.slice(-500).map((l) => (l.length > MAX_LOG_LINE_CHARS ? l.slice(0, MAX_LOG_LINE_CHARS) + '…' : l));
+        return { mcLogsByServer: { ...state.mcLogsByServer, [serverName]: bounded } };
       }),
       renameMcLogs: (oldName, newName) => set((state) => {
         if (oldName === newName || !(oldName in state.mcLogsByServer)) return state;
@@ -339,7 +383,7 @@ export const useAppStore = create<AppSettings>()(
     }),
     {
       name: 'cubeforge-storage',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({
         serverDir: state.serverDir,
         hasInitialized: state.hasInitialized,
@@ -369,7 +413,8 @@ export const useAppStore = create<AppSettings>()(
       // `useAppStore` terminar de ser atribuída — qualquer callback que
       // referencie `useAppStore` nesse momento cai em erro de TDZ.
       merge: (persistedState, currentState) => {
-        const merged = { ...currentState, ...(persistedState as Partial<AppSettings>) };
+        // localStorage pode estar corrompido ou ser de uma versão antiga: só entra o que tem o tipo certo.
+        const merged = { ...currentState, ...sanitizePersisted(persistedState) };
         const persistedDefaultTab = (persistedState as Partial<AppSettings> | undefined)?.defaultTab;
         if (persistedDefaultTab) merged.mode = persistedDefaultTab;
         return merged;
