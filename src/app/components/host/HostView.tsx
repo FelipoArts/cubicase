@@ -1186,6 +1186,30 @@ export function HostView({
               serverType={serverInfo.serverType}
               serverStatus={serverStatus}
               mcVersion={serverInfo.version}
+              serverInfo={serverInfo}
+              onServerUpgraded={async () => {
+                // A versão/loader/jar mudaram no cubicase-meta.json: relê a lista e avisa a API Central (melhor esforço).
+                try {
+                  const servers = await listAllServers(importedServerPaths);
+                  onSetLocalServers(servers);
+                  const updated = servers.find((s) => s.path === serverInfo.path);
+                  if (updated?.shortCode) {
+                    await invoke("sync_register_server", {
+                      name: updated.name,
+                      version: updated.version || "1.20.1",
+                      serverType: updated.serverType || "vanilla",
+                      description: updated.description || "",
+                      shortCode: updated.shortCode,
+                      owner: null,
+                      forgeVersion: updated.forgeVersion ?? null,
+                      modLoaderVersion: updated.modLoaderVersion ?? null,
+                      serverDir: updated.path,
+                    });
+                  }
+                } catch (err) {
+                  console.warn("Falha ao atualizar a lista/API depois da atualização de versão:", err);
+                }
+              }}
               autoOpenModBrowser={autoOpenModsFor === serverInfo.name}
               onAutoOpenHandled={() => setAutoOpenModsFor(null)}
             />

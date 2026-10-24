@@ -18,12 +18,15 @@ import {
   PackageOpen,
   Search,
   X,
+  ArrowUpCircle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { cn } from "@/lib/utils";
 import { pushDiagnostic } from "@/app/diagnostics";
-import { getBackupsDir } from "@/lib/server";
+import { getBackupsDir, type ServerInfo } from "@/lib/server";
+import { ServerUpgradeWizard } from "./ServerUpgradeWizard";
+import { TYPE_LABELS, installedLoaderVersion, isUpgradeSupported, type LoaderTarget, type UpgradableType } from "@/lib/serverUpgrade";
 import type { ServerStatus } from "@/app/store";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
@@ -57,7 +60,7 @@ interface BackupInfo {
   size_bytes: number;
   created_at: string;
   /** "pre_reset" = cópia de segurança feita automaticamente antes de resetar o mundo. */
-  kind?: "manual" | "pre_reset" | "pre_restore";
+  kind?: "manual" | "pre_reset" | "pre_restore" | "pre_upgrade";
 }
 
 interface ServerManagePanelProps {
@@ -66,6 +69,10 @@ interface ServerManagePanelProps {
   serverType: string;
   serverStatus: ServerStatus;
   mcVersion: string | null;
+  /** Dados completos do servidor (necessários para o assistente de atualização de versão). */
+  serverInfo?: ServerInfo;
+  /** Chamado depois de uma atualização de versão concluída: quem renderiza precisa reler a lista de servidores. */
+  onServerUpgraded?: (target: LoaderTarget) => void;
   /** Abre o navegador de mods logo ao montar (servidor recém-criado). */
   autoOpenModBrowser?: boolean;
   onAutoOpenHandled?: () => void;
@@ -106,7 +113,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion, autoOpenModBrowser, onAutoOpenHandled }: ServerManagePanelProps) {
+export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion, serverInfo, onServerUpgraded, autoOpenModBrowser, onAutoOpenHandled }: ServerManagePanelProps) {
   const { t, rich } = useT();
   // Forge/NeoForge/Fabric usam pasta "mods"; Paper (e derivados como Spigot/Purpur)
   // usam pasta "plugins" — mesmo conceito de gerenciamento, pasta e rótulo diferentes.
@@ -122,6 +129,7 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   const [activeTab, setActiveTab] = useState<"mods" | "mundo">(modsCapable ? "mods" : "mundo");
   const [showModBrowser, setShowModBrowser] = useState(() => !!autoOpenModBrowser && modBrowserAvailable);
   const [showExportPack, setShowExportPack] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   // Importação de um pacote leve sem internet deixa mods pendentes (ver cubicasePack.ts).
   const [pendingPack, setPendingPack] = useState<PackPending | null>(null);
   const [completing, setCompleting] = useState<{ done: number; total: number } | null>(null);
@@ -399,6 +407,27 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
           </button>
         </div>
       </div>
+
+      {serverInfo && isUpgradeSupported(serverInfo) && (
+        <div className="flex items-center justify-between gap-3 flex-wrap p-3.5 bg-theme-muted border border-theme-card rounded-2xl">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-theme-secondary">{t("upgrade.current")}</p>
+            <p className="text-sm font-bold text-theme-primary truncate">
+              {TYPE_LABELS[serverInfo.serverType as UpgradableType]} {serverInfo.version}
+              {installedLoaderVersion(serverInfo) ? ` · ${installedLoaderVersion(serverInfo)}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowUpgrade(true)}
+            disabled={!isServerStopped}
+            title={isServerStopped ? t("upgrade.button.hint", { loader: TYPE_LABELS[serverInfo.serverType as UpgradableType] }) : t("upgrade.button.stopFirst")}
+            className="h-10 px-5 bg-theme-card hover:bg-theme-accent border border-theme-card text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" /> {t("upgrade.button")}
+          </button>
+        </div>
+      )}
 
       {pendingPack && (
         <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-xl space-y-2.5">
@@ -707,9 +736,9 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
                     className="flex items-center justify-between gap-3 bg-theme-muted border border-theme-card rounded-2xl px-4 py-3"
                   >
                     <div className="min-w-0">
-                      {(backup.kind === "pre_reset" || backup.kind === "pre_restore") && (
+                      {(backup.kind === "pre_reset" || backup.kind === "pre_restore" || backup.kind === "pre_upgrade") && (
                         <span className="inline-block mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
-                          {backup.kind === "pre_restore" ? t("manage.backup.preRestoreBadge") : t("manage.backup.preResetBadge")}
+                          {backup.kind === "pre_restore" ? t("manage.backup.preRestoreBadge") : backup.kind === "pre_upgrade" ? t("manage.backup.preUpgradeBadge") : t("manage.backup.preResetBadge")}
                         </span>
                       )}
                       <p className="text-sm font-semibold text-theme-primary truncate">{backup.file_name}</p>
@@ -781,6 +810,20 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
           )
         }
       />
+
+      {serverInfo && (
+        <ServerUpgradeWizard
+          isOpen={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+          serverInfo={serverInfo}
+          isServerStopped={isServerStopped}
+          onUpgraded={(target) => {
+            void loadMods();
+            void loadBackups();
+            onServerUpgraded?.(target);
+          }}
+        />
+      )}
 
       <ExportPackModal
         isOpen={showExportPack}
