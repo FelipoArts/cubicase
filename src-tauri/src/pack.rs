@@ -847,7 +847,7 @@ fn verify_written_pack(tmp: &Path, expected_entries: usize) -> Result<(), String
     let len = archive.len();
     for i in 0..len {
         let mut ent = archive.by_index(i).map_err(|e| tr!("pack.err.verifyFailed", error = e))?;
-        let name = ent.name().to_lowercase();
+        let name = ent.name().map(|n| n.to_lowercase()).unwrap_or_default();
         let sample = i == 0 || i + 1 == len || i % VERIFY_STEP == 0 || name.ends_with("level.dat");
         if !sample || ent.is_dir() {
             continue;
@@ -1078,7 +1078,7 @@ fn inspect_pack(path: &Path) -> Result<Inspection, String> {
 
     for i in 0..archive.len() {
         let f = archive.by_index_raw(i).map_err(|e| tr!("pack.err.notAPack", error = e))?;
-        let name = f.name().to_string();
+        let name = f.name().map(|n| n.into_owned()).unwrap_or_default();
         if name == MANIFEST_NAME {
             continue;
         }
@@ -1487,7 +1487,7 @@ mod tests {
 
     fn zip_names(pack: &Path) -> Vec<String> {
         let mut ar = zip::ZipArchive::new(File::open(pack).unwrap()).unwrap();
-        (0..ar.len()).map(|i| ar.by_index(i).unwrap().name().to_string()).collect()
+        (0..ar.len()).map(|i| ar.by_index(i).unwrap().name().unwrap().to_string()).collect()
     }
 
     // ---- validação de nomes ----

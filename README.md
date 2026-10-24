@@ -27,7 +27,7 @@ Site: <https://cubicase.net> · Tutorial: <https://cubicase.net/tutorial/> · En
 
 ## Desenvolvimento
 
-Pré-requisitos: Node 20+, Rust (stable), Go 1.22+, Visual Studio Build Tools (C++) e WebView2 no Windows. Detalhes em [`SETUP.md`](SETUP.md).
+Pré-requisitos: Node 20+, Rust (stable), Go 1.27 (a última correção: a stdlib das anteriores tem vulnerabilidades conhecidas), Visual Studio Build Tools (C++) e WebView2 no Windows. Detalhes em [`SETUP.md`](SETUP.md).
 
 ```bash
 npm install

@@ -1,0 +1,55 @@
+name: Security audit
+
+# Procura vulnerabilidades conhecidas nas dependências (Go, Rust, npm). Roda toda semana e quando um arquivo
+# de dependências muda. Fica num workflow à parte de propósito: um aviso novo não deve travar um release
+# nem um PR — aparece aqui, para ser tratado.
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/sidecars/cubicase-link/go.mod"
+      - "src-tauri/sidecars/cubicase-link/go.sum"
+      - "package-lock.json"
+      - "api/package-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.27"
+      - name: govulncheck (sidecar cubicase-link)
+        working-directory: src-tauri/sidecars/cubicase-link
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: cargo audit
+        working-directory: src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+      - name: npm audit (app, só o que vai no produto)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (Worker, só o que vai no produto)
+        working-directory: api
+        run: npm audit --omit=dev --audit-level=high

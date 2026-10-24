@@ -1157,7 +1157,7 @@ async fn backup_world_skips_session_lock_and_leaves_no_temp_files() {
 
     let zip_path = PathBuf::from(&backups_dir).join(&info.file_name);
     let mut archive = zip::ZipArchive::new(File::open(&zip_path).unwrap()).unwrap();
-    let names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().to_string()).collect();
+    let names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().unwrap().to_string()).collect();
     assert!(names.iter().any(|n| n.ends_with("level.dat")), "level.dat precisa estar no backup: {:?}", names);
     assert!(!names.iter().any(|n| n.ends_with("session.lock")), "session.lock nao pode entrar: {:?}", names);
 

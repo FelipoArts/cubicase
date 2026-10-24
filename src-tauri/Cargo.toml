@@ -1,9 +1,9 @@
 [package]
 name = "app"
 version = "0.7.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
+description = "Cubicase — crie e compartilhe servidores de Minecraft Java sem abrir portas"
+authors = ["Cubicase"]
+license = "FSL-1.1-Apache-2.0"
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
@@ -40,7 +40,7 @@ tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
-zip = "2"
+zip = "9"
 walkdir = "2"
 sha1_smol = "1"
 sha2 = "0.10"

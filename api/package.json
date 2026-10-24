@@ -8,9 +8,6 @@
     "deploy": "wrangler deploy",
     "test": "vitest"
   },
-  "dependencies": {
-    "nanoid": "^5.0.9"
-  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260827.1",

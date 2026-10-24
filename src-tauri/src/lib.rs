@@ -4231,7 +4231,7 @@ struct MrEnv {
 fn zip_has_prefix(archive: &mut zip::ZipArchive<File>, prefix: &str) -> bool {
     for i in 0..archive.len() {
         if let Ok(entry) = archive.by_index(i) {
-            if entry.name().starts_with(prefix) {
+            if entry.name().map_or(false, |n| n.starts_with(prefix)) {
                 return true;
             }
         }
@@ -4407,7 +4407,7 @@ async fn extract_modpack_overrides(zip_path: String, dest_dir: String, overrides
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        if !entry.name().starts_with(&prefix) {
+        if !entry.name().map_or(false, |n| n.starts_with(&prefix)) {
             continue;
         }
         // enclosed_name() valida e normaliza o caminho (bloqueia "../" e paths

@@ -199,11 +199,12 @@ fn inspect_jar(path: &Path) -> JarInfo {
     let mut count = 0usize;
     let (mut p_bundler, mut p_mc_server, mut p_mc_client, mut p_bukkit, mut p_forge) = (false, false, false, false, false);
     let (mut install_profile, mut p_craftbukkit_main, mut p_server_version_jar) = (false, false, false);
-    for name in zip.file_names() {
+    for name in zip.file_names().filter_map(|n| n.ok()) {
         count += 1;
         if count > MAX_JAR_ENTRIES {
             break;
         }
+        let name: &str = name.as_ref();
         match name {
             "install_profile.json" => install_profile = true,
             "net/minecraft/bundler/Main.class" => p_bundler = true,

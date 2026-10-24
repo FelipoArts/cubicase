@@ -1,0 +1,12 @@
+# Avisos conhecidos e avaliados do `cargo audit`. Tudo o mais continua falhando.
+[advisories]
+ignore = [
+    # zip 4.6.1 vem do tauri-plugin-updater (único uso: extrair o pacote de atualização). Os três avisos são de
+    # ZipArchive::extract()/ZipStreamReader::extract() com um zip MALICIOSO, mas o pacote só é aberto depois de
+    # a assinatura minisign dele ser verificada com a chave pública do app (tauri.conf.json), e o app não chama
+    # essas funções (a extração própria do Cubicase usa zip 9 e enclosed_name). Reavaliar quando o plugin
+    # atualizar o zip.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
