@@ -885,6 +885,8 @@ async function handleLegacyDiscover(shortCode: string, env: Env, cors: Record<st
 // Cloudflare (sem mudança de código) é o próximo passo natural.
 
 const CURSEFORGE_BASE = 'https://api.curseforge.com';
+const CURSEFORGE_MAX_BODY_CHARS = 64 * 1024;
+const CURSEFORGE_CACHE_SECONDS = 300;
 
 function isCurseForgePathAllowed(method: string, subpath: string): boolean {
   if (method === 'POST' && (subpath === '/v1/mods/files' || subpath === '/v1/mods')) return true;
@@ -902,12 +904,29 @@ async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, se
     return json(fail(ResponseCodes.INTERNAL_ERROR, 'Import de modpacks CurseForge não está configurado neste servidor.'), 503, cors);
   }
 
+  // Corpo repassado à CurseForge: uma lista de IDs. Nada legítimo passa de alguns KB — sem teto, o proxy serviria
+  // para empurrar corpos enormes usando a chave de API do projeto.
+  let postBody: string | undefined;
+  if (method !== 'GET') {
+    postBody = await req.text();
+    if (postBody.length > CURSEFORGE_MAX_BODY_CHARS) return json(fail(ResponseCodes.BAD_REQUEST, 'Corpo grande demais.'), 413, cors);
+  }
+
+  // A mesma busca/lista é pedida por muita gente: respostas GET bem-sucedidas ficam em cache na borda por alguns
+  // minutos, o que alivia a cota da chave da CurseForge (e a de qualquer um que repita o pedido em loop).
+  const cache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
+  const cacheKey = method === 'GET' ? new Request(`${CURSEFORGE_BASE}${subpath}${search}`) : null;
+  if (cache && cacheKey) {
+    const hit = await cache.match(cacheKey);
+    if (hit) return new Response(await hit.text(), { status: 200, headers: { 'Content-Type': 'application/json', ...cors } });
+  }
+
   let upstream: Response;
   try {
     upstream = await fetch(`${CURSEFORGE_BASE}${subpath}${method === 'GET' ? search : ''}`, {
       method,
       headers: { 'x-api-key': env.CURSEFORGE_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: method === 'GET' ? undefined : await req.text(),
+      body: postBody,
     });
   } catch (e) {
     return json(fail(ResponseCodes.INTERNAL_ERROR, 'Falha ao contatar a CurseForge.', { error: String(e) }), 502, cors);
@@ -915,6 +934,11 @@ async function handleCurseForgeProxy(req: Request, env: Env, subpath: string, se
 
   const bodyText = await upstream.text();
   const outText = upstream.ok && subpath === '/v1/mods/search' ? slimCurseForgeSearch(bodyText) : bodyText;
+  if (cache && cacheKey && upstream.ok) {
+    try {
+      await cache.put(cacheKey, new Response(outText, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CURSEFORGE_CACHE_SECONDS}` } }));
+    } catch { /* cache é só otimização */ }
+  }
   return new Response(outText, { status: upstream.status, headers: { 'Content-Type': 'application/json', ...cors } });
 }
 
