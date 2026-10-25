@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.7.0"
+version = "0.8.0"
 description = "Cubicase — crie e compartilhe servidores de Minecraft Java sem abrir portas"
 authors = ["Cubicase"]
 license = "FSL-1.1-Apache-2.0"
