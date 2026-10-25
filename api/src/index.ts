@@ -1,6 +1,19 @@
-import { resolveSupabaseUserId, userHasActiveSubscription, SUPABASE_URL } from './supabase';
+import { resolveSupabaseUserId, userHasActiveSubscription, supabaseService, SUPABASE_URL } from './supabase';
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
+import { handlePanelPushRoute } from './panel-push';
 import { localizeResponse } from './i18n';
+import {
+  verifyDiscordSignature, handleInteraction, discordConfigured, discordInstallUrl, createLinkCode, formatLinkCode,
+  listServerGuilds, unlinkGuild, unlinkAllGuilds, adoptServerOwner, enforcePlanLimits, activeGuilds, type ServerStatusView,
+} from './discord';
+import { TEXTS } from './discord-text';
+import { restApi, type DiscordApi } from './discord-api';
+import type { ControlAction, ControlReason } from './discord-control';
+import type { ControlNotify } from './discord';
+import {
+  notifyChange, notifyContactLost, announce, getConfig, saveConfig, newConfig, setStatusChannel, setAlertsChannel, postInvite, disableChannel, setControl,
+  sendTest, EVENT_KINDS, type McSnapshot, type GuildConfig, type ChannelKind,
+} from './discord-sync';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
 import { buildLinkCredentials, bearerToken, verifyLinkToken, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
@@ -15,6 +28,14 @@ const SESSION_TTL_SECONDS = 90;    // 90s TTL (em vez de 14400s = 4h)
 // marcada offline), a sessão nunca se recuperava — mesmo com a conexão real (P2P +
 // Minecraft) funcionando perfeitamente. 3x o intervalo dá margem real de jitter.
 const HEARTBEAT_RENEW_MS = 180_000;
+// Status do Minecraft reportado pelo host (`session:<código>`). O host manda quando algo muda e, parado, como sinal de
+// vida a cada ~2 min (antes: a cada ~45 s). Para não gastar a cota de escrita do KV à toa:
+//  - um heartbeat igual ao já guardado, chegando em menos de MC_RENEW_MS, não regrava nada;
+//  - o registro vive no KV por muito mais tempo (só para o KV limpar sozinho); quem decide se o status ainda vale é a
+//    leitura: sem heartbeat há mais de MC_STALE_MS, o servidor aparece como sem status (desligado).
+const MC_RENEW_MS = 90_000;
+const MC_STALE_MS = 5 * 60_000;
+const MC_SESSION_GC_SECONDS = 15 * 60;
 const REQUEST_ID_CACHE_TTL = 300;
 
 interface Env extends LinkEnv {
@@ -41,6 +62,22 @@ interface Env extends LinkEnv {
   // supabaseRestUpsertSubscription). Configurar com:
   //   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  // Notificações push do painel (PWA). Gere o par com `node api/scripts/gen-vapid.mjs`:
+  //   wrangler secret put VAPID_PUBLIC_KEY
+  //   wrangler secret put VAPID_PRIVATE_KEY
+  //   wrangler secret put VAPID_SUBJECT     (ex.: mailto:contato@cubicase.net)
+  // Sem elas o recurso fica desligado (o painel simplesmente não oferece "Ativar notificações").
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+  // Bot do Discord (ver discord.ts). Valores do portal https://discord.com/developers/applications:
+  //   wrangler secret put DISCORD_PUBLIC_KEY   (General Information > Public Key)
+  //   wrangler secret put DISCORD_APP_ID       (General Information > Application ID)
+  //   wrangler secret put DISCORD_BOT_TOKEN    (Bot > Reset Token; só o script de registro de comandos usa)
+  // Sem as duas primeiras o bot fica desligado e as rotas /discord respondem 503.
+  DISCORD_PUBLIC_KEY?: string;
+  DISCORD_APP_ID?: string;
+  DISCORD_BOT_TOKEN?: string;
   // Durable Object do painel web remoto (Cubicase Plus) — um "canal" por
   // dispositivo (panel_devices.id), mantém a conexão WebSocket do app
   // desktop e roteia mensagens para o(s) painel(is) web logados no mesmo
@@ -67,9 +104,9 @@ type ServerStatus = 'offline' | 'starting' | 'online' | 'stopping' | 'crashed' |
 type SessionStatus = 'creating' | 'starting_provider' | 'waiting_provider' | 'online' | 'degraded' | 'stopping' | 'stopped' | 'failed' | 'cancelled';
 type TerminationReason = 'user_stopped' | 'application_closed' | 'provider_error' | 'api_error' | 'crash' | 'timeout' | 'lease_expired';
 
-interface ServerEntity { shortCode: string; uuid: string; name: string; version: string; serverType: string; description: string; owner: string; createdAt: string; updatedAt: string; forgeVersion?: string | null; modLoaderVersion?: string | null; slug?: string | null; connectName?: string | null; }
+interface ServerEntity { shortCode: string; uuid: string; name: string; version: string; serverType: string; description: string; owner: string; createdAt: string; updatedAt: string; forgeVersion?: string | null; modLoaderVersion?: string | null; slug?: string | null; connectName?: string | null; /** Hash curto do ícone (server-icon.png) enviado pelo host; null/ausente = sem ícone. */ iconHash?: string | null; }
 
-interface SessionEntity { shortCode: string; provider: string; hostIp: string; port: number; /** IP do host na rede do Radmin VPN (26.x.x.x), se estiver conectado a uma. */ radminIp?: string | null; status: ServerStatus; currentPlayers: number; maxPlayers: number; lastHeartbeat: string; createdAt: string; expiresAt: string; }
+interface SessionEntity { /** Quem está online (só guardado quando o servidor está ligado a um Discord, para os avisos de entrada e saída). */ playerNames?: string[]; shortCode: string; provider: string; hostIp: string; port: number; /** IP do host na rede do Radmin VPN (26.x.x.x), se estiver conectado a uma. */ radminIp?: string | null; status: ServerStatus; currentPlayers: number; maxPlayers: number; lastHeartbeat: string; createdAt: string; expiresAt: string; }
 
 interface ConnectionSessionEntity {
   sessionId: string; shortCode: string; launcher: string; launcherVersion: number; protocolVersion: number;
@@ -152,6 +189,8 @@ const RATE_LIMIT_WINDOW_SECONDS = 60;
 const JOIN_RATE_LIMIT = 30;      // connection-sessions: emite token de sala e credenciais do relay, mais sensível
 const CREATE_SERVER_RATE_LIMIT = 20; // cadastro/retry de servidor por IP/min: a fila de sync de quem tem vários servidores cabe com folga
 const REGEN_CODE_RATE_LIMIT = 5; // regenerar código: ação manual e rara, sem motivo legítimo pra repetir muitas vezes por minuto
+const DISCORD_TEST_RATE_LIMIT = 6; // mensagem de teste no Discord: evita usar o bot para encher um canal
+const DISCORD_CODE_RATE_LIMIT = 10; // gerar código de vinculação do Discord: ação manual do dono
 const SUB_CHECKOUT_RATE_LIMIT = 5;  // assinar: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const SUB_PORTAL_RATE_LIMIT = 10;   // gerenciar assinatura: pode ser reaberto ao focar o painel de configurações
 const WAKE_RATE_LIMIT = 10;         // por IP/min — mesmo raciocínio de JOIN_RATE_LIMIT
@@ -159,12 +198,14 @@ const WAKE_RATE_LIMIT = 10;         // por IP/min — mesmo raciocínio de JOIN_
 // falha com "Invalid expiration_ttl" (KV PUT 400), o que derrubava a rota
 // inteira com 500 antes de sequer chegar a gravar o pedido de despertar.
 const WAKE_COOLDOWN_SECONDS = 60;   // por shortCode, independente do IP — ver handleWakeServer
+const ICON_RATE_LIMIT = 6;          // enviar/trocar o ícone do servidor: ação manual e rara
 const SLUG_RATE_LIMIT = 5;          // definir/trocar link de convite: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const CONNECT_NAME_RATE_LIMIT = 5;  // definir/trocar endereço de conexão: mesmo raciocínio de SLUG_RATE_LIMIT
 const SLUG_RESOLVE_RATE_LIMIT = 20; // resolver slug->shortCode: chamado pela página de convite (uma vez por visita) — folgado o bastante pra não incomodar visitas legítimas, apertado o bastante pra desanimar varredura de slugs
 const FEEDBACK_RATE_LIMIT = 3;      // central de ajuda: por IP/min — relato é ação manual e rara; barra spam e duplo clique em cascata
 const FEEDBACK_DEDUPE_SECONDS = 3600; // o mesmo relato (mesmo e-mail/assunto/texto) só passa uma vez por hora
 const LINK_WS_RATE_LIMIT = 120;       // conexões à sala P2P por IP/min: reconexões legítimas cabem; barra varredura
+const PANEL_PUSH_RATE_LIMIT = 30; // inscrição/cancelamento/consulta de notificações do painel, por IP/min
 const PANEL_TICKET_RATE_LIMIT = 20; // painel web (Cubicase Plus): um ticket por tentativa de conexão/reconexão — folgado o bastante para quedas de rede legítimas
 
 function clientIp(req: Request): string {
@@ -296,27 +337,64 @@ function parsePort(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1024 && v <= 65535 ? v : null;
 }
 
-async function handleHeartbeat(shortCode: string, req: Request, env: Env, cfg: { ttlSeconds: number }, cors: Record<string, string>): Promise<Response> {
+/** Nomes vindos do host: só texto curto e sem caracteres de controle, no máximo 50, sem repetir. */
+function sanitizePlayerNames(input: unknown): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const out = new Set<string>();
+  for (const n of input) {
+    if (typeof n !== 'string') continue;
+    const name = n.trim();
+    if (name.length >= 1 && name.length <= 32 && !/[\u0000-\u001f\u007f]/.test(name)) out.add(name);
+    if (out.size >= 50) break;
+  }
+  return [...out].sort();
+}
+
+async function handleHeartbeat(shortCode: string, req: Request, env: Env, ctx: ExecutionContext, cfg: { ttlSeconds: number }, cors: Record<string, string>): Promise<Response> {
   const denied = await requireOwner(req, env, shortCode, cors);
   if (denied) return denied;
   let body: any; try { body = await req.json(); } catch { body = {}; }
   const now = new Date(); const exp = new Date(now.getTime() + cfg.ttlSeconds * 1000);
   const key = `session:${shortCode}`;
   const existing = await env.CUBEFORGE_REGISTRY.get(key);
+  // Os nomes só ficam guardados quando existe um Discord ligado ao servidor (é para o que servem).
+  const guilds = await listServerGuilds(env, shortCode);
+  const names = guilds.length ? sanitizePlayerNames(body.playerNames) : null;
+  let prevSnap: McSnapshot | null = null;
+  let nextSnap: McSnapshot | null = null;
+  let changed = false;
+  let wasStale = false;
   if (existing) {
     const s: SessionEntity = JSON.parse(existing);
-    s.lastHeartbeat = now.toISOString();
+    prevSnap = { status: s.status, players: s.currentPlayers, maxPlayers: s.maxPlayers, names: s.playerNames ?? null };
+    const before = JSON.stringify([s.status, s.currentPlayers, s.radminIp ?? null, s.port, s.playerNames ?? null]);
+    const age = now.getTime() - Date.parse(s.lastHeartbeat);
     if (body.status) s.status = body.status;
     if (body.currentPlayers !== undefined) s.currentPlayers = body.currentPlayers;
     // O host manda o IP do Radmin (ou null se saiu da rede) a cada heartbeat; a porta do Minecraft só quando muda.
     if ('radminIp' in body) s.radminIp = parseRadminIp(body.radminIp);
     const hbPort = parsePort(body.port);
     if (hbPort) s.port = hbPort;
-    s.expiresAt = exp.toISOString();
-    await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(s), { expirationTtl: cfg.ttlSeconds });
+    if (names) s.playerNames = names; else if (!guilds.length) delete s.playerNames;
+    changed = before !== JSON.stringify([s.status, s.currentPlayers, s.radminIp ?? null, s.port, s.playerNames ?? null]);
+    wasStale = age >= MC_STALE_MS;
+    nextSnap = { status: s.status, players: s.currentPlayers, maxPlayers: s.maxPlayers, names: s.playerNames ?? null };
+    // Nada mudou e o último registro é recente: não grava (só o pedido de despertar abaixo é conferido).
+    if (changed || !(age < MC_RENEW_MS)) {
+      s.lastHeartbeat = now.toISOString();
+      s.expiresAt = exp.toISOString();
+      await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(s), { expirationTtl: MC_SESSION_GC_SECONDS });
+    }
   } else {
     const ns: SessionEntity = { shortCode, provider: 'link-v1', hostIp: body.hostIp || '0.0.0.0', port: parsePort(body.port) ?? 25565, radminIp: parseRadminIp(body.radminIp), status: body.status || 'starting', currentPlayers: body.currentPlayers || 0, maxPlayers: body.maxPlayers || 20, lastHeartbeat: now.toISOString(), createdAt: now.toISOString(), expiresAt: exp.toISOString() };
-    await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(ns), { expirationTtl: cfg.ttlSeconds });
+    if (names) ns.playerNames = names;
+    await env.CUBEFORGE_REGISTRY.put(key, JSON.stringify(ns), { expirationTtl: MC_SESSION_GC_SECONDS });
+    nextSnap = { status: ns.status, players: ns.currentPlayers, maxPlayers: ns.maxPlayers, names: ns.playerNames ?? null };
+    changed = true;
+  }
+  // Discord: só quando algo mudou (ou o host voltou depois de sumir) e há algum Discord ligado.
+  if (guilds.length && nextSnap && (changed || wasStale)) {
+    ctx.waitUntil(runDiscordNotify(env, shortCode, prevSnap, nextSnap));
   }
   // Consome (delete) o pedido de despertar, se houver — ver handleWakeServer.
   // Checado incondicionalmente: inofensivo pros chamadores comuns (report_mc_status
@@ -460,7 +538,9 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
   // rodando, mas sem malha" ou "malha pronta, servidor desligado" em vez de um
   // único status combinado.
   const mcj = await env.CUBEFORGE_REGISTRY.get(`session:${shortCode}`);
-  const mc: SessionEntity | null = mcj ? JSON.parse(mcj) : null;
+  let mc: SessionEntity | null = mcj ? JSON.parse(mcj) : null;
+  // Sem heartbeat há muito tempo (host caiu sem avisar): o registro ainda está no KV, mas não vale mais.
+  if (mc && Date.now() - Date.parse(mc.lastHeartbeat) > MC_STALE_MS) mc = null;
   if (mc) currentPlayers = mc.currentPlayers;
 
   return json(ok(ResponseCodes.SUCCESS, 'Servidor encontrado.', {
@@ -554,12 +634,383 @@ async function handleDeleteServer(shortCode: string, req: Request, env: Env, cor
     await env.CUBEFORGE_REGISTRY.delete(`server:${shortCode}`);
     await env.CUBEFORGE_REGISTRY.delete(`shortCode:${sv.uuid}`);
     await env.CUBEFORGE_REGISTRY.delete(`owner:${shortCode}`);
+    if (sv.iconHash) await env.CUBEFORGE_REGISTRY.delete(`icon:${shortCode}`);
+    await unlinkAllGuilds(env, shortCode);
     if (sv.slug) { await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`); await env.CUBEFORGE_REGISTRY.delete(`slugowner:${sv.slug}`); }
     if (sv.connectName) { await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`); await env.CUBEFORGE_REGISTRY.delete(`connectowner:${sv.connectName}`); }
   }
   await terminateActiveSessionsForShortCode(env, shortCode);
   await env.CUBEFORGE_REGISTRY.delete(`session:${shortCode}`);
   return json(ok(ResponseCodes.SERVER_DELETED, 'Servidor removido.'), 200, cors);
+}
+
+// ============================================================
+// DISCORD — rotas do bot (a lógica está em discord.ts)
+// ============================================================
+
+/** Nome e status de um servidor para os comandos do bot: reaproveita a mesma leitura que os convidados usam. */
+async function readStatusForDiscord(env: Env, shortCode: string): Promise<ServerStatusView | null> {
+  const res = await handleDiscoverServer(shortCode, env, {});
+  if (!res.ok) return null;
+  const { data } = (await res.json()) as { data: { server: ServerEntity; session: { minecraftStatus: string | null; currentPlayers: number; maxPlayers: number } } };
+  return {
+    name: data.server.name, version: data.server.version, slug: data.server.slug ?? null, serverType: data.server.serverType,
+    minecraftStatus: data.session.minecraftStatus, currentPlayers: data.session.currentPlayers, maxPlayers: data.session.maxPlayers,
+  };
+}
+
+// Cliente do Discord. Os testes trocam por um falso (setDiscordApiForTests).
+let apiOverride: DiscordApi | null = null;
+export function setDiscordApiForTests(api: DiscordApi | null) { apiOverride = api; }
+const discordApiFor = (env: Env): DiscordApi | null => apiOverride ?? (env.DISCORD_BOT_TOKEN ? restApi(env.DISCORD_BOT_TOKEN) : null);
+
+/** Nome e dados do servidor para as mensagens do Discord, a partir do retrato do Minecraft (sem consultar a sala P2P). */
+async function viewFromSnapshot(env: Env, shortCode: string, snap: McSnapshot | null): Promise<ServerStatusView | null> {
+  const raw = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  if (!raw) return null;
+  const sv: ServerEntity = JSON.parse(raw);
+  return {
+    name: sv.name, version: sv.version, slug: sv.slug ?? null, serverType: sv.serverType,
+    minecraftStatus: snap?.status ?? null, currentPlayers: snap?.players ?? 0, maxPlayers: snap?.maxPlayers ?? 20,
+  };
+}
+
+async function runDiscordNotify(env: Env, shortCode: string, prev: McSnapshot | null, next: McSnapshot): Promise<void> {
+  const api = discordApiFor(env);
+  if (!api) return;
+  try {
+    const view = await viewFromSnapshot(env, shortCode, next);
+    // Ligações pausadas (plano grátis depois do fim do Plus) não recebem nada.
+    if (view) await notifyChange(env, api, shortCode, await activeGuilds(env, shortCode), prev, next, view);
+  } catch (err) {
+    console.error('[discord] aviso falhou:', err);
+  }
+}
+
+/** Plano grátis depois do Plus: começa o prazo de 7 dias, pausa as ligações extras no fim dele e avisa nos Discords. */
+async function enforceDiscordLimits(env: Env, api: DiscordApi, shortCode: string, plusCache: Map<string, Promise<boolean>>): Promise<void> {
+  const isPlus = (userId: string) => {
+    if (!plusCache.has(userId)) plusCache.set(userId, userHasActiveSubscription(env, userId));
+    return plusCache.get(userId)!;
+  };
+  const change = await enforcePlanLimits(env, shortCode, isPlus);
+  if (change.event === 'none') return;
+  const serverRaw = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  const name = serverRaw ? (JSON.parse(serverRaw) as ServerEntity).name : shortCode;
+  const say = {
+    grace: (lang: 'pt' | 'en') => TEXTS[lang].noticeGrace(name, (change as { endsAt: number }).endsAt),
+    limited: (lang: 'pt' | 'en') => TEXTS[lang].noticeLimited(name),
+    restored: (lang: 'pt' | 'en') => TEXTS[lang].noticeRestored(name),
+  }[change.event];
+  await announce(env, api, shortCode, change.guildIds, say);
+}
+
+/** Rotina agendada: servidor ligado a um Discord cujo host parou de dar sinal passa a aparecer como desligado. */
+export async function watchDiscordContact(env: Env): Promise<void> {
+  const api = discordApiFor(env);
+  if (!api) return;
+  const plusCache = new Map<string, Promise<boolean>>();
+  let cursor: string | undefined;
+  do {
+    const page = await env.CUBEFORGE_REGISTRY.list({ prefix: 'dserver:', cursor });
+    for (const k of page.keys) {
+      const shortCode = k.name.slice('dserver:'.length);
+      try {
+        await enforceDiscordLimits(env, api, shortCode, plusCache);
+        const raw = await env.CUBEFORGE_REGISTRY.get(`session:${shortCode}`);
+        if (!raw) continue; // sem sessão: nunca ligou, ou já expirou e foi tratado
+        const session: SessionEntity = JSON.parse(raw);
+        if (Date.now() - Date.parse(session.lastHeartbeat) <= MC_STALE_MS) continue;
+        if (!['online', 'starting', 'stopping', 'sleeping'].includes(session.status)) continue;
+        const view = await viewFromSnapshot(env, shortCode, null);
+        if (view) await notifyContactLost(env, api, shortCode, await activeGuilds(env, shortCode), view);
+      } catch (err) {
+        console.error('[discord] verificação do servidor falhou:', shortCode, err);
+      }
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+}
+
+/**
+ * Entrega uma ação de controle ao app do host: acha o(s) computador(es) pareado(s) da conta dona do servidor e
+ * pergunta ao canal de cada um (o primeiro cujo app esteja conectado responde).
+ */
+async function controlServerFromDiscord(env: Env, shortCode: string, action: ControlAction, by: string, notify?: ControlNotify): Promise<{ ok: true } | { ok: false; reason: ControlReason }> {
+  const links = await env.CUBEFORGE_REGISTRY.get(`dserver:${shortCode}`);
+  const userId: string | undefined = links ? JSON.parse(links).userId : undefined;
+  const serverRaw = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  if (!userId || !serverRaw) return { ok: false, reason: 'server_gone' };
+  const serverName = (JSON.parse(serverRaw) as ServerEntity).name;
+
+  let devices: { id: string }[] = [];
+  try {
+    const res = await supabaseService(env, `/rest/v1/panel_devices?user_id=eq.${encodeURIComponent(userId)}&select=id`);
+    if (res.ok) devices = (await res.json().catch(() => [])) as { id: string }[];
+  } catch { /* sem Supabase: cai em no_device abaixo */ }
+  if (!devices.length) return { ok: false, reason: 'no_device' };
+
+  let last: { ok: false; reason: ControlReason } = { ok: false, reason: 'agent_offline' };
+  for (const device of devices) {
+    const stub = env.HOST_CHANNEL.get(env.HOST_CHANNEL.idFromName(device.id));
+    const res = await stub.fetch('https://host-channel.internal/discord-control', { method: 'POST', body: JSON.stringify({ action, shortCode, serverName, by, notify }) });
+    const answer = (await res.json().catch(() => ({ ok: false, reason: 'invalid' }))) as { ok: true } | { ok: false; reason: ControlReason };
+    if (answer.ok || answer.reason !== 'agent_offline') return answer;
+    last = answer;
+  }
+  return last;
+}
+
+/** POST /discord/interactions — o Discord chama aqui a cada /comando. Sem assinatura válida, 401. */
+async function handleDiscordInteractions(req: Request, env: Env): Promise<Response> {
+  const publicKey = env.DISCORD_PUBLIC_KEY;
+  if (!publicKey) return new Response('Discord não configurado', { status: 503 });
+  const signature = req.headers.get('X-Signature-Ed25519') ?? '';
+  const timestamp = req.headers.get('X-Signature-Timestamp') ?? '';
+  const body = await req.text();
+  if (!(await verifyDiscordSignature(publicKey, signature, timestamp, body))) return new Response('Assinatura inválida', { status: 401 });
+  let interaction: unknown;
+  try { interaction = JSON.parse(body); } catch { return new Response('Corpo inválido', { status: 400 }); }
+  const reply = await handleInteraction(env, interaction, { getStatus: (sc) => readStatusForDiscord(env, sc), api: discordApiFor(env), control: (sc, action, by, notify) => controlServerFromDiscord(env, sc, action, by, notify) });
+  return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
+const discordOff = (cors: Record<string, string>) => json(fail(ResponseCodes.INTERNAL_ERROR, 'O Discord ainda não está configurado.'), 503, cors);
+
+/** GET /discord/install-url — link para adicionar o bot a um servidor do Discord. */
+function handleDiscordInstallUrl(env: Env, cors: Record<string, string>): Response {
+  const url = discordInstallUrl(env);
+  return url ? json(ok(ResponseCodes.SUCCESS, 'Link do bot.', { url }), 200, cors) : discordOff(cors);
+}
+
+/** POST /servers/{sc}/discord/link-code — dono do servidor (segredo + conta) gera o código que o admin do Discord usa. */
+async function handleDiscordLinkCode(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  if (!discordConfigured(env)) return discordOff(cors);
+  const userId = await resolveSupabaseUserId(req);
+  if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  await adoptServerOwner(env, shortCode, userId);
+  const { code, expiresInSeconds } = await createLinkCode(env, shortCode, userId);
+  return json(ok(ResponseCodes.SUCCESS, 'Código de vinculação gerado.', { code: formatLinkCode(code), expiresInSeconds, installUrl: discordInstallUrl(env) }), 200, cors);
+}
+
+/** Idioma das mensagens que o bot publica: o do app que configurou. */
+const appLang = (req: Request): 'pt' | 'en' => ((req.headers.get('Accept-Language') ?? '').toLowerCase().startsWith('en') ? 'en' : 'pt');
+
+/** O que o app precisa saber da configuração de uma ligação (ids dos canais, avisos e se algo quebrou). */
+function discordConfigSummary(cfg: GuildConfig | null) {
+  return {
+    status: cfg?.status?.channelId ?? null,
+    alerts: cfg?.alerts?.channelId ?? null,
+    invite: cfg?.invite?.channelId ?? null,
+    events: cfg?.events ?? { joins: true, power: true, offline: true },
+    control: { operatorRoleId: cfg?.control?.operatorRoleId ?? null, console: !!cfg?.control?.console },
+    broken: { status: !!cfg?.broken?.status, alerts: !!cfg?.broken?.alerts, invite: !!cfg?.broken?.invite },
+    contactLost: !!cfg?.contactLost,
+  };
+}
+
+/** GET /servers/{sc}/discord — Discords ligados a este servidor, com nome, configuração e se o bot ainda está lá. */
+async function handleDiscordList(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  const api = discordApiFor(env);
+  const guilds = await Promise.all((await listServerGuilds(env, shortCode)).map(async (g) => {
+    const info = api ? await api.guild(g.guildId) : null;
+    return {
+      ...g,
+      guildName: info?.ok ? info.data.name : null,
+      // Só dá como ausente quando o Discord diz que não há acesso; falha de rede não derruba a ligação na tela.
+      botPresent: !(info && !info.ok && info.gone),
+      config: discordConfigSummary(await getConfig(env, shortCode, g.guildId)),
+    };
+  }));
+  return json(ok(ResponseCodes.SUCCESS, 'Ligações com o Discord.', { guilds }), 200, cors);
+}
+
+/** Garante que o Discord pertence a este servidor e que o bot responde; devolve o cliente ou a resposta de erro. */
+async function discordGuildContext(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<{ api: DiscordApi } | Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  if (!(await listServerGuilds(env, shortCode)).some((g) => g.guildId === guildId)) {
+    return json(fail(ResponseCodes.NOT_FOUND, 'Este Discord não está ligado a este servidor.'), 404, cors);
+  }
+  const api = discordApiFor(env);
+  if (!api) return discordOff(cors);
+  return { api };
+}
+
+const botGone = (cors: Record<string, string>) => json(fail(ResponseCodes.CONFLICT, 'O bot não está mais neste Discord. Adicione-o de novo.'), 409, cors);
+const discordDown = (cors: Record<string, string>) => json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível falar com o Discord agora.'), 502, cors);
+const noChannelAccess = (cors: Record<string, string>) =>
+  json(fail(ResponseCodes.VALIDATION_ERROR, 'O bot não consegue escrever nesse canal. Dê a ele as permissões Ver Canal, Enviar Mensagens e Inserir Links.'), 422, cors);
+
+/** GET /servers/{sc}/discord/{guildId}/channels — canais de texto onde o bot pode ser configurado. */
+async function handleDiscordChannels(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const ctx = await discordGuildContext(shortCode, guildId, req, env, cors);
+  if (ctx instanceof Response) return ctx;
+  const res = await ctx.api.channels(guildId);
+  if (!res.ok) return res.gone ? botGone(cors) : discordDown(cors);
+  const channels = res.data.filter((c) => c.type === 0 || c.type === 5).map((c) => ({ id: c.id, name: c.name }));
+  return json(ok(ResponseCodes.SUCCESS, 'Canais do Discord.', { channels }), 200, cors);
+}
+
+/** GET /servers/{sc}/discord/{guildId}/roles — cargos que podem ser o Operador (sem @everyone nem cargos de bot). */
+async function handleDiscordRoles(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const ctx = await discordGuildContext(shortCode, guildId, req, env, cors);
+  if (ctx instanceof Response) return ctx;
+  const res = await ctx.api.roles(guildId);
+  if (!res.ok) return res.gone ? botGone(cors) : discordDown(cors);
+  const roles = res.data.filter((r) => r.id !== guildId && !r.managed).map((r) => ({ id: r.id, name: r.name }));
+  return json(ok(ResponseCodes.SUCCESS, 'Cargos do Discord.', { roles }), 200, cors);
+}
+
+/** PUT /servers/{sc}/discord/{guildId}/config — escolhe/remove um canal e liga/desliga avisos. */
+async function handleDiscordConfig(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const ctx = await discordGuildContext(shortCode, guildId, req, env, cors);
+  if (ctx instanceof Response) return ctx;
+  let body: any; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+  const kind: ChannelKind | undefined = body?.kind;
+  if (kind !== undefined && kind !== 'status' && kind !== 'alerts' && kind !== 'invite') return json(fail(ResponseCodes.VALIDATION_ERROR, 'Escolha um canal de texto deste Discord.'), 400, cors);
+  const lang = appLang(req);
+
+  if (kind) {
+    if (body.channelId === null) {
+      await disableChannel(env, shortCode, guildId, kind);
+    } else {
+      const channelId = String(body.channelId ?? '');
+      const res = await ctx.api.channels(guildId);
+      if (!res.ok) return res.gone ? botGone(cors) : discordDown(cors);
+      if (!res.data.some((c) => c.id === channelId && (c.type === 0 || c.type === 5))) {
+        return json(fail(ResponseCodes.VALIDATION_ERROR, 'Escolha um canal de texto deste Discord.'), 400, cors);
+      }
+      const view = await readStatusForDiscord(env, shortCode);
+      if (!view) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+      const run = { status: setStatusChannel, alerts: setAlertsChannel, invite: postInvite }[kind];
+      const result = await run(env, ctx.api, shortCode, guildId, channelId, lang, view);
+      if (!result.ok) return result.failure.gone || result.failure.status === 403 ? noChannelAccess(cors) : discordDown(cors);
+    }
+  }
+
+  if (body?.control && typeof body.control === 'object') {
+    const change: { operatorRoleId?: string | null; console?: boolean } = {};
+    if (typeof body.control.console === 'boolean') change.console = body.control.console;
+    if (body.control.operatorRoleId === null) change.operatorRoleId = null;
+    else if (body.control.operatorRoleId !== undefined) {
+      const roleId = String(body.control.operatorRoleId);
+      const res = await ctx.api.roles(guildId);
+      if (!res.ok) return res.gone ? botGone(cors) : discordDown(cors);
+      if (!res.data.some((r) => r.id === roleId && r.id !== guildId && !r.managed)) return json(fail(ResponseCodes.VALIDATION_ERROR, 'Escolha um cargo deste Discord.'), 400, cors);
+      change.operatorRoleId = roleId;
+    }
+    await setControl(env, shortCode, guildId, lang, change);
+  }
+
+  if (body?.events && typeof body.events === 'object') {
+    const cfg = (await getConfig(env, shortCode, guildId)) ?? newConfig(lang);
+    const events = { ...cfg.events };
+    for (const e of EVENT_KINDS) if (typeof body.events[e] === 'boolean') events[e] = body.events[e];
+    await saveConfig(env, shortCode, guildId, { ...cfg, events });
+  }
+  return json(ok(ResponseCodes.SUCCESS, 'Configuração do Discord salva.', { config: discordConfigSummary(await getConfig(env, shortCode, guildId)) }), 200, cors);
+}
+
+/** POST /servers/{sc}/discord/{guildId}/test — manda uma mensagem de teste aos avisos. */
+async function handleDiscordTest(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const ctx = await discordGuildContext(shortCode, guildId, req, env, cors);
+  if (ctx instanceof Response) return ctx;
+  const view = await readStatusForDiscord(env, shortCode);
+  if (!view) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const result = await sendTest(env, ctx.api, shortCode, guildId, view);
+  if (result.kind === 'nothing') return json(fail(ResponseCodes.VALIDATION_ERROR, 'Escolha primeiro o canal dos avisos ou do status.'), 400, cors);
+  if (result.kind === 'failed') return result.failure.gone || result.failure.status === 403 ? noChannelAccess(cors) : discordDown(cors);
+  return json(ok(ResponseCodes.SUCCESS, 'Mensagem de teste enviada.'), 200, cors);
+}
+
+/** DELETE /servers/{sc}/discord/{guildId} — o dono desfaz a ligação pelo app. */
+async function handleDiscordUnlink(shortCode: string, guildId: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  await unlinkGuild(env, shortCode, guildId);
+  return json(ok(ResponseCodes.SUCCESS, 'Ligação com o Discord removida.'), 200, cors);
+}
+
+// ============================================================
+// ÍCONE DO SERVIDOR — o server-icon.png do host, para os convidados verem a mesma imagem que o Minecraft mostra
+// ============================================================
+// Só o dono envia (segredo de dono). A imagem é validada de verdade (assinatura PNG + cabeçalho IHDR) e fica limitada em
+// tamanho e dimensões. O status do servidor leva só o hash curto (`iconHash`); o convidado baixa a imagem quando o hash
+// muda e guarda no computador — então o download é raro e cacheável.
+const MAX_ICON_BYTES = 32 * 1024;
+const MAX_ICON_SIDE = 128;
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Largura e altura de um PNG válido, ou null. Confere a assinatura e o primeiro bloco (IHDR, 13 bytes). */
+export function readPngSize(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length < 33) return null;
+  for (let i = 0; i < 8; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint32(8) !== 13) return null;
+  if (String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]) !== 'IHDR') return null;
+  return { width: dv.getUint32(16), height: dv.getUint32(20) };
+}
+
+async function handlePutServerIcon(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  const declared = Number(req.headers.get('Content-Length') ?? '0');
+  if (declared > MAX_ICON_BYTES) return json(fail(ResponseCodes.VALIDATION_ERROR, 'Imagem grande demais (máx. 32 KB).'), 413, cors);
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  if (bytes.length === 0 || bytes.length > MAX_ICON_BYTES) return json(fail(ResponseCodes.VALIDATION_ERROR, 'Imagem vazia ou grande demais (máx. 32 KB).'), 413, cors);
+  const size = readPngSize(bytes);
+  if (!size) return json(fail(ResponseCodes.VALIDATION_ERROR, 'O ícone precisa ser um PNG válido.'), 400, cors);
+  if (size.width < 1 || size.height < 1 || size.width > MAX_ICON_SIDE || size.height > MAX_ICON_SIDE || size.width !== size.height) {
+    return json(fail(ResponseCodes.VALIDATION_ERROR, 'O ícone precisa ser quadrado, de até 128×128.'), 400, cors);
+  }
+
+  const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const sv: ServerEntity = JSON.parse(sj);
+  const iconHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+
+  // Mesma imagem já enviada: nada a gravar (cota de escrita do KV é curta).
+  if (sv.iconHash === iconHash && (await env.CUBEFORGE_REGISTRY.get(`icon:${shortCode}`, 'arrayBuffer'))) {
+    return json(ok(ResponseCodes.SERVER_UPDATED, 'Ícone já estava atualizado.', { iconHash }), 200, cors);
+  }
+  await env.CUBEFORGE_REGISTRY.put(`icon:${shortCode}`, bytes);
+  await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify({ ...sv, iconHash, updatedAt: new Date().toISOString() } satisfies ServerEntity));
+  return json(ok(ResponseCodes.SERVER_UPDATED, 'Ícone atualizado.', { iconHash }), 200, cors);
+}
+
+async function handleDeleteServerIcon(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  if (!sj) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const sv: ServerEntity = JSON.parse(sj);
+  if (sv.iconHash) {
+    await env.CUBEFORGE_REGISTRY.delete(`icon:${shortCode}`);
+    await env.CUBEFORGE_REGISTRY.put(`server:${shortCode}`, JSON.stringify({ ...sv, iconHash: null, updatedAt: new Date().toISOString() } satisfies ServerEntity));
+  }
+  return json(ok(ResponseCodes.SERVER_UPDATED, 'Ícone removido.'), 200, cors);
+}
+
+/** GET público (como o resto da descoberta). `?v=<hash>` só serve para o cache: a URL muda quando a imagem muda. */
+async function handleGetServerIcon(shortCode: string, url: URL, env: Env, cors: Record<string, string>): Promise<Response> {
+  const bytes = await env.CUBEFORGE_REGISTRY.get(`icon:${shortCode}`, 'arrayBuffer');
+  if (!bytes) return json(fail(ResponseCodes.NOT_FOUND, 'Este servidor não tem ícone.'), 404, cors);
+  const versioned = /^[a-f0-9]{16}$/.test(url.searchParams.get('v') ?? '');
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      ...cors,
+      'Content-Type': 'image/png',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+    },
+  });
 }
 
 // ============================================================
@@ -594,6 +1045,12 @@ async function handleRegenerateCode(oldShortCode: string, req: Request, env: Env
   const ownerHash = await env.CUBEFORGE_REGISTRY.get(`owner:${oldShortCode}`);
   if (ownerHash) await env.CUBEFORGE_REGISTRY.put(`owner:${newShortCode}`, ownerHash);
   await env.CUBEFORGE_REGISTRY.delete(`owner:${oldShortCode}`);
+  // O ícone também acompanha o servidor.
+  if (sv.iconHash) {
+    const icon = await env.CUBEFORGE_REGISTRY.get(`icon:${oldShortCode}`, 'arrayBuffer');
+    if (icon) await env.CUBEFORGE_REGISTRY.put(`icon:${newShortCode}`, icon);
+    await env.CUBEFORGE_REGISTRY.delete(`icon:${oldShortCode}`);
+  }
   // O link de convite e o endereço de conexão personalizados (se houver)
   // sobrevivem à troca de código — reapontar as reverse-lookups pro
   // shortCode novo, senão ficavam resolvendo pro código antigo (que acabou
@@ -1602,15 +2059,19 @@ async function handlePanelWebSocket(deviceId: string, req: Request, env: Env): P
 // ============================================================
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     // Traduz o campo `message` para inglês quando o cliente manda Accept-Language: en (ver i18n.ts).
-    return localizeResponse(req, await handleRequest(req, env));
+    return localizeResponse(req, await handleRequest(req, env, ctx));
+  },
+  // Rotina agendada (wrangler.toml > triggers): percebe o host que sumiu sem avisar e atualiza o Discord.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(watchDiscordContact(env));
   },
 };
 
-async function handleRequest(req: Request, env: Env): Promise<Response> {
+async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url); const m = req.method; const p = url.pathname;
-    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-CubeCase-Version, X-Owner-Secret' };
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-CubeCase-Version, X-Owner-Secret' };
     if (m === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       const cfg = { ttlSeconds: SESSION_TTL_SECONDS, leaseTtlSeconds: Math.ceil(LEASE_DURATION_MS / 1000), shortCodeLength: parseInt(env.SHORT_CODE_LENGTH || '6') };
@@ -1626,6 +2087,30 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (m === 'POST' && m1) {
         if (!(await checkRateLimit(env, 'join', clientIp(req), JOIN_RATE_LIMIT))) return rateLimitedResponse(cors);
         return await handleCreateConnectionSession(m1[1].toUpperCase(), req, env, cfg, cors);
+      }
+
+      // Bot do Discord — ver discord.ts
+      if (m === 'POST' && p === '/api/v1/discord/interactions') return await handleDiscordInteractions(req, env);
+      if (m === 'GET' && p === '/api/v1/discord/install-url') return handleDiscordInstallUrl(env, cors);
+      const mDc = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/discord(?:\/(link-code|\d{5,25})(?:\/(channels|roles|config|test))?)?$/);
+      if (mDc) {
+        const sc = mDc[1].toUpperCase();
+        const target = mDc[2], action = mDc[3];
+        if (m === 'POST' && target === 'link-code' && !action) {
+          if (!(await checkRateLimit(env, 'discord-code', clientIp(req), DISCORD_CODE_RATE_LIMIT))) return rateLimitedResponse(cors);
+          return await handleDiscordLinkCode(sc, req, env, cors);
+        }
+        if (m === 'GET' && !target) return await handleDiscordList(sc, req, env, cors);
+        if (target && target !== 'link-code') {
+          if (m === 'DELETE' && !action) return await handleDiscordUnlink(sc, target, req, env, cors);
+          if (m === 'GET' && action === 'channels') return await handleDiscordChannels(sc, target, req, env, cors);
+          if (m === 'GET' && action === 'roles') return await handleDiscordRoles(sc, target, req, env, cors);
+          if (m === 'PUT' && action === 'config') return await handleDiscordConfig(sc, target, req, env, cors);
+          if (m === 'POST' && action === 'test') {
+            if (!(await checkRateLimit(env, 'discord-test', clientIp(req), DISCORD_TEST_RATE_LIMIT))) return rateLimitedResponse(cors);
+            return await handleDiscordTest(sc, target, req, env, cors);
+          }
+        }
       }
 
       // POST /api/v1/internal/relay-usage — medidor da VM do relay (HMAC com o TURN_SECRET)
@@ -1644,6 +2129,15 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
         if (!(await checkRateLimit(env, 'wake', clientIp(req), WAKE_RATE_LIMIT))) return rateLimitedResponse(cors);
         return await handleWakeServer(m1w[1].toUpperCase(), env, cors);
       }
+
+      // PUT/DELETE/GET /api/v1/servers/{sc}/icon — ícone do servidor (PUT/DELETE: dono; GET: público)
+      const m1i = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/icon$/);
+      if (m === 'PUT' && m1i) {
+        if (!(await checkRateLimit(env, 'icon', clientIp(req), ICON_RATE_LIMIT))) return rateLimitedResponse(cors);
+        return await handlePutServerIcon(m1i[1].toUpperCase(), req, env, cors);
+      }
+      if (m === 'DELETE' && m1i) return await handleDeleteServerIcon(m1i[1].toUpperCase(), req, env, cors);
+      if (m === 'GET' && m1i) return await handleGetServerIcon(m1i[1].toUpperCase(), url, env, cors);
 
       // PUT/DELETE /api/v1/servers/{sc}/slug — link de convite personalizado (Cubicase Plus)
       const m1s = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/slug$/);
@@ -1679,7 +2173,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
 
       // POST /api/v1/servers/{sc}/heartbeat
       const m2 = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/heartbeat$/);
-      if (m === 'POST' && m2) return await handleHeartbeat(m2[1].toUpperCase(), req, env, cfg, cors);
+      if (m === 'POST' && m2) return await handleHeartbeat(m2[1].toUpperCase(), req, env, ctx, cfg, cors);
 
       // POST /api/v1/servers
       if (m === 'POST' && p === '/api/v1/servers') {
@@ -1717,7 +2211,7 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
 
       // LEGADO: POST /api/servers/{sc}/heartbeat
       const m5 = p.match(/^\/api\/servers\/([A-Za-z0-9]+)\/heartbeat$/);
-      if (m === 'POST' && m5) return await handleHeartbeat(m5[1].toUpperCase(), req, env, cfg, cors);
+      if (m === 'POST' && m5) return await handleHeartbeat(m5[1].toUpperCase(), req, env, ctx, cfg, cors);
 
       // LEGADO: PATCH /api/servers/{sc}/status
       const m6 = p.match(/^\/api\/servers\/([A-Za-z0-9]+)\/status$/);
@@ -1759,6 +2253,13 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (m === 'POST' && p === '/api/v1/panel/ws-ticket') {
         if (!(await checkRateLimit(env, 'panel-ticket', clientIp(req), PANEL_TICKET_RATE_LIMIT))) return rateLimitedResponse(cors);
         return panelJson(await handlePanelWsTicket(req, env), cors);
+      }
+
+      // Notificações push do painel instalado (PWA) — ver panel-push.ts
+      if (p.startsWith('/api/v1/panel/') && (p === '/api/v1/panel/push/key' || /\/push(\/check)?$/.test(p))) {
+        if (!(await checkRateLimit(env, 'panel-push', clientIp(req), PANEL_PUSH_RATE_LIMIT))) return rateLimitedResponse(cors);
+        const pushResult = await handlePanelPushRoute(req, env, m, p);
+        if (pushResult) return panelJson(pushResult, cors);
       }
 
       // Acesso compartilhado do painel (dispositivos, membros, convites) — ver panel-members.ts

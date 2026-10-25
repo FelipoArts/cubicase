@@ -34,6 +34,10 @@ class_name = "LinkRoom"
 tag = "v2"
 new_sqlite_classes = ["LinkRoom"]
 
+# Rotina agendada (a cada 5 min): percebe o host que sumiu sem avisar e atualiza o status no Discord (ver discord-sync.ts).
+[triggers]
+crons = ["*/5 * * * *"]
+
 # Environment variables (configurable)
 [vars]
 SERVER_TTL_SECONDS = "14400"

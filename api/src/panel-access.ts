@@ -120,7 +120,8 @@ export type PanelMessageDecision =
         | { type: 'start_server'; serverId: string }
         | { type: 'restart_server'; serverId: string }
         | { type: 'player_action'; action: PlayerAction; player: string; reason?: string; requestId: string }
-        | { type: 'players_refresh' };
+        | { type: 'players_refresh' }
+        | { type: 'backup'; serverId: string };
     }
   | { ok: false; reason: string };
 
@@ -204,6 +205,13 @@ export function authorizePanelMessage(perms: PanelPermissions, msg: unknown): Pa
       const serverId = validServerId(m.serverId);
       if (!serverId) return { ok: false, reason: 'Servidor inválido.' };
       return { ok: true, forward: { type: 'restart_server', serverId } };
+    }
+    case 'backup': {
+      // Backup pesa no disco do host e não existia no painel: só quem pode ligar E desligar.
+      if (!perms.start || !perms.stop) return { ok: false, reason: 'Você não tem permissão para fazer backup do servidor.' };
+      const serverId = validServerId(m.serverId);
+      if (!serverId) return { ok: false, reason: 'Servidor inválido.' };
+      return { ok: true, forward: { type: 'backup', serverId } };
     }
     default:
       return { ok: false, reason: 'Ação não suportada.' };

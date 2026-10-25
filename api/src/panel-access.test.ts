@@ -222,3 +222,13 @@ describe("players_refresh", () => {
     expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, { type: "players_refresh" })).toEqual({ ok: true, forward: { type: "players_refresh" } });
   });
 });
+
+describe("backup pelo painel", () => {
+  it("exige poder ligar e desligar e um id de servidor válido", () => {
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, { type: "backup", serverId: "s1" })).toEqual({ ok: true, forward: { type: "backup", serverId: "s1" } });
+    expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, { type: "backup", serverId: "s1" })).toMatchObject({ ok: false });
+    expect(authorizePanelMessage({ ...PERMISSION_PRESETS.operator, stop: false }, { type: "backup", serverId: "s1" })).toMatchObject({ ok: false });
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, { type: "backup" })).toMatchObject({ ok: false });
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, { type: "backup", serverId: "a\nb" })).toMatchObject({ ok: false });
+  });
+});
