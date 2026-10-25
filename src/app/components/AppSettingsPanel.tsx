@@ -14,7 +14,6 @@ import { Switch } from "@/app/components/Switch";
 import { useConnectionHelp } from "@/lib/connectionHelp";
 import { AppearanceSettings } from "@/app/components/AppearanceSettings";
 import { BackupFolderSettings } from "@/app/components/BackupFolderSettings";
-import { useNewUi, setNewUi } from "@/lib/uiPrefs";
 import type { PlusFeature } from "@/lib/plusUi";
 import { LanguageSelector } from "@/app/components/LanguageSelector";
 import { useT, formatDateTime, type TKey } from "@/i18n";
@@ -83,7 +82,6 @@ function Section({ title, hint, badge, children }: { title: string; hint?: strin
 
 export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus }: AppSettingsPanelProps) {
   const { t } = useT();
-  const newUi = useNewUi();
   const [category, setCategory] = useState<SettingsCategory>(normalizeCategory(initialCategory));
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
@@ -335,12 +333,6 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
 
   const aparencia = (
     <div className="space-y-5">
-      <Section title={t("appearance.ui.title")} hint={t("appearance.ui.newHint")}>
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-sm font-bold text-theme-primary">{t("appearance.ui.new")}</p>
-          <Switch checked={newUi} onChange={() => setNewUi(!newUi)} />
-        </div>
-      </Section>
       <AppearanceSettings />
     </div>
   );

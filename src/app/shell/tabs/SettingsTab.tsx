@@ -1,15 +1,15 @@
 "use client";
 
 import { FolderOpen, Trash2 } from "lucide-react";
-import { ServerConfigModal } from "@/app/ServerConfigModal";
+import { ServerSettingsForm } from "@/app/components/host/ServerSettingsForm";
 import { ServerManagePanel } from "@/app/components/host/ServerManagePanel";
 import { DiscordCard } from "@/app/components/host/DiscordCard";
 import type { HostController } from "@/app/components/host/useHostController";
 import { Card, MiniButton } from "../ui";
 
-// Aba de configurações do servidor: o mesmo formulário do modal "Configurações do servidor" (nome, ícone, motd, modo de
-// jogo, dificuldade, jogadores, porta, memória, link de convite, endereço no Minecraft...), só que aqui dentro da
-// página. O modal continua existindo (menu lateral e atalhos). Abaixo: versão/atualização, pasta e exclusão.
+// Aba de configurações do servidor: nome, ícone, motd, modo de jogo, dificuldade, jogadores, porta, memória, link de
+// convite, endereço no Minecraft, Discord... Abaixo: versão/atualização, pasta e exclusão. O menu lateral e o modal do
+// Plus levam para cá (ver hostNav.ts).
 export function SettingsTab({ c }: { c: HostController }) {
   const { t, serverInfo, selectedServer, serverStatus, serverDir, localServers, importedServerPaths } = c;
   if (!serverInfo || !selectedServer) return null;
@@ -17,10 +17,7 @@ export function SettingsTab({ c }: { c: HostController }) {
 
   return (
     <div className="space-y-5">
-      <ServerConfigModal
-        variant="inline"
-        isOpen
-        onClose={() => {}}
+      <ServerSettingsForm
         serverDir={serverInfo.path}
         serverName={serverInfo.name}
         isImported={importedServerPaths.some((p: string) => p.toLowerCase() === serverInfo.path.toLowerCase())}
@@ -28,6 +25,7 @@ export function SettingsTab({ c }: { c: HostController }) {
         shortCode={serverInfo.shortCode ?? null}
         serverStatus={serverStatus}
         onSaved={() => c.handleConfigSaved()}
+        onInviteChanged={c.refreshInviteSlug}
         onRenamed={(result) => c.handleServerRenamed(serverInfo.path, result)}
       />
 

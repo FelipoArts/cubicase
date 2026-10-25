@@ -2,16 +2,13 @@
 
 import { listLocalServers } from "@/lib/server";
 
-import { ServerConfigModal } from "@/app/ServerConfigModal";
 
 import { CreateServerModal } from "./CreateServerModal";
 import { ImportModpackModal } from "./ImportModpackModal";
 import { ImportPackModal } from "./ImportPackModal";
 import { DeleteConfirmModal } from "./DeleteConfirmModal";
-import { SettingsModal } from "./SettingsModal";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 
-import { AnimatePresence } from "framer-motion";
 import type { HostController } from "./useHostController";
 
 // Modais do painel do host (criar/importar/excluir servidor, configurações, confirmações). Compartilhados pela tela
@@ -20,10 +17,7 @@ export function HostModals({ c }: { c: HostController }) {
   const {
     t,
     serverDir,
-    minecraftPort,
     setSelectedServer,
-    serverStatus,
-    importedServerPaths,
     showImportModpack,
     setShowImportModpack,
     showImportPack,
@@ -39,22 +33,15 @@ export function HostModals({ c }: { c: HostController }) {
     handleCreateServer,
     handleImportModpack,
     handleConfirmDelete,
-    handleSaveSettings,
     handleRegenerateCode,
     displayShortCode,
     localServers,
     showCreateServer,
-    showSettings,
-    showConfigModal,
-    configServerDir,
     serverInstallProgress,
     deleteConfirmServer,
     totalSystemRamGb,
     onSetLocalServers,
     onSetShowCreateServer,
-    onSetShowSettings,
-    onSetShowConfigModal,
-    onSetConfigServerDir,
     onSetDeleteConfirmServer
   } = c;
   return (
@@ -124,13 +111,6 @@ export function HostModals({ c }: { c: HostController }) {
         }) : false}
       />
 
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => onSetShowSettings(false)}
-        currentPort={minecraftPort || 25565}
-        onSave={handleSaveSettings}
-      />
-
       <ConfirmActionModal
         isOpen={showRegenerateCode}
         title={t("host.regen.title")}
@@ -143,25 +123,6 @@ export function HostModals({ c }: { c: HostController }) {
         }}
       />
 
-      <AnimatePresence>
-        {showConfigModal && configServerDir && (
-          <ServerConfigModal
-            serverDir={configServerDir}
-            serverName={localServers.find((s) => s.path === configServerDir)?.name ?? ""}
-            isImported={importedServerPaths.some((p) => p.toLowerCase() === configServerDir.toLowerCase())}
-            existingServerNames={localServers.filter((s) => s.path !== configServerDir).map((s) => s.name)}
-            shortCode={localServers.find((s) => s.path === configServerDir)?.shortCode ?? null}
-            isOpen={showConfigModal}
-            onClose={() => {
-              onSetShowConfigModal(false);
-              onSetConfigServerDir(null);
-            }}
-            onSaved={() => c.handleConfigSaved()}
-            onRenamed={(result) => c.handleServerRenamed(configServerDir, result)}
-            serverStatus={serverStatus}
-          />
-        )}
-      </AnimatePresence>
     </>
   );
 }

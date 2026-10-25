@@ -44,9 +44,6 @@ export interface HostViewProps {
   mcLogs: string[];
   localServers: ServerInfo[];
   showCreateServer: boolean;
-  showSettings: boolean;
-  showConfigModal: boolean;
-  configServerDir: string | null;
   serverInstallProgress: ServerInstallProgress | null;
   isDeletingServer: string | null;
   deleteConfirmServer: string | null;
@@ -60,9 +57,6 @@ export interface HostViewProps {
   onSetMcLogs: (logs: string[] | ((prev: string[]) => string[])) => void;
   onSetLocalServers: (servers: ServerInfo[]) => void;
   onSetShowCreateServer: (v: boolean) => void;
-  onSetShowSettings: (v: boolean) => void;
-  onSetShowConfigModal: (v: boolean) => void;
-  onSetConfigServerDir: (v: string | null) => void;
   onSetServerInstallProgress: (p: ServerInstallProgress | null) => void;
   onSetIsDeletingServer: (v: string | null) => void;
   onSetDeleteConfirmServer: (v: string | null) => void;
@@ -81,9 +75,6 @@ export function useHostController({
   mcLogs,
   localServers,
   showCreateServer,
-  showSettings,
-  showConfigModal,
-  configServerDir,
   serverInstallProgress,
   isDeletingServer,
   deleteConfirmServer,
@@ -95,9 +86,6 @@ export function useHostController({
   onSetMcLogs,
   onSetLocalServers,
   onSetShowCreateServer,
-  onSetShowSettings,
-  onSetShowConfigModal,
-  onSetConfigServerDir,
   onSetServerInstallProgress,
   onSetIsDeletingServer,
   onSetDeleteConfirmServer,
@@ -647,11 +635,6 @@ export function useHostController({
     }
   };
 
-  const handleSaveSettings = (port: number) => {
-    setMinecraftPort(port);
-    onSetShowSettings(false);
-  };
-
   // Invalida o código atual na API Central e gera um novo (ex.: o código
   // vazou publicamente). Derruba, de propósito, qualquer sessão de rede presa
   // ao código antigo — inclusive a própria, se este servidor estiver
@@ -697,22 +680,21 @@ export function useHostController({
   // Link de convite (play.cubicase.net/<slug>) — todo servidor já tem um de
   // graça (o próprio código em minúsculas, ver defaultSlugFor); só busca na
   // API Central se existe um personalizado (Cubicase Plus, editável no modal
-  // de configuração do servidor — ver ServerConfigModal). Enquanto a busca
+  // de configuração do servidor — ver ServerSettingsForm). Enquanto a busca
   // não volta, mostra o padrão direto: nunca precisa de tela de carregando.
   //
-  // Também refaz a busca quando showConfigModal muda (abre OU fecha) — é
-  // assim que um slug salvo/removido dentro do ServerConfigModal aparece
-  // aqui na hora, sem precisar de F5: o modal não avisa este componente
-  // diretamente, então reagir ao fechamento é o gatilho mais simples pra
-  // buscar de novo o valor que acabou de ser salvo na API Central.
+  // Refaz a busca quando o formulário de configurações do servidor salva ou remove o link (refreshInviteSlug), para o
+  // valor novo aparecer aqui na hora, sem precisar de F5.
   const [customInviteSlug, setCustomInviteSlug] = useState<string | null>(null);
+  const [inviteSlugVersion, setInviteSlugVersion] = useState(0);
+  const refreshInviteSlug = () => setInviteSlugVersion((v) => v + 1);
   useEffect(() => {
     setCustomInviteSlug(null);
     if (!displayShortCode) return;
     let cancelled = false;
     getServerSlug(displayShortCode).then((slug) => { if (!cancelled) setCustomInviteSlug(slug); });
     return () => { cancelled = true; };
-  }, [displayShortCode, showConfigModal]);
+  }, [displayShortCode, inviteSlugVersion]);
   const inviteSlug = customInviteSlug ?? (displayShortCode ? defaultSlugFor(displayShortCode) : null);
 
   const serverTypeLabels: Record<string, string> = {
@@ -754,13 +736,6 @@ export function useHostController({
   const handleServerRenamed = async (oldPath: string, { name: newName, path: newPath, backupsMigrationFailed }: { name: string; path: string; backupsMigrationFailed: boolean }) => {
         const oldServerInfo = localServers.find((s) => s.path === oldPath);
         const oldName = oldServerInfo?.name;
-
-        // A pasta física já mudou de lugar (renameServer já rodou) —
-        // atualiza a prop que o próprio modal usa antes de qualquer
-        // outra coisa, senão a próxima ação nele (ex: salvar
-        // propriedades) tentaria ler/escrever num caminho que não
-        // existe mais.
-        if (configServerDir === oldPath) onSetConfigServerDir(newPath);
 
         // Atualiza a lista local NA HORA (sem esperar o listAllServers
         // no fim) — só pra não deixar o campo de nome do modal piscar
@@ -837,6 +812,7 @@ export function useHostController({
   return {
     handleServerRenamed,
     handleConfigSaved,
+    refreshInviteSlug,
     handleServerUpgraded,
     t,
     rich,
@@ -903,7 +879,6 @@ export function useHostController({
     handleDeleteServer,
     handleConfirmDelete,
     handleImportServer,
-    handleSaveSettings,
     handleRegenerateCode,
     serverInfo,
     displayShortCode,
@@ -925,9 +900,6 @@ export function useHostController({
     mcLogs,
     localServers,
     showCreateServer,
-    showSettings,
-    showConfigModal,
-    configServerDir,
     serverInstallProgress,
     isDeletingServer,
     deleteConfirmServer,
@@ -939,9 +911,6 @@ export function useHostController({
     onSetMcLogs,
     onSetLocalServers,
     onSetShowCreateServer,
-    onSetShowSettings,
-    onSetShowConfigModal,
-    onSetConfigServerDir,
     onSetServerInstallProgress,
     onSetIsDeletingServer,
     onSetDeleteConfirmServer,

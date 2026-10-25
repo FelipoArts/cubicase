@@ -1,6 +1,6 @@
 import { defineMessages } from "./define";
 
-// ServerConfigModal (propriedades do servidor, ícone, link de convite, endereço de conexão)
+// ServerSettingsForm (propriedades do servidor, ícone, link de convite, endereço de conexão)
 export default defineMessages({
   "pt-BR": {
     "config.loadError.title": "Não foi possível carregar as configurações reais deste servidor.",

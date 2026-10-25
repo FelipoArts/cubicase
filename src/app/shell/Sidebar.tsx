@@ -9,6 +9,7 @@ import { useT, t as tn } from "@/i18n";
 import type { HostController } from "@/app/components/host/useHostController";
 import { ServerAvatar } from "@/app/components/ServerAvatar";
 import { ResizeHandle, type usePanel } from "./panels";
+import { goToHostTab } from "./hostNav";
 
 // Menu lateral fixo da nova interface: os servidores do host, a porta de entrada do Convidado e os ajustes do app.
 // Recolhido vira uma barra só de ícones (a classe `group-data-[compact=true]/side` esconde os textos).
@@ -35,14 +36,16 @@ export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel 
   const logoSrc = mounted && resolvedTheme === "light" ? "/icon.png" : "/icon-dark.png";
   const { localServers, selectedServer, setSelectedServer, serverStatus, runningServerName, isDeletingServer } = c;
 
-  function select(name: string) {
+  /** Escolhe o servidor e abre a tela do host. Devolve false se não pôde trocar (outro está rodando). */
+  function select(name: string): boolean {
     // Não troca de servidor com outro rodando: o app só mantém um processo por vez (mesmo aviso da lista atual).
     if (serverStatus !== "offline" && serverStatus !== "crashed" && selectedServer !== name) {
       pushDiagnostic({ level: "warning", source: tn("diag.source.server"), title: tn("serverList.running.title"), message: tn("serverList.running.message") });
-      return;
+      return false;
     }
     setSelectedServer(name);
     onSetMode("host");
+    return true;
   }
 
   const iconBtn = "p-1 rounded-lg text-theme-secondary hover:text-indigo-600 hover:bg-theme-accent cursor-pointer";
@@ -97,7 +100,7 @@ export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel 
                   <div className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover/row:opacity-100 focus-within:opacity-100", HIDE)}>
                     <button
                       type="button"
-                      onClick={() => { c.onSetConfigServerDir(s.path); c.onSetShowConfigModal(true); }}
+                      onClick={() => { if (select(s.name)) goToHostTab("settings"); }}
                       title={t("serverSettings.button")}
                       aria-label={t("serverSettings.button")}
                       className="p-1.5 rounded-lg text-theme-secondary hover:text-indigo-600 hover:bg-theme-card cursor-pointer"

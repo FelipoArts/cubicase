@@ -83,6 +83,9 @@ export function resetBackupState() {
   set(IDLE);
 }
 
+/** Estado atual, fora do React (testes, código sem componente). */
+export const getBackupState = (): BackupUiState => state;
+
 export function useBackupState(): BackupUiState {
   return useSyncExternalStore(
     (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },

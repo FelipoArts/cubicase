@@ -1,14 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  applyBackupEvent, dismissBackup, resetBackupState, DONE_VISIBLE_MS, FAILED_VISIBLE_MS, useBackupState, type BackupUiState,
+  applyBackupEvent, dismissBackup, resetBackupState, getBackupState, DONE_VISIBLE_MS, FAILED_VISIBLE_MS, type BackupUiState,
 } from "@/lib/backupState";
 
-// Lê o estado pelo mesmo caminho do componente, sem renderizar React.
-vi.mock("react", async (orig) => {
-  const actual = await orig<typeof import("react")>();
-  return { ...actual, useSyncExternalStore: (_sub: unknown, get: () => unknown) => get() };
-});
-const current = (): BackupUiState => useBackupState();
+const current = (): BackupUiState => getBackupState();
 
 describe("estado do backup na interface", () => {
   beforeEach(() => { vi.useFakeTimers(); resetBackupState(); });

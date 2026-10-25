@@ -4,7 +4,7 @@
 // Todo servidor já tem um endereço de graça: o próprio shortCode em
 // minúsculas (ver defaultConnectNameFor) — não exige login nem assinatura.
 // Cubicase Plus só desbloqueia TROCAR isso por um nome escolhido, guardado
-// na API Central — ver ServerConfigModal.tsx pra onde essa edição fica.
+// na API Central — ver ServerSettingsForm.tsx pra onde essa edição fica.
 //
 // Campo independente do slug do link de convite (src/lib/inviteLink.ts): o
 // host pode ter nomes diferentes pra cada um.

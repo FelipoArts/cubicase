@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Check, X, AlertTriangle, Image as ImageIcon, Link as LinkIcon, Gamepad2, Copy, Lock } from 'lucide-react';
+import { Check, AlertTriangle, Image as ImageIcon, Link as LinkIcon, Gamepad2, Copy, Lock } from 'lucide-react';
 import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/utils';
-import { useLockBodyScroll } from '@/lib/useLockBodyScroll';
 import { invalidateServerIcon } from '@/lib/serverIcon';
 import { openPlus } from '@/lib/plusUi';
 import { syncServerIcon } from '@/lib/serverIconSync';
@@ -36,7 +34,7 @@ import { renameServer } from '@/lib/server';
 import { waitForPendingBackup } from '@/lib/autoBackup';
 import { useT } from '@/i18n';
 
-interface ServerConfigModalProps {
+interface ServerSettingsFormProps {
   /** Full filesystem path to the server directory */
   serverDir: string;
   /** Nome atual do servidor (nome da pasta, para servidores padrão). */
@@ -50,9 +48,9 @@ interface ServerConfigModalProps {
   existingServerNames?: string[];
   /** Código de convite (CF-XXXXXX) deste servidor — null se ele nunca chegou a ser registrado na API Central. */
   shortCode: string | null;
-  isOpen: boolean;
-  onClose: () => void;
   onSaved: () => void; // refresh parent data after save
+  /** O link de convite (slug) foi salvo ou removido: quem mostra o link em outro lugar precisa buscar de novo. */
+  onInviteChanged?: () => void;
   /** Servidor renomeado com sucesso — o pai precisa atualizar serverDir/serverName
    * (e qualquer estado próprio, como store.selectedServer/runningServer/mcLogsByServer)
    * antes do próximo render, já que a pasta física mudou de lugar.
@@ -61,15 +59,9 @@ interface ServerConfigModalProps {
   onRenamed?: (result: { name: string; path: string; backupsMigrationFailed: boolean }) => void | Promise<void>;
   /** Current server status — if "online" or "starting", form is disabled */
   serverStatus?: string;
-  /**
-   * "modal" (padrão): janela por cima da tela. "inline": só o conteúdo, para ficar dentro de uma página (aba Configurações
-   * da nova interface) — não trava a rolagem do app e, ao salvar, não fecha nada (só avisa que salvou).
-   */
-  variant?: 'modal' | 'inline';
 }
 
-export function ServerConfigModal({ serverDir, serverName, isImported, existingServerNames, shortCode, isOpen, onClose, onSaved, onRenamed, serverStatus, variant = 'modal' }: ServerConfigModalProps) {
-  const inline = variant === 'inline';
+export function ServerSettingsForm({ serverDir, serverName, isImported, existingServerNames, shortCode, onSaved, onInviteChanged, onRenamed, serverStatus }: ServerSettingsFormProps) {
   const [justSaved, setJustSaved] = useState(false);
   const { t } = useT();
   const [nameInput, setNameInput] = useState(serverName);
@@ -174,7 +166,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
   const defaultConnectName = shortCode ? defaultConnectNameFor(shortCode) : null;
 
   useEffect(() => {
-    if (!isOpen || !shortCode) return;
+    if (!shortCode) return;
     setSlugError(null);
     setSlugLoading(true);
     setConnectNameError(null);
@@ -194,7 +186,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       setSlugLoading(false);
       setConnectNameLoading(false);
     });
-  }, [isOpen, shortCode, user]);
+  }, [shortCode, user]);
 
   const handleSaveSlug = async () => {
     if (!shortCode) return;
@@ -209,6 +201,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       const saved = await setServerSlug(shortCode, slug);
       setCustomSlug(saved);
       setSlugInput(saved);
+      onInviteChanged?.();
     } catch (err) {
       setSlugError(errorMessage(err) || t('config.slug.saveFailed'));
     } finally {
@@ -224,6 +217,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       await removeServerSlug(shortCode);
       setCustomSlug(null);
       setSlugInput(defaultSlugFor(shortCode));
+      onInviteChanged?.();
     } catch (err) {
       setSlugError(errorMessage(err) || t('config.slug.removeFailed'));
     } finally {
@@ -281,11 +275,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
     setTimeout(() => setConnectNameCopied(false), 1500);
   };
 
-  useLockBodyScroll(isOpen && !inline);
-
-  // Load current properties when modal opens
+  // Carrega as propriedades do servidor ao abrir (e ao trocar de servidor)
   useEffect(() => {
-    if (!isOpen) return;
     setLoadError('');
     setSaveError('');
     setIconError('');
@@ -351,7 +342,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
         setLoadError(t('config.loadFailed', { error: String(e) }));
       }
     })();
-  }, [isOpen, serverDir]);
+  }, [serverDir]);
 
   const handleSave = async () => {
     if (loadError) return;
@@ -407,12 +398,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       }
 
       onSaved();
-      if (inline) {
-        setJustSaved(true);
-        setTimeout(() => setJustSaved(false), 2500);
-      } else {
-        onClose();
-      }
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2500);
     } catch (e) {
       console.error('Failed to write server properties:', e);
       setSaveError(t('config.saveFailed', { error: String(e) }));
@@ -462,7 +449,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
   const formDisabled = isServerRunning || !!loadError;
 
   const body = (
-            <div className={inline ? '' : 'px-8 overflow-y-auto flex-1 custom-scrollbar'}>
+            <div>
               {loadError && (
                 <div className="p-4 bg-theme-danger border border-theme-danger text-rose-800 dark:text-rose-200 rounded-2xl flex items-start gap-3 text-sm mb-4">
                   <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
@@ -922,64 +909,15 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
               </form>
             </div>
   );
-  if (inline) {
-    return (
-      <div className="bg-theme-card border-theme-card shadow-theme-card rounded-2xl p-6">
-        {body}
-        <div className="flex items-center justify-end gap-3 pt-4 mt-2 border-t border-theme-card">
-    {justSaved && <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5" role="status"><Check className="w-4 h-4" /> {t("nui.settings.saved")}</span>}
-    <button type="button" disabled={formDisabled} onClick={handleSave} className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-shadow cursor-pointer">
-      <Check className="w-4 h-4" /> {t("config.save")}
-    </button>
-  </div>
-      </div>
-    );
-  }
-
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
-          <motion.div className="absolute inset-0 bg-theme-overlay backdrop-blur-sm" onClick={onClose} />
-          {/* Modal */}
-          <motion.div
-            className="relative w-full max-w-lg bg-theme-card rounded-[2rem] border-theme-card shadow-2xl z-10 space-y-6 max-h-[85vh] flex flex-col"
-            initial={{ opacity: 0, scale: 0.95, y: 15 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            transition={{ type: 'spring', duration: 0.3 }}
-          >
-            <div className="p-8 pb-0 flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-theme-primary">{t("serverSettings.button")}</h3>
-                <button type="button" onClick={onClose} className="p-1.5 hover:bg-theme-muted rounded-xl text-theme-secondary hover:text-theme-primary transition-colors cursor-pointer" title={t("common.cancel")}>
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {body}
-
-            {/* Action buttons */}
-            <div className="p-8 pt-0 flex-shrink-0">
-              <div className="flex justify-end space-x-3 pt-4 border-t border-theme-card">
-                <button type="button" onClick={onClose} className="px-5 h-12 rounded-2xl text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors text-sm font-semibold cursor-pointer">
-                  {t("common.cancel")}
-                </button>
-                <button type="submit" disabled={formDisabled} onClick={handleSave} className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-shadow cursor-pointer">
-                  <Check className="w-4 h-4" /> {t("config.save")}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div className="bg-theme-card border-theme-card shadow-theme-card rounded-2xl p-6">
+      {body}
+      <div className="flex items-center justify-end gap-3 pt-4 mt-2 border-t border-theme-card">
+  {justSaved && <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5" role="status"><Check className="w-4 h-4" /> {t("nui.settings.saved")}</span>}
+  <button type="button" disabled={formDisabled} onClick={handleSave} className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-shadow cursor-pointer">
+    <Check className="w-4 h-4" /> {t("config.save")}
+  </button>
+</div>
+    </div>
   );
 }

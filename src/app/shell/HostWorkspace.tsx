@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle, BedDouble, Check, ChevronDown, Copy, FolderOpen, Gauge, Globe, LayoutDashboard, Loader2, Package, Play, Plus, RefreshCw, Settings, Users, X,
@@ -16,12 +16,13 @@ import { Dock } from "./Dock";
 import { GlobalActions } from "./GlobalActions";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { clearHostTabRequest, useHostTabRequest, type HostTab } from "./hostNav";
 import { MiniButton } from "./ui";
 
 // Área de trabalho do host na nova interface: barra do servidor (sempre à vista), faixa de avisos, abas e o console.
 // Usa o mesmo controlador da tela atual (useHostController), então liga, desliga e avisa exatamente igual.
 
-type Tab = "overview" | "players" | "world" | "mods" | "performance" | "settings";
+type Tab = HostTab;
 
 const PLUGIN_TYPES = ["paper", "spigot", "purpur", "bukkit"];
 const MOD_TYPES = ["forge", "neoforge", "fabric", ...PLUGIN_TYPES];
@@ -51,6 +52,13 @@ export function HostWorkspace({ c }: { c: HostController }) {
     wakeOnDemandServerInfo, copiedText, copyToClipboard,
   } = c;
   const [tab, setTab] = useState<Tab>("overview");
+  // Pedidos de outros lugares (engrenagem do menu, modal do Plus) para abrir uma aba.
+  const tabRequest = useHostTabRequest();
+  useEffect(() => {
+    if (!tabRequest) return;
+    setTab(tabRequest.tab);
+    clearHostTabRequest(); // atendido: um pedido antigo não pode reabrir a aba quando a tela voltar
+  }, [tabRequest]);
 
   if (!selectedServer || !serverInfo) {
     return (

@@ -5,14 +5,6 @@ import { closePlus, openPlus, usePlusUi } from "@/lib/plusUi";
 import { pathLabelKey } from "@/lib/networkTransport";
 import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
-import { AnimatePresence } from "framer-motion";
-import {
-  Globe,
-  Monitor,
-  Settings as SettingsIcon,
-  HelpCircle,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import { useAppStore, type RelayStatus, type ServerStatus } from "@/app/store";
@@ -25,16 +17,14 @@ import {
   type ServerInstallProgress,
 } from "@/lib/server";
 import { IDLE_HOSTING_STATUS, isGuestActiveError, isHostingActive, type HostingStatus } from "@/lib/hosting";
-import { useTheme } from "next-themes";
 import { AppSettingsPanel, type SettingsCategory } from "@/app/components/AppSettingsPanel";
 import { CloseAppModal } from "@/app/components/CloseAppModal";
 import { OnboardingScreen } from "@/app/components/OnboardingScreen";
-import { DiagnosticsToasts, DiagnosticsBell } from "@/app/components/DiagnosticsCenter";
+import { DiagnosticsToasts } from "@/app/components/DiagnosticsCenter";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { supabase } from "@/lib/supabaseClient";
 import { UpdateBanner } from "@/app/components/UpdateBanner";
 import { BackupIndicator } from "@/app/components/BackupIndicator";
-import { UpdateButton } from "@/app/components/UpdateButton";
 import { HelpCenter } from "@/app/components/HelpCenter";
 import { ConnectionHelpModal } from "@/app/components/ConnectionHelpModal";
 import { isDirectFailureCode, useConnectionHelp } from "@/lib/connectionHelp";
@@ -51,10 +41,10 @@ import { t, useT } from "@/i18n";
 import { initNativeLocaleSync } from "@/i18n/native";
 
 // Componentes extraídos
-import { HostView, type HostViewProps } from "@/app/components/host/HostView";
-import { GuestView, type GuestViewProps } from "@/app/components/guest/GuestView";
+import type { HostViewProps } from "@/app/components/host/useHostController";
+import type { GuestViewProps } from "@/app/components/guest/useGuestController";
 import { NewShell } from "@/app/shell/NewShell";
-import { useNewUi } from "@/lib/uiPrefs";
+import { goToHostTab } from "@/app/shell/hostNav";
 
 // ============================================================
 // Page
@@ -66,9 +56,8 @@ import { useNewUi } from "@/lib/uiPrefs";
 // ============================================================
 
 export default function Home() {
-  const { resolvedTheme } = useTheme();
   // Re-renderiza o shell ao trocar o idioma (t() fora do hook lê o idioma atual).
-  const { t: tr } = useT();
+  useT();
   const [mounted, setMounted] = useState(false);
 
   // Evitar hydration mismatch: só renderizar o logo após montar no cliente
@@ -96,12 +85,8 @@ export default function Home() {
 
   // --- Store ---
   const {
-    serverDir,
-    setServerDir,
     minecraftPort,
-    setMinecraftPort,
     selectedServer,
-    setSelectedServer,
     mode,
     setMode,
     defaultTab,
@@ -164,14 +149,11 @@ export default function Home() {
 
   const [localServers, setLocalServers] = useState<ServerInfo[]>([]);
   const [showCreateServer, setShowCreateServer] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [showAppSettings, setShowAppSettings] = useState(false);
   const plusUi = usePlusUi();
   const [showHelp, setShowHelp] = useState(false);
   const [appSettingsCategory, setAppSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [configServerDir, setConfigServerDir] = useState<string | null>(null);
   const [serverInstallProgress, setServerInstallProgress] = useState<ServerInstallProgress | null>(null);
   const [isDeletingServer, setIsDeletingServer] = useState<string | null>(null);
   const [deleteConfirmServer, setDeleteConfirmServer] = useState<string | null>(null);
@@ -1110,8 +1092,6 @@ export default function Home() {
     }
   };
 
-  const newUi = useNewUi();
-
   if (defaultTab === null) {
     return <OnboardingScreen mounted={mounted} onChoose={setDefaultTab} />;
   }
@@ -1125,9 +1105,6 @@ export default function Home() {
     mcLogs,
     localServers,
     showCreateServer,
-    showSettings,
-    showConfigModal,
-    configServerDir,
     serverInstallProgress,
     isDeletingServer,
     deleteConfirmServer,
@@ -1139,9 +1116,6 @@ export default function Home() {
     onSetMcLogs: onSetMcLogsForSelected,
     onSetLocalServers: setLocalServers,
     onSetShowCreateServer: setShowCreateServer,
-    onSetShowSettings: setShowSettings,
-    onSetShowConfigModal: setShowConfigModal,
-    onSetConfigServerDir: setConfigServerDir,
     onSetServerInstallProgress: setServerInstallProgress,
     onSetIsDeletingServer: setIsDeletingServer,
     onSetDeleteConfirmServer: setDeleteConfirmServer,
@@ -1156,158 +1130,43 @@ export default function Home() {
     onDisconnect: handleGuestDisconnect,
   };
 
-  // Nova interface (menu lateral + abas), escolhida em Configurações. A lógica é a mesma da tela atual.
-  if (newUi) {
-    return (
-      <div className="h-screen flex flex-col bg-theme-base transition-colors duration-300">
-        <DiagnosticsToasts />
-        <BackupIndicator />
-        <UpdateBanner />
-        <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
-          <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
-          <PlusModal
-                  isOpen={plusUi.open}
-                  onClose={closePlus}
-                  onOpenSubscriptionSettings={() => { setAppSettingsCategory("servidores"); setShowAppSettings(true); }}
-                  onConfigureServer={() => {
-                    const st = useAppStore.getState();
-                    const sv = st.localServers.find((x) => x.name === st.selectedServer);
-                    if (sv) { setConfigServerDir(sv.path); setShowConfigModal(true); }
-                  }}
-                />
-          <AppSettingsPanel
-            onOpenPlus={(feature) => openPlus(feature)}
-          isOpen={showAppSettings}
-          onClose={() => setShowAppSettings(false)}
-          initialCategory={appSettingsCategory}
-        />
-          <CloseAppModal
-          isOpen={showCloseConfirm}
-          onClose={() => setShowCloseConfirm(false)}
-          onQuitFully={handleQuitFully}
-          onMinimizeToTray={handleMinimizeToTray}
-        />
-        <NewShell
-          host={hostProps}
-          guest={guestProps}
-          mode={mode}
-          onSetMode={setMode}
-          onOpenHelp={() => setShowHelp(true)}
-          onOpenSettings={() => {
-            setAppSettingsCategory(undefined);
-            setShowAppSettings(true);
-          }}
-        />
-      </div>
-    );
-  }
-
+  // Interface: menu lateral + área de trabalho do host ou do convidado (ver src/app/shell).
   return (
-    <div className="min-h-screen bg-theme-bg transition-colors duration-300">
+    <div className="h-screen flex flex-col bg-theme-base transition-colors duration-300">
       <DiagnosticsToasts />
       <BackupIndicator />
       <UpdateBanner />
-      {/* Cabeçalho */}
-      <header className="sticky top-0 z-40 bg-theme-card/80 backdrop-blur-xl border-b border-theme-card">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src={mounted ? (resolvedTheme === "dark" ? "/icon-dark.png" : "/icon.png") : "/icon.png"}
-              alt="Cubicase"
-              className="h-7"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Seletor de Modo */}
-            <div className="flex bg-theme-muted p-1 rounded-2xl border border-theme-card">
-              <button
-                type="button"
-                onClick={() => setMode("host")}
-                className={cn(
-                  "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
-                  mode === "host"
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-theme-secondary hover:text-theme-primary"
-                )}
-              >
-                <Monitor className="w-3.5 h-3.5" />
-                {tr("app.tab.host")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("guest")}
-                className={cn(
-                  "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
-                  mode === "guest"
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-theme-secondary hover:text-theme-primary"
-                )}
-              >
-                <Globe className="w-3.5 h-3.5" />
-                {tr("app.tab.guest")}
-              </button>
-            </div>
-
-            <UpdateButton />
-            <DiagnosticsBell />
-            <button
-              type="button"
-              onClick={() => setShowHelp(true)}
-              title={tr("help.button")}
-              aria-label={tr("help.button")}
-              className="w-9 h-9 flex items-center justify-center rounded-xl text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors cursor-pointer"
-            >
-              <HelpCircle className="w-4.5 h-4.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAppSettingsCategory(undefined);
-                setShowAppSettings(true);
-              }}
-              title={tr("app.settings")}
-              className="w-9 h-9 flex items-center justify-center rounded-xl text-theme-secondary hover:text-theme-primary hover:bg-theme-muted transition-colors cursor-pointer"
-            >
-              <SettingsIcon className="w-4.5 h-4.5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
       <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
-      <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
-      <PlusModal
-              isOpen={plusUi.open}
-              onClose={closePlus}
-              onOpenSubscriptionSettings={() => { setAppSettingsCategory("servidores"); setShowAppSettings(true); }}
-              onConfigureServer={() => {
-                const st = useAppStore.getState();
-                const sv = st.localServers.find((x) => x.name === st.selectedServer);
-                if (sv) { setConfigServerDir(sv.path); setShowConfigModal(true); }
-              }}
-            />
-      <AppSettingsPanel
-        onOpenPlus={(feature) => openPlus(feature)}
+        <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
+        <PlusModal
+                isOpen={plusUi.open}
+                onClose={closePlus}
+                onOpenSubscriptionSettings={() => { setAppSettingsCategory("servidores"); setShowAppSettings(true); }}
+                onConfigureServer={() => { setMode("host"); goToHostTab("settings"); }}
+              />
+        <AppSettingsPanel
+          onOpenPlus={(feature) => openPlus(feature)}
         isOpen={showAppSettings}
         onClose={() => setShowAppSettings(false)}
         initialCategory={appSettingsCategory}
       />
-      <CloseAppModal
+        <CloseAppModal
         isOpen={showCloseConfirm}
         onClose={() => setShowCloseConfirm(false)}
         onQuitFully={handleQuitFully}
         onMinimizeToTray={handleMinimizeToTray}
       />
-
-      {/* Conteúdo Principal */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {mode === "host" ? (
-          <HostView {...hostProps} />
-        ) : (
-          <GuestView {...guestProps} />
-        )}
-      </main>
+      <NewShell
+        host={hostProps}
+        guest={guestProps}
+        mode={mode}
+        onSetMode={setMode}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenSettings={() => {
+          setAppSettingsCategory(undefined);
+          setShowAppSettings(true);
+        }}
+      />
     </div>
   );
 }

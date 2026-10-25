@@ -5,7 +5,7 @@
 // (ver defaultSlugFor) — não exige login nem assinatura, e nem precisa
 // perguntar pro Worker (é derivado localmente). Cubicase Plus só desbloqueia
 // TROCAR isso por um slug escolhido, guardado na API Central — ver
-// ServerConfigModal.tsx pra onde essa edição fica.
+// ServerSettingsForm.tsx pra onde essa edição fica.
 //
 // Mesmo padrão de src/lib/subscription.ts: leitura pública direto na API
 // Central (sem auth — o discover de um servidor já é público), escrita
