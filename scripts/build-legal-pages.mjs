@@ -405,7 +405,7 @@ function render(pageKey, lang) {
         <a href="${nav.home}#recursos">${nav.features}</a>
         <a href="${nav.home}#como-funciona">${nav.how}</a>
         <a href="${nav.tutorialHref}">${nav.tutorial}</a>
-        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
         <div class="lang-switch" data-lang-switch></div>
         <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>${nav.signin}</a>
         <div class="nav-cta">
@@ -442,7 +442,7 @@ ${sections}
         <a href="${f.privacy[1]}">${f.privacy[0]}</a>
         <a href="${f.terms[1]}">${f.terms[0]}</a>
         <a href="${f.licenses[1]}">${f.licenses[0]}</a>
-        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
     <div class="container footer-disclaimer">${f.disclaimer}</div>

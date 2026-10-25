@@ -9,7 +9,7 @@
 #   .\setup-new-machine.ps1 -SecretsSource D:\cubeforge-secrets
 #
 # Parâmetros:
-#   -RepoUrl        URL do repo (default: github.com/FelipoArts/cubeforge)
+#   -RepoUrl        URL do repo (default: github.com/FelipoArts/cubicase)
 #   -TargetDir      Pasta destino do clone (default: .\cubeforge)
 #   -SecretsSource  Pasta contendo network_session.json e .dev.vars
 #                    (ex: uma pasta copiada da máquina antiga via pendrive)
@@ -17,7 +17,7 @@
 #                    (Git, Node, Rust, Go). Sem essa flag, o script só avisa.
 
 param(
-    [string]$RepoUrl = "https://github.com/FelipoArts/cubeforge.git",
+    [string]$RepoUrl = "https://github.com/FelipoArts/cubicase.git",
     [string]$TargetDir = ".\cubeforge",
     [string]$SecretsSource = "",
     [switch]$InstallPrereqs

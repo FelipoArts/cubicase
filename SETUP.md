@@ -31,7 +31,7 @@ Não é necessário instalar nenhum cliente de VPN — o app usa o sidecar
 ## 2. Clonar o repositório
 
 ```bash
-git clone https://github.com/FelipoArts/cubeforge.git
+git clone https://github.com/FelipoArts/cubicase.git
 cd cubeforge
 ```
 

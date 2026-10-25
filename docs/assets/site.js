@@ -2,7 +2,7 @@
 // Cubicase — Site (comportamento compartilhado entre as páginas)
 // ============================================================
 
-const REPO = "FelipoArts/cubeforge";
+const REPO = "FelipoArts/cubicase";
 
 // Menu mobile
 function setupNavToggle() {
