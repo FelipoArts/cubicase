@@ -1,0 +1,607 @@
+[
+  {
+    "name": "cubicase",
+    "type": 1,
+    "description": "Veja e controle seu servidor de Minecraft pelo Cubicase",
+    "description_localizations": {
+      "en-US": "See and control your Minecraft server through Cubicase"
+    },
+    "contexts": [
+      0
+    ],
+    "integration_types": [
+      0
+    ],
+    "options": [
+      {
+        "type": 1,
+        "name": "vincular",
+        "name_localizations": {
+          "en-US": "link"
+        },
+        "description": "Liga este Discord a um servidor do Cubicase usando o código gerado no app",
+        "description_localizations": {
+          "en-US": "Connects this Discord to a Cubicase server using the code from the app"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "codigo",
+            "name_localizations": {
+              "en-US": "code"
+            },
+            "description": "Código mostrado no Cubicase (ex.: ABCD-2345)",
+            "description_localizations": {
+              "en-US": "Code shown in Cubicase (e.g. ABCD-2345)"
+            },
+            "required": true,
+            "max_length": 16
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "status",
+        "description": "Mostra se o servidor está ligado e quem está jogando",
+        "description_localizations": {
+          "en-US": "Shows whether the server is online and who is playing"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "desvincular",
+        "name_localizations": {
+          "en-US": "unlink"
+        },
+        "description": "Remove a ligação deste Discord com um servidor",
+        "description_localizations": {
+          "en-US": "Removes the link between this Discord and a server"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor desvincular",
+            "description_localizations": {
+              "en-US": "Which server to unlink"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "ajuda",
+        "name_localizations": {
+          "en-US": "help"
+        },
+        "description": "Explica o que o bot faz e como configurar",
+        "description_localizations": {
+          "en-US": "Explains what the bot does and how to set it up"
+        }
+      },
+      {
+        "type": 1,
+        "name": "canal",
+        "name_localizations": {
+          "en-US": "channel"
+        },
+        "description": "Escolhe em que canal ficam o status, os avisos ou o como entrar",
+        "description_localizations": {
+          "en-US": "Picks the channel for the status, alerts or how-to-join"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "tipo",
+            "name_localizations": {
+              "en-US": "type"
+            },
+            "description": "O que configurar",
+            "description_localizations": {
+              "en-US": "What to set up"
+            },
+            "required": true,
+            "choices": [
+              {
+                "name": "Status ao vivo",
+                "name_localizations": {
+                  "en-US": "Live status"
+                },
+                "value": "status"
+              },
+              {
+                "name": "Avisos",
+                "name_localizations": {
+                  "en-US": "Alerts"
+                },
+                "value": "alerts"
+              },
+              {
+                "name": "Como entrar",
+                "name_localizations": {
+                  "en-US": "How to join"
+                },
+                "value": "invite"
+              }
+            ]
+          },
+          {
+            "type": 7,
+            "name": "canal",
+            "name_localizations": {
+              "en-US": "channel"
+            },
+            "description": "Canal de texto",
+            "description_localizations": {
+              "en-US": "Text channel"
+            },
+            "required": true,
+            "channel_types": [
+              0,
+              5
+            ]
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "avisos",
+        "name_localizations": {
+          "en-US": "alerts"
+        },
+        "description": "Liga ou desliga um tipo de aviso",
+        "description_localizations": {
+          "en-US": "Turns an alert type on or off"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "evento",
+            "name_localizations": {
+              "en-US": "event"
+            },
+            "description": "Qual aviso",
+            "description_localizations": {
+              "en-US": "Which alert"
+            },
+            "required": true,
+            "choices": [
+              {
+                "name": "Entrada e saída de jogadores",
+                "name_localizations": {
+                  "en-US": "Players joining and leaving"
+                },
+                "value": "joins"
+              },
+              {
+                "name": "Servidor ligando e desligando",
+                "name_localizations": {
+                  "en-US": "Server starting and stopping"
+                },
+                "value": "power"
+              },
+              {
+                "name": "Servidor caindo ou sumindo",
+                "name_localizations": {
+                  "en-US": "Server going down or vanishing"
+                },
+                "value": "offline"
+              }
+            ]
+          },
+          {
+            "type": 5,
+            "name": "ligado",
+            "name_localizations": {
+              "en-US": "enabled"
+            },
+            "description": "Ligar (verdadeiro) ou desligar (falso)",
+            "description_localizations": {
+              "en-US": "On (true) or off (false)"
+            },
+            "required": true
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "desativar",
+        "name_localizations": {
+          "en-US": "disable"
+        },
+        "description": "Desliga o status ao vivo, os avisos ou o como entrar",
+        "description_localizations": {
+          "en-US": "Turns off the live status, alerts or how-to-join"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "tipo",
+            "name_localizations": {
+              "en-US": "type"
+            },
+            "description": "O que configurar",
+            "description_localizations": {
+              "en-US": "What to set up"
+            },
+            "required": true,
+            "choices": [
+              {
+                "name": "Status ao vivo",
+                "name_localizations": {
+                  "en-US": "Live status"
+                },
+                "value": "status"
+              },
+              {
+                "name": "Avisos",
+                "name_localizations": {
+                  "en-US": "Alerts"
+                },
+                "value": "alerts"
+              },
+              {
+                "name": "Como entrar",
+                "name_localizations": {
+                  "en-US": "How to join"
+                },
+                "value": "invite"
+              },
+              {
+                "name": "Cargo de operador",
+                "name_localizations": {
+                  "en-US": "Operator role"
+                },
+                "value": "operator"
+              }
+            ]
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "convite",
+        "name_localizations": {
+          "en-US": "invite"
+        },
+        "description": "Publica (e fixa) neste canal o passo a passo para entrar no servidor",
+        "description_localizations": {
+          "en-US": "Posts (and pins) the how-to-join guide in this channel"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "ligar",
+        "name_localizations": {
+          "en-US": "start"
+        },
+        "description": "Liga o servidor (Cubicase Plus)",
+        "description_localizations": {
+          "en-US": "Starts the server (Cubicase Plus)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "desligar",
+        "name_localizations": {
+          "en-US": "stop"
+        },
+        "description": "Desliga o servidor (Cubicase Plus)",
+        "description_localizations": {
+          "en-US": "Stops the server (Cubicase Plus)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "reiniciar",
+        "name_localizations": {
+          "en-US": "restart"
+        },
+        "description": "Reinicia o servidor (Cubicase Plus)",
+        "description_localizations": {
+          "en-US": "Restarts the server (Cubicase Plus)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "whitelist",
+        "description": "Adiciona ou remove alguém da whitelist (Cubicase Plus)",
+        "description_localizations": {
+          "en-US": "Adds or removes someone from the whitelist (Cubicase Plus)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "acao",
+            "name_localizations": {
+              "en-US": "action"
+            },
+            "description": "O que fazer",
+            "description_localizations": {
+              "en-US": "What to do"
+            },
+            "required": true,
+            "choices": [
+              {
+                "name": "Adicionar",
+                "name_localizations": {
+                  "en-US": "Add"
+                },
+                "value": "add"
+              },
+              {
+                "name": "Remover",
+                "name_localizations": {
+                  "en-US": "Remove"
+                },
+                "value": "remove"
+              }
+            ]
+          },
+          {
+            "type": 3,
+            "name": "jogador",
+            "name_localizations": {
+              "en-US": "player"
+            },
+            "description": "Nome no Minecraft",
+            "description_localizations": {
+              "en-US": "Minecraft name"
+            },
+            "required": true,
+            "max_length": 32
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "console",
+        "description": "Envia um comando ao console do servidor (precisa ser liberado)",
+        "description_localizations": {
+          "en-US": "Sends a command to the server console (must be enabled)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "comando",
+            "name_localizations": {
+              "en-US": "command"
+            },
+            "description": "O comando, sem a barra",
+            "description_localizations": {
+              "en-US": "The command, without the slash"
+            },
+            "required": true,
+            "max_length": 200
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "operador",
+        "name_localizations": {
+          "en-US": "operator"
+        },
+        "description": "Define quem pode controlar o servidor e libera o console",
+        "description_localizations": {
+          "en-US": "Sets who can control the server and enables the console"
+        },
+        "options": [
+          {
+            "type": 8,
+            "name": "cargo",
+            "name_localizations": {
+              "en-US": "role"
+            },
+            "description": "Cargo que pode ligar, desligar e reiniciar",
+            "description_localizations": {
+              "en-US": "Role that can start, stop and restart"
+            },
+            "required": false
+          },
+          {
+            "type": 5,
+            "name": "console",
+            "description": "Liberar o comando /cubicase console",
+            "description_localizations": {
+              "en-US": "Allow the /cubicase console command"
+            },
+            "required": false
+          },
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "name": "diagnostico",
+        "name_localizations": {
+          "en-US": "diagnostics"
+        },
+        "description": "Confere se o bot consegue enxergar este canal e escrever nele",
+        "description_localizations": {
+          "en-US": "Checks that the bot can see this channel and write in it"
+        }
+      },
+      {
+        "type": 1,
+        "name": "backup",
+        "description": "Faz um backup do mundo do servidor (Cubicase Plus)",
+        "description_localizations": {
+          "en-US": "Makes a backup of the server world (Cubicase Plus)"
+        },
+        "options": [
+          {
+            "type": 3,
+            "name": "servidor",
+            "name_localizations": {
+              "en-US": "server"
+            },
+            "description": "Qual servidor (se houver mais de um neste Discord)",
+            "description_localizations": {
+              "en-US": "Which server (if this Discord has more than one)"
+            },
+            "required": false,
+            "autocomplete": true
+          }
+        ]
+      }
+    ]
+  }
+]
