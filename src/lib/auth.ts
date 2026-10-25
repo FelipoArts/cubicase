@@ -22,7 +22,8 @@ import { open } from "@tauri-apps/plugin-shell";
 import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link";
 import { supabase } from "@/lib/supabaseClient";
 import { useAppStore, type AuthUser } from "@/app/store";
-import { getLocale } from "@/i18n";
+import { getLocale, t } from "@/i18n";
+import { pushDiagnostic } from "@/app/diagnostics";
 
 const LOGIN_URL = "https://cubicase.net/entrar/";
 const REQUIRE_AUTH_TIMEOUT_MS = 5 * 60_000;
@@ -78,17 +79,28 @@ export function parseTokensFromDeepLink(url: string): { access_token: string; re
 async function handleAuthCallbackUrl(url: string): Promise<void> {
   if (!url.startsWith("cubicase://auth-callback")) return;
   const tokens = parseTokensFromDeepLink(url);
+  // Nunca logar a URL: ela carrega tokens de sessão. Cada falha aparece na tela (antes só no console, e o login
+  // "não acontecia" sem ninguém saber por quê).
+  const source = t("diag.source.auth");
   if (!tokens) {
-    // Nunca logar a URL: ela carrega tokens de sessão.
     console.error("[auth] Deep link de login sem os tokens esperados.");
+    pushDiagnostic({ level: "warning", source, title: t("auth.deepLink.noTokens.title"), message: t("auth.deepLink.noTokens.message") });
     return;
   }
   if (!consumePendingState(tokens.state)) {
     console.warn("[auth] Deep link de login ignorado: não corresponde a um login iniciado por este app.");
+    pushDiagnostic({
+      level: "warning", source,
+      title: t("auth.deepLink.state.title"),
+      message: tokens.state ? t("auth.deepLink.state.mismatch") : t("auth.deepLink.state.missing"),
+    });
     return;
   }
   const { error } = await supabase.auth.setSession({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
-  if (error) console.error("[auth] Falha ao aplicar sessão recebida do deep link:", error);
+  if (error) {
+    console.error("[auth] Falha ao aplicar sessão recebida do deep link:", error);
+    pushDiagnostic({ level: "error", source, title: t("auth.deepLink.session.title"), message: t("auth.deepLink.session.message", { error: error.message }) });
+  }
 }
 
 /**

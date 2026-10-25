@@ -1,6 +1,7 @@
 "use client";
 
 import { Server, Plus, Trash2, Loader2, FolderOpen, Package, PackageOpen } from "lucide-react";
+import { ServerAvatar } from "@/app/components/ServerAvatar";
 import { cn } from "@/lib/utils";
 import SettingsButton from "@/app/components/SettingsButton";
 import { pushDiagnostic } from "@/app/diagnostics";
@@ -113,9 +114,12 @@ export function ServerList({
                     : "bg-theme-muted border-theme-card hover:border-slate-300 hover:bg-theme-card"
                 )}
               >
-                <div className="min-w-0">
-                  <p className="font-bold text-theme-primary truncate text-sm">{server.name}</p>
-                  <p className="text-[10px] text-theme-secondary mt-0.5">{t("serverList.version", { version: server.version || t("serverList.versionNotFound") })}</p>
+                <div className="min-w-0 flex items-center gap-3">
+                  <ServerAvatar path={server.path} name={server.name} size="xs" />
+                  <div className="min-w-0">
+                    <p className="font-bold text-theme-primary truncate text-sm">{server.name}</p>
+                    <p className="text-[10px] text-theme-secondary mt-0.5">{t("serverList.version", { version: server.version || t("serverList.versionNotFound") })}</p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">

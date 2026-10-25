@@ -1,3 +1,4 @@
+import { syncServerIcon } from "@/lib/serverIconSync";
 import { invoke } from "@tauri-apps/api/core";
 import { generateShortCode } from "@/lib/shortCode";
 import { join, documentDir } from "@tauri-apps/api/path";
@@ -5,6 +6,7 @@ import { exists, mkdir, rename, writeTextFile, readDir, readTextFile, remove, si
 import { fetch } from "@tauri-apps/plugin-http";
 import { isJREInstalled, installJRE, getJREPath } from "@/lib/jre";
 import { t as tn } from "@/i18n";
+import { backupsDirFor, renameServerBackups } from "@/lib/backupsFolder";
 
 // ============================================================
 // Backups do mundo — pasta dedicada, FORA da pasta do servidor
@@ -13,13 +15,13 @@ import { t as tn } from "@/i18n";
 // servidor (opção "Deletar" na sidebar) apaga a pasta inteira recursivamente
 // (ver handleConfirmDelete em HostView.tsx) — os backups, que existem
 // justamente como rede de segurança, sumiam junto, sem chance de
-// recuperação. Agora vivem em `Documentos/CubicaseBackups/<nome>`, uma
-// árvore irmã de `CubicaseServers`, sobrevivendo à exclusão do servidor.
+// recuperação. Agora vivem em `<pasta de backups>/<nome>` (por padrão
+// `Documentos/CubicaseBackups`, ou a pasta que a pessoa escolheu em Configurações;
+// ver src/lib/backupsFolder.ts), fora de `CubicaseServers`, sobrevivendo à exclusão do servidor.
 // Backups pré-existentes na localização antiga são migrados automaticamente
 // na primeira listagem (ver migrate_legacy_backups em src-tauri/src/lib.rs).
 export async function getBackupsDir(serverName: string): Promise<string> {
-  const docsDir = await documentDir();
-  return await join(docsDir, "CubicaseBackups", serverName);
+  return await backupsDirFor(serverName);
 }
 
 // Caracteres proibidos em nome de arquivo/pasta no Windows (a única
@@ -117,10 +119,8 @@ export async function renameServer(
   // passar em silêncio (o usuário precisa saber que precisa ir buscá-los lá).
   let backupsMigrationFailed = false;
   try {
-    const oldBackupsDir = await getBackupsDir(oldName);
-    if (await exists(oldBackupsDir)) {
-      await rename(oldBackupsDir, await getBackupsDir(newName));
-    }
+    // Pelo Rust: a pasta de backups pode estar fora do que o plugin de arquivos do app enxerga.
+    await renameServerBackups(oldName, newName);
   } catch (err) {
     console.warn("Falha ao migrar backups durante o rename do servidor:", err);
     backupsMigrationFailed = true;
@@ -2209,4 +2209,9 @@ export async function startServerOrchestrated(
     localOnly: !!options.localOnly,
     leaveGuest: !!options.leaveGuest,
   });
+
+  // Deixa o ícone da central igual ao local (os convidados veem a mesma imagem do Minecraft). Melhor esforço, em segundo plano.
+  if (serverInfo.shortCode && !options.localOnly) {
+    void syncServerIcon(serverInfo.path, serverInfo.shortCode, { retries: 3 });
+  }
 }

@@ -14,7 +14,7 @@
 // ============================================================
 
 import { appLocalDataDir, join } from "@tauri-apps/api/path";
-import { exists, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { exists, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 import { hostname } from "@tauri-apps/plugin-os";
 import { supabase } from "@/lib/supabaseClient";
 import { getSubscriptionStatus, isSubscriptionActive } from "@/lib/subscription";
@@ -23,6 +23,8 @@ export interface PanelDevice {
   id: string;
   device_token: string;
   device_name: string;
+  /** Conta dona do dispositivo (ausente nos arquivos antigos). Sem isso, trocar de conta herdaria o painel da anterior. */
+  user_id?: string;
 }
 
 async function devicePath(): Promise<string> {
@@ -39,6 +41,12 @@ export async function loadLocalPanelDevice(): Promise<PanelDevice | null> {
   }
 }
 
+/** Desfaz o pareamento local (sair da conta ou entrar em outra): o agente do painel para de se conectar. */
+export async function clearLocalPanelDevice(): Promise<void> {
+  const path = await devicePath();
+  if (await exists(path)) await remove(path).catch(() => {});
+}
+
 async function saveLocalPanelDevice(device: PanelDevice): Promise<void> {
   await writeTextFile(await devicePath(), JSON.stringify(device, null, 2));
 }
@@ -51,10 +59,16 @@ async function saveLocalPanelDevice(device: PanelDevice): Promise<void> {
  */
 export async function ensurePanelDeviceIfEligible(): Promise<PanelDevice | null> {
   const existing = await loadLocalPanelDevice();
-  if (existing) return existing;
-
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) return null;
+  if (!session?.user) {
+    // Sem conta logada não há dono para o painel: remove o pareamento que ficou da conta anterior.
+    if (existing) await clearLocalPanelDevice();
+    return null;
+  }
+  if (existing) {
+    if (existing.user_id === session.user.id) return existing;
+    await clearLocalPanelDevice(); // era de outra conta (ou de uma versão antiga, sem dono registrado)
+  }
 
   const status = await getSubscriptionStatus().catch(() => null);
   if (!isSubscriptionActive(status)) return null;
@@ -72,7 +86,7 @@ export async function ensurePanelDeviceIfEligible(): Promise<PanelDevice | null>
     return null;
   }
 
-  const device: PanelDevice = { id: data.id, device_token: data.device_token, device_name: data.device_name };
+  const device: PanelDevice = { id: data.id, device_token: data.device_token, device_name: data.device_name, user_id: session.user.id };
   await saveLocalPanelDevice(device);
   return device;
 }

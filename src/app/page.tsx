@@ -1,5 +1,7 @@
 "use client";
 
+import { PlusModal } from "@/app/components/PlusModal";
+import { closePlus, openPlus, usePlusUi } from "@/lib/plusUi";
 import { pathLabelKey } from "@/lib/networkTransport";
 import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
@@ -31,6 +33,7 @@ import { DiagnosticsToasts, DiagnosticsBell } from "@/app/components/Diagnostics
 import { pushDiagnostic } from "@/app/diagnostics";
 import { supabase } from "@/lib/supabaseClient";
 import { UpdateBanner } from "@/app/components/UpdateBanner";
+import { BackupIndicator } from "@/app/components/BackupIndicator";
 import { UpdateButton } from "@/app/components/UpdateButton";
 import { HelpCenter } from "@/app/components/HelpCenter";
 import { ConnectionHelpModal } from "@/app/components/ConnectionHelpModal";
@@ -40,6 +43,7 @@ import { radminAddress, radminProbe } from "@/lib/radmin";
 import { useUpdaterStore } from "@/app/updater";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
+import { usePerfStore, type PerfState } from "@/lib/perfMonitor";
 import { createResourceMonitor, explainResourceBottleneck, type ResourceSnapshot } from "@/lib/resourceDiagnostics";
 import { maybeBackupWorld } from "@/lib/autoBackup";
 import { connectAddressFor } from "@/lib/connectAddress";
@@ -47,8 +51,10 @@ import { t, useT } from "@/i18n";
 import { initNativeLocaleSync } from "@/i18n/native";
 
 // Componentes extraídos
-import { HostView } from "@/app/components/host/HostView";
-import { GuestView } from "@/app/components/guest/GuestView";
+import { HostView, type HostViewProps } from "@/app/components/host/HostView";
+import { GuestView, type GuestViewProps } from "@/app/components/guest/GuestView";
+import { NewShell } from "@/app/shell/NewShell";
+import { useNewUi } from "@/lib/uiPrefs";
 
 // ============================================================
 // Page
@@ -160,6 +166,7 @@ export default function Home() {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAppSettings, setShowAppSettings] = useState(false);
+  const plusUi = usePlusUi();
   const [showHelp, setShowHelp] = useState(false);
   const [appSettingsCategory, setAppSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -348,6 +355,7 @@ export default function Home() {
     let unlistenMcDiagnostic: (() => void) | null = null;
     let unlistenNetDiagnostic: (() => void) | null = null;
     let unlistenResourceSample: (() => void) | null = null;
+    let unlistenPerf: (() => void) | null = null;
     let unlistenHosting: (() => void) | null = null;
     // Sem isso, um cleanup que dispara NO MEIO do registro dos 7 listeners
     // abaixo (entre dois `await listen(...)`) deixa órfão qualquer listener
@@ -572,6 +580,7 @@ export default function Home() {
           resourceMonitorRef.current.reset();
           latestResourceSampleRef.current = null;
           setResourceSample(null);
+          usePerfStore.getState().reset();
           lastAutoBackupAtRef.current = Date.now();
         }
 
@@ -630,6 +639,8 @@ export default function Home() {
           });
         }
 
+        usePerfStore.getState().noteLagLine(line);
+
         appendMcLogToRunningServer(event.payload);
       });
       if (cancelled) unMcLogs(); else unlistenMcLogs = unMcLogs;
@@ -641,6 +652,7 @@ export default function Home() {
       const unResourceSample = await listen<ResourceSnapshot>("mc-resource-sample", (event) => {
         latestResourceSampleRef.current = event.payload;
         setResourceSample(event.payload);
+        usePerfStore.getState().pushSample(event.payload, useAppStore.getState().onlinePlayers.length);
 
         const resourceDiagnostic = resourceMonitorRef.current.ingestSample(event.payload);
         if (resourceDiagnostic) {
@@ -664,6 +676,10 @@ export default function Home() {
         }
       });
       if (cancelled) unResourceSample(); else unlistenResourceSample = unResourceSample;
+
+      // TPS e tempo por tick lidos do console pelo backend (src-tauri/src/perf.rs).
+      const unPerf = await listen<PerfState>("mc-perf", (event) => usePerfStore.getState().setPerf(event.payload));
+      if (cancelled) unPerf(); else unlistenPerf = unPerf;
 
       // Se o efeito foi cancelado durante o registro dos listeners acima (ver
       // comentário no início do efeito), nem tenta restaurar estado — o
@@ -699,6 +715,7 @@ export default function Home() {
           useAppStore.getState().setGuestConnectedShortCode(null);
         }
         if (status.minecraftStatus === "online") {
+          invoke<PerfState>("get_perf_state").then((p) => usePerfStore.getState().setPerf(p)).catch(() => {});
           setServerStatus("online");
           appendMcLogToRunningServer(t("app.mc.restore.online"));
         } else if (status.minecraftStatus === "crashed") {
@@ -724,6 +741,7 @@ export default function Home() {
       unlistenMcDiagnostic?.();
       unlistenNetDiagnostic?.();
       unlistenResourceSample?.();
+      unlistenPerf?.();
       unlistenHosting?.();
     };
     // `minecraftPort` NÃO é usado em nenhum lugar deste efeito (nenhum dos 7
@@ -752,14 +770,30 @@ export default function Home() {
     };
   }, []);
 
+  // Aviso de backup do mundo em andamento (botão, automático ou pedido pelo painel web / Discord).
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void import("@/lib/backupState").then(async ({ listenBackupEvents }) => {
+      const un = await listenBackupEvents();
+      if (cancelled) un(); else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   // Painel Web Remoto (Cubicase Plus) — pareia esta instalação na primeira
   // vez que houver sessão + assinatura ativa (best-effort, não bloqueia
   // nada se falhar). Ver src/lib/panelDevice.ts e panel_agent.rs no backend.
+  // Roda de novo ao trocar de conta: o pareamento é de quem estava logado, então sair apaga e entrar pareia a nova.
+  const authUserId = useAppStore((s) => s.user?.id ?? null);
   useEffect(() => {
     void import("@/lib/panelDevice").then(({ ensurePanelDeviceIfEligible }) =>
       ensurePanelDeviceIfEligible().catch((err) => console.error("[panel] ensurePanelDeviceIfEligible falhou:", err))
     );
-  }, []);
+  }, [authUserId]);
 
   // Espelha a lista de servidores importados num arquivo local sempre que
   // ela mudar, para o panel_agent (Rust) conseguir listá-los no painel web
@@ -1076,13 +1110,102 @@ export default function Home() {
     }
   };
 
+  const newUi = useNewUi();
+
   if (defaultTab === null) {
     return <OnboardingScreen mounted={mounted} onChoose={setDefaultTab} />;
+  }
+
+  const hostProps: HostViewProps = {
+    netStatus,
+    netMode,
+    netIp,
+    hosting,
+    logs,
+    mcLogs,
+    localServers,
+    showCreateServer,
+    showSettings,
+    showConfigModal,
+    configServerDir,
+    serverInstallProgress,
+    isDeletingServer,
+    deleteConfirmServer,
+    totalSystemRamGb,
+    serverConfigPort,
+    shortCode,
+    resourceSample,
+    onSetLogs: setLogs,
+    onSetMcLogs: onSetMcLogsForSelected,
+    onSetLocalServers: setLocalServers,
+    onSetShowCreateServer: setShowCreateServer,
+    onSetShowSettings: setShowSettings,
+    onSetShowConfigModal: setShowConfigModal,
+    onSetConfigServerDir: setConfigServerDir,
+    onSetServerInstallProgress: setServerInstallProgress,
+    onSetIsDeletingServer: setIsDeletingServer,
+    onSetDeleteConfirmServer: setDeleteConfirmServer,
+    onSetTotalSystemRamGb: setTotalSystemRamGb,
+    onSetServerConfigPort: setServerConfigPort,
+    onOpenSubscribe: () => openPlus(),
+  };
+  const guestProps: GuestViewProps = {
+    netStatus,
+    minecraftPort,
+    onConnect: handleGuestConnect,
+    onDisconnect: handleGuestDisconnect,
+  };
+
+  // Nova interface (menu lateral + abas), escolhida em Configurações. A lógica é a mesma da tela atual.
+  if (newUi) {
+    return (
+      <div className="h-screen flex flex-col bg-theme-base transition-colors duration-300">
+        <DiagnosticsToasts />
+        <BackupIndicator />
+        <UpdateBanner />
+        <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
+          <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
+          <PlusModal
+                  isOpen={plusUi.open}
+                  onClose={closePlus}
+                  onOpenSubscriptionSettings={() => { setAppSettingsCategory("servidores"); setShowAppSettings(true); }}
+                  onConfigureServer={() => {
+                    const st = useAppStore.getState();
+                    const sv = st.localServers.find((x) => x.name === st.selectedServer);
+                    if (sv) { setConfigServerDir(sv.path); setShowConfigModal(true); }
+                  }}
+                />
+          <AppSettingsPanel
+            onOpenPlus={(feature) => openPlus(feature)}
+          isOpen={showAppSettings}
+          onClose={() => setShowAppSettings(false)}
+          initialCategory={appSettingsCategory}
+        />
+          <CloseAppModal
+          isOpen={showCloseConfirm}
+          onClose={() => setShowCloseConfirm(false)}
+          onQuitFully={handleQuitFully}
+          onMinimizeToTray={handleMinimizeToTray}
+        />
+        <NewShell
+          host={hostProps}
+          guest={guestProps}
+          mode={mode}
+          onSetMode={setMode}
+          onOpenHelp={() => setShowHelp(true)}
+          onOpenSettings={() => {
+            setAppSettingsCategory(undefined);
+            setShowAppSettings(true);
+          }}
+        />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-theme-bg transition-colors duration-300">
       <DiagnosticsToasts />
+      <BackupIndicator />
       <UpdateBanner />
       {/* Cabeçalho */}
       <header className="sticky top-0 z-40 bg-theme-card/80 backdrop-blur-xl border-b border-theme-card">
@@ -1154,7 +1277,18 @@ export default function Home() {
 
       <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
       <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
+      <PlusModal
+              isOpen={plusUi.open}
+              onClose={closePlus}
+              onOpenSubscriptionSettings={() => { setAppSettingsCategory("servidores"); setShowAppSettings(true); }}
+              onConfigureServer={() => {
+                const st = useAppStore.getState();
+                const sv = st.localServers.find((x) => x.name === st.selectedServer);
+                if (sv) { setConfigServerDir(sv.path); setShowConfigModal(true); }
+              }}
+            />
       <AppSettingsPanel
+        onOpenPlus={(feature) => openPlus(feature)}
         isOpen={showAppSettings}
         onClose={() => setShowAppSettings(false)}
         initialCategory={appSettingsCategory}
@@ -1169,49 +1303,9 @@ export default function Home() {
       {/* Conteúdo Principal */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         {mode === "host" ? (
-          <HostView
-            netStatus={netStatus}
-            netMode={netMode}
-            netIp={netIp}
-            hosting={hosting}
-            logs={logs}
-            mcLogs={mcLogs}
-            localServers={localServers}
-            showCreateServer={showCreateServer}
-            showSettings={showSettings}
-            showConfigModal={showConfigModal}
-            configServerDir={configServerDir}
-            serverInstallProgress={serverInstallProgress}
-            isDeletingServer={isDeletingServer}
-            deleteConfirmServer={deleteConfirmServer}
-            totalSystemRamGb={totalSystemRamGb}
-            serverConfigPort={serverConfigPort}
-            shortCode={shortCode}
-            resourceSample={resourceSample}
-            onSetLogs={setLogs}
-            onSetMcLogs={onSetMcLogsForSelected}
-            onSetLocalServers={setLocalServers}
-            onSetShowCreateServer={setShowCreateServer}
-            onSetShowSettings={setShowSettings}
-            onSetShowConfigModal={setShowConfigModal}
-            onSetConfigServerDir={setConfigServerDir}
-            onSetServerInstallProgress={setServerInstallProgress}
-            onSetIsDeletingServer={setIsDeletingServer}
-            onSetDeleteConfirmServer={setDeleteConfirmServer}
-            onSetTotalSystemRamGb={setTotalSystemRamGb}
-            onSetServerConfigPort={setServerConfigPort}
-            onOpenSubscribe={() => {
-              setAppSettingsCategory("assinatura");
-              setShowAppSettings(true);
-            }}
-          />
+          <HostView {...hostProps} />
         ) : (
-          <GuestView
-            netStatus={netStatus}
-            minecraftPort={minecraftPort}
-            onConnect={handleGuestConnect}
-            onDisconnect={handleGuestDisconnect}
-          />
+          <GuestView {...guestProps} />
         )}
       </main>
     </div>

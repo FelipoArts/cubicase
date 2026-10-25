@@ -53,6 +53,8 @@ export interface ModrinthVersionFile {
   filename: string;
   primary: boolean;
   hashes: { sha1?: string; sha512?: string };
+  /** Tamanho em bytes (a Modrinth informa). */
+  size?: number;
 }
 
 export interface ModrinthVersion {
@@ -467,5 +469,45 @@ export async function getProjectVersionsFor(projectId: string, loaders: string[]
   const gameVersions = encodeURIComponent(JSON.stringify([mcVersion]));
   const loaderParam = encodeURIComponent(JSON.stringify(loaders));
   const res = await modrinthFetch(`${MODRINTH_API}/project/${encodeURIComponent(projectId)}/version?game_versions=${gameVersions}&loaders=${loaderParam}`);
+  return (await res.json()) as ModrinthVersion[];
+}
+
+// ============================================================
+// Datapacks e pacotes de recursos (resource packs)
+// ============================================================
+
+export type PackKind = "datapack" | "resourcepack";
+
+/** Busca datapacks ou resource packs que servem para `mcVersion` (sem filtro de loader: eles não têm). */
+export async function searchPackProjects(
+  kind: PackKind,
+  query: string,
+  mcVersion: string,
+  offset = 0
+): Promise<{ hits: ModrinthSearchHit[]; totalHits: number }> {
+  const cacheKey = `pack|${kind}|${query}|${mcVersion}|${offset}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < MODRINTH_CACHE_TTL) return { hits: cached.hits, totalHits: cached.totalHits };
+
+  const facets = JSON.stringify([[`project_type:${kind}`], [`versions:${mcVersion}`]]);
+  const index = query.trim() ? "relevance" : "downloads";
+  const url = `${MODRINTH_API}/search?query=${encodeURIComponent(query)}&facets=${encodeURIComponent(facets)}&index=${index}&limit=20&offset=${offset}`;
+  const data = (await (await modrinthFetch(url)).json()) as ModrinthSearchResponse;
+  searchCache.set(cacheKey, { hits: data.hits, totalHits: data.total_hits, fetchedAt: Date.now() });
+  return { hits: data.hits, totalHits: data.total_hits };
+}
+
+/** "Loader" que a Modrinth usa nas versões de cada tipo de pacote. */
+const PACK_LOADER: Record<PackKind, string> = { datapack: "datapack", resourcepack: "minecraft" };
+
+/**
+ * Versões de um datapack/resource pack para `mcVersion`, a mais nova primeiro. O filtro de loader é ESSENCIAL:
+ * muitos projetos da busca de datapacks são também mods/plugins (ex.: VeinMiner), e sem ele a versão "mais nova"
+ * poderia ser um .jar de Paper em vez do .zip do datapack.
+ */
+export async function getPackVersions(projectId: string, mcVersion: string, kind: PackKind): Promise<ModrinthVersion[]> {
+  const gameVersions = encodeURIComponent(JSON.stringify([mcVersion]));
+  const loaders = encodeURIComponent(JSON.stringify([PACK_LOADER[kind]]));
+  const res = await modrinthFetch(`${MODRINTH_API}/project/${encodeURIComponent(projectId)}/version?game_versions=${gameVersions}&loaders=${loaders}`);
   return (await res.json()) as ModrinthVersion[];
 }

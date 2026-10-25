@@ -23,12 +23,22 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   size: vi.fn(),
 }));
 
-const { renameServer, getBackupsDir } = await import("@/lib/server");
+// A pasta de backups (padrão ou escolhida pela pessoa) é decidida pelo Rust: aqui só interessa que renameServer
+// peça para mover a subpasta e trate a falha sem desfazer o rename do servidor.
+const renameServerBackupsMock = vi.fn();
+vi.mock("@/lib/backupsFolder", () => ({
+  backupsDirFor: (name: string) => Promise.resolve(`/fake/backups/${name}`),
+  renameServerBackups: (...args: unknown[]) => renameServerBackupsMock(...args),
+}));
+
+const { renameServer } = await import("@/lib/server");
 
 beforeEach(() => {
   documentDirMock.mockClear();
   existsMock.mockReset();
   renameMock.mockReset();
+  renameServerBackupsMock.mockReset();
+  renameServerBackupsMock.mockResolvedValue(false);
 });
 
 describe("renameServer", () => {
@@ -90,34 +100,30 @@ describe("renameServer", () => {
 
   it("renomeia com sucesso quando não há pasta de backups pra migrar", async () => {
     renameMock.mockResolvedValue(undefined);
-    existsMock.mockResolvedValue(false); // getBackupsDir(oldName) não existe
+    renameServerBackupsMock.mockResolvedValue(false); // nenhuma subpasta de backups do nome antigo
 
     const result = await renameServer("Foo", "Bar", []);
 
     expect(result).toEqual({ name: "Bar", path: "/fake/docs/CubicaseServers/Bar", backupsMigrationFailed: false });
-    // Só o rename da pasta do servidor — nada de backups pra mover.
+    // Só o rename da pasta do servidor.
     expect(renameMock).toHaveBeenCalledTimes(1);
     expect(renameMock).toHaveBeenCalledWith("/fake/docs/CubicaseServers/Foo", "/fake/docs/CubicaseServers/Bar");
   });
 
-  it("migra a pasta de backups junto quando ela existe", async () => {
+  it("migra a pasta de backups junto (pelo Rust, que sabe onde ela está)", async () => {
     renameMock.mockResolvedValue(undefined);
-    existsMock.mockResolvedValue(true); // getBackupsDir(oldName) existe
+    renameServerBackupsMock.mockResolvedValue(true);
 
     const result = await renameServer("Foo", "Bar", []);
 
     expect(result.backupsMigrationFailed).toBe(false);
-    expect(renameMock).toHaveBeenCalledTimes(2);
-    expect(renameMock).toHaveBeenNthCalledWith(2, await getBackupsDir("Foo"), await getBackupsDir("Bar"));
+    expect(renameMock).toHaveBeenCalledTimes(1); // o rename dos backups não passa mais pelo plugin de arquivos
+    expect(renameServerBackupsMock).toHaveBeenCalledWith("Foo", "Bar");
   });
 
   it("reporta backupsMigrationFailed=true sem desfazer o rename do servidor, se só a migração dos backups falhar", async () => {
-    existsMock.mockResolvedValue(true);
-    renameMock.mockImplementation((from: string) => {
-      // Primeira chamada (pasta do servidor) funciona; segunda (backups) falha.
-      if (from === "/fake/docs/CubicaseServers/Foo") return Promise.resolve(undefined);
-      return Promise.reject(new Error("arquivo travado"));
-    });
+    renameMock.mockResolvedValue(undefined);
+    renameServerBackupsMock.mockRejectedValue(new Error("arquivo travado"));
 
     const result = await renameServer("Foo", "Bar", []);
 

@@ -19,6 +19,7 @@ import {
   Search,
   X,
   ArrowUpCircle,
+  Boxes,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
@@ -26,6 +27,8 @@ import { cn } from "@/lib/utils";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { getBackupsDir, type ServerInfo } from "@/lib/server";
 import { ServerUpgradeWizard } from "./ServerUpgradeWizard";
+import { WorldsSection } from "./WorldsSection";
+import { WorldPacksModal } from "./WorldPacksModal";
 import { TYPE_LABELS, installedLoaderVersion, isUpgradeSupported, type LoaderTarget, type UpgradableType } from "@/lib/serverUpgrade";
 import type { ServerStatus } from "@/app/store";
 import { ConfirmActionModal } from "./ConfirmActionModal";
@@ -76,6 +79,11 @@ interface ServerManagePanelProps {
   /** Abre o navegador de mods logo ao montar (servidor recém-criado). */
   autoOpenModBrowser?: boolean;
   onAutoOpenHandled?: () => void;
+  /**
+   * Mostra só uma parte do painel, sem o cabeçalho e o seletor de abas (a nova interface tem suas próprias abas):
+   * "mods" = mods/plugins, "mundo" = mundos, backups e reset, "version" = versão/atualização.
+   */
+  section?: "mods" | "mundo" | "version";
 }
 
 type PendingAction =
@@ -113,7 +121,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion, serverInfo, onServerUpgraded, autoOpenModBrowser, onAutoOpenHandled }: ServerManagePanelProps) {
+export function ServerManagePanel({ serverDir, serverName, serverType, serverStatus, mcVersion, serverInfo, onServerUpgraded, autoOpenModBrowser, onAutoOpenHandled, section }: ServerManagePanelProps) {
   const { t, rich } = useT();
   // Forge/NeoForge/Fabric usam pasta "mods"; Paper (e derivados como Spigot/Purpur)
   // usam pasta "plugins" — mesmo conceito de gerenciamento, pasta e rótulo diferentes.
@@ -126,10 +134,13 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   // src/lib/modrinth.ts); precisamos também saber a versão do MC pra filtrar por
   // compatibilidade, que nem sempre está disponível (ex: servidor importado sem meta).
   const modBrowserAvailable = modsCapable && !!loaderForServerType(serverType) && !!mcVersion;
-  const [activeTab, setActiveTab] = useState<"mods" | "mundo">(modsCapable ? "mods" : "mundo");
+  const [pickedTab, setActiveTab] = useState<"mods" | "mundo">(modsCapable ? "mods" : "mundo");
+  // Com `section`, a aba é fixa (quem usa o painel já tem as próprias abas); "version" não mostra nenhuma delas.
+  const activeTab: "mods" | "mundo" | "none" = section === "version" ? "none" : section ?? pickedTab;
   const [showModBrowser, setShowModBrowser] = useState(() => !!autoOpenModBrowser && modBrowserAvailable);
   const [showExportPack, setShowExportPack] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showPacks, setShowPacks] = useState(false);
   // Importação de um pacote leve sem internet deixa mods pendentes (ver cubicasePack.ts).
   const [pendingPack, setPendingPack] = useState<PackPending | null>(null);
   const [completing, setCompleting] = useState<{ done: number; total: number } | null>(null);
@@ -373,8 +384,8 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
   };
 
   return (
-    <div className="bg-theme-card p-8 rounded-[2rem] border-theme-card shadow-theme-card space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className={cn("bg-theme-card border-theme-card shadow-theme-card space-y-6", section ? "p-5 rounded-2xl" : "p-8 rounded-[2rem]")}>
+      {!section && (<div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest bg-indigo-100 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full">
             {t("manage.badge")}
@@ -406,9 +417,9 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             <Globe2 className="w-3.5 h-3.5" /> {t("manage.tab.world")}
           </button>
         </div>
-      </div>
+      </div>)}
 
-      {serverInfo && isUpgradeSupported(serverInfo) && (
+      {(!section || section === "version") && serverInfo && isUpgradeSupported(serverInfo) && (
         <div className="flex items-center justify-between gap-3 flex-wrap p-3.5 bg-theme-muted border border-theme-card rounded-2xl">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wide text-theme-secondary">{t("upgrade.current")}</p>
@@ -429,7 +440,7 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
         </div>
       )}
 
-      {pendingPack && (
+      {section !== "version" && pendingPack && (
         <div className="p-4 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-xl space-y-2.5">
           <p className="text-sm font-bold flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {t("pack.pending.title")}
@@ -679,6 +690,8 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </div>
           )}
 
+          <WorldsSection serverDir={serverDir} mcVersion={mcVersion} isServerStopped={isServerStopped} onWorldChanged={() => { void loadBackups(); }} />
+
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <button
               type="button"
@@ -689,6 +702,15 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
               {isBackingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {isBackingUp ? t("manage.backingUp") : t("manage.backupNow")}
             </button>
+            {mcVersion && (
+              <button
+                type="button"
+                onClick={() => setShowPacks(true)}
+                className="h-10 px-5 bg-theme-muted hover:bg-theme-card border border-theme-card text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              >
+                <Boxes className="w-3.5 h-3.5" /> {t("packs.open")}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowExportPack(true)}
@@ -823,6 +845,10 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             onServerUpgraded?.(target);
           }}
         />
+      )}
+
+      {mcVersion && (
+        <WorldPacksModal isOpen={showPacks} onClose={() => setShowPacks(false)} serverDir={serverDir} mcVersion={mcVersion} isServerStopped={isServerStopped} />
       )}
 
       <ExportPackModal

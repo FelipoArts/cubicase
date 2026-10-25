@@ -4,10 +4,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Check, X, AlertTriangle, Image as ImageIcon, Link as LinkIcon, Gamepad2, Copy } from 'lucide-react';
+import { Check, X, AlertTriangle, Image as ImageIcon, Link as LinkIcon, Gamepad2, Copy, Lock } from 'lucide-react';
 import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/utils';
 import { useLockBodyScroll } from '@/lib/useLockBodyScroll';
+import { invalidateServerIcon } from '@/lib/serverIcon';
+import { openPlus } from '@/lib/plusUi';
+import { syncServerIcon } from '@/lib/serverIconSync';
 import { useAppStore } from '@/app/store';
 import { getSubscriptionStatus, isSubscriptionActive } from '@/lib/subscription';
 import {
@@ -58,9 +61,16 @@ interface ServerConfigModalProps {
   onRenamed?: (result: { name: string; path: string; backupsMigrationFailed: boolean }) => void | Promise<void>;
   /** Current server status — if "online" or "starting", form is disabled */
   serverStatus?: string;
+  /**
+   * "modal" (padrão): janela por cima da tela. "inline": só o conteúdo, para ficar dentro de uma página (aba Configurações
+   * da nova interface) — não trava a rolagem do app e, ao salvar, não fecha nada (só avisa que salvou).
+   */
+  variant?: 'modal' | 'inline';
 }
 
-export function ServerConfigModal({ serverDir, serverName, isImported, existingServerNames, shortCode, isOpen, onClose, onSaved, onRenamed, serverStatus }: ServerConfigModalProps) {
+export function ServerConfigModal({ serverDir, serverName, isImported, existingServerNames, shortCode, isOpen, onClose, onSaved, onRenamed, serverStatus, variant = 'modal' }: ServerConfigModalProps) {
+  const inline = variant === 'inline';
+  const [justSaved, setJustSaved] = useState(false);
   const { t } = useT();
   const [nameInput, setNameInput] = useState(serverName);
   const [nameSubmitting, setNameSubmitting] = useState(false);
@@ -271,7 +281,7 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
     setTimeout(() => setConnectNameCopied(false), 1500);
   };
 
-  useLockBodyScroll(isOpen);
+  useLockBodyScroll(isOpen && !inline);
 
   // Load current properties when modal opens
   useEffect(() => {
@@ -397,7 +407,12 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       }
 
       onSaved();
-      onClose();
+      if (inline) {
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), 2500);
+      } else {
+        onClose();
+      }
     } catch (e) {
       console.error('Failed to write server properties:', e);
       setSaveError(t('config.saveFailed', { error: String(e) }));
@@ -417,6 +432,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
       await invoke('set_server_icon', { serverDir, imagePath: selected as string });
       const icon = await invoke<string | null>('get_server_icon', { serverDir });
       setIconDataUrl(icon);
+      invalidateServerIcon(serverDir);
+      if (shortCode) void syncServerIcon(serverDir, shortCode, { force: true });
     } catch (e) {
       console.error('Failed to set server icon:', e);
       setIconError(t('config.icon.setFailed', { error: String(e) }));
@@ -431,6 +448,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
     try {
       await invoke('remove_server_icon', { serverDir });
       setIconDataUrl(null);
+      invalidateServerIcon(serverDir);
+      if (shortCode) void syncServerIcon(serverDir, shortCode, { force: true });
     } catch (e) {
       console.error('Failed to remove server icon:', e);
       setIconError(t('config.icon.removeFailed', { error: String(e) }));
@@ -442,35 +461,8 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
   const isServerRunning = serverStatus === "online" || serverStatus === "starting" || serverStatus === "stopping";
   const formDisabled = isServerRunning || !!loadError;
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
-          <motion.div className="absolute inset-0 bg-theme-overlay backdrop-blur-sm" onClick={onClose} />
-          {/* Modal */}
-          <motion.div
-            className="relative w-full max-w-lg bg-theme-card rounded-[2rem] border-theme-card shadow-2xl z-10 space-y-6 max-h-[85vh] flex flex-col"
-            initial={{ opacity: 0, scale: 0.95, y: 15 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            transition={{ type: 'spring', duration: 0.3 }}
-          >
-            <div className="p-8 pb-0 flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-theme-primary">{t("serverSettings.button")}</h3>
-                <button type="button" onClick={onClose} className="p-1.5 hover:bg-theme-muted rounded-xl text-theme-secondary hover:text-theme-primary transition-colors cursor-pointer" title={t("common.cancel")}>
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="px-8 overflow-y-auto flex-1 custom-scrollbar">
+  const body = (
+            <div className={inline ? '' : 'px-8 overflow-y-auto flex-1 custom-scrollbar'}>
               {loadError && (
                 <div className="p-4 bg-theme-danger border border-theme-danger text-rose-800 dark:text-rose-200 rounded-2xl flex items-start gap-3 text-sm mb-4">
                   <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
@@ -533,22 +525,31 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
                   salvo na hora, direto na API Central, sem precisar do botão "Salvar". */}
               {shortCode && (
                 <div className="mb-4 p-4 bg-theme-muted border border-theme-card rounded-2xl space-y-2.5">
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-theme-primary">
-                    <LinkIcon className="w-4 h-4" /> {t("config.slug.title")}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-theme-primary">
+                      <LinkIcon className="w-4 h-4" /> {t("config.slug.title")}
+                    </label>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300">Plus</span>
+                  </div>
                   {slugLoading ? (
                     <p className="text-[10px] text-theme-secondary">{t("config.loading")}</p>
                   ) : (
                     <>
                       <div className="flex gap-2">
-                        <div className="flex-1 flex items-center h-11 px-3 rounded-xl border border-theme-card bg-theme-card overflow-hidden">
+                        <div
+                          className={cn("flex-1 flex items-center h-11 px-3 rounded-xl border border-theme-card bg-theme-card overflow-hidden", !subscriptionActive && "cursor-pointer hover:border-indigo-400")}
+                          onClick={!subscriptionActive ? () => openPlus('link') : undefined}
+                          role={!subscriptionActive ? 'button' : undefined}
+                          aria-label={!subscriptionActive ? t('plus.locked.unlock') : undefined}
+                        >
+                          {!subscriptionActive && <Lock className="w-3.5 h-3.5 text-indigo-500 mr-2 shrink-0" />}
                           <span className="text-[11px] text-theme-secondary whitespace-nowrap">play.cubicase.net/</span>
                           <input
                             type="text"
                             value={slugInput}
                             disabled={!subscriptionActive || slugSubmitting}
                             onChange={(e) => setSlugInput(e.target.value.toLowerCase())}
-                            className="flex-1 min-w-0 bg-transparent focus:outline-none text-sm text-theme-primary font-mono disabled:opacity-70 disabled:cursor-not-allowed"
+                            className={cn("flex-1 min-w-0 bg-transparent focus:outline-none text-sm text-theme-primary font-mono disabled:opacity-70 disabled:cursor-not-allowed", !subscriptionActive && "pointer-events-none")}
                           />
                         </div>
                         {subscriptionActive && (
@@ -572,9 +573,10 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
                       </div>
 
                       {!subscriptionActive ? (
-                        <p className="text-[10px] text-theme-secondary">
-                          {t("config.slug.freeSubscribe")}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button type="button" onClick={() => openPlus('link')} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors cursor-pointer"><Lock className="w-3.5 h-3.5" />{t('plus.locked.unlock')}</button>
+                          <p className="flex-1 min-w-48 text-[10px] text-theme-secondary">{t("config.slug.freeSubscribe")}</p>
+                        </div>
                       ) : customSlug ? (
                         <button
                           type="button"
@@ -601,21 +603,30 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
                   conectando pela mesh do próprio Cubicase. */}
               {shortCode && (
                 <div className="mb-4 p-4 bg-theme-muted border border-theme-card rounded-2xl space-y-2.5">
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-theme-primary">
-                    <Gamepad2 className="w-4 h-4" /> {t("config.connect.title")}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-theme-primary">
+                      <Gamepad2 className="w-4 h-4" /> {t("config.connect.title")}
+                    </label>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300">Plus</span>
+                  </div>
                   {connectNameLoading ? (
                     <p className="text-[10px] text-theme-secondary">{t("config.loading")}</p>
                   ) : (
                     <>
                       <div className="flex gap-2">
-                        <div className="flex-1 flex items-center h-11 px-3 rounded-xl border border-theme-card bg-theme-card overflow-hidden">
+                        <div
+                          className={cn("flex-1 flex items-center h-11 px-3 rounded-xl border border-theme-card bg-theme-card overflow-hidden", !subscriptionActive && "cursor-pointer hover:border-indigo-400")}
+                          onClick={!subscriptionActive ? () => openPlus('address') : undefined}
+                          role={!subscriptionActive ? 'button' : undefined}
+                          aria-label={!subscriptionActive ? t('plus.locked.unlock') : undefined}
+                        >
+                          {!subscriptionActive && <Lock className="w-3.5 h-3.5 text-indigo-500 mr-2 shrink-0" />}
                           <input
                             type="text"
                             value={connectNameInput}
                             disabled={!subscriptionActive || connectNameSubmitting}
                             onChange={(e) => setConnectNameInput(e.target.value.toLowerCase())}
-                            className="flex-1 min-w-0 bg-transparent focus:outline-none text-sm text-theme-primary font-mono disabled:opacity-70 disabled:cursor-not-allowed"
+                            className={cn("flex-1 min-w-0 bg-transparent focus:outline-none text-sm text-theme-primary font-mono disabled:opacity-70 disabled:cursor-not-allowed", !subscriptionActive && "pointer-events-none")}
                           />
                           <span className="text-[11px] text-theme-secondary whitespace-nowrap">.{CONNECT_NAME_DOMAIN}</span>
                         </div>
@@ -640,9 +651,10 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
                       </div>
 
                       {!subscriptionActive ? (
-                        <p className="text-[10px] text-theme-secondary">
-                          {t("config.connect.freeSubscribe")}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button type="button" onClick={() => openPlus('address')} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors cursor-pointer"><Lock className="w-3.5 h-3.5" />{t('plus.locked.unlock')}</button>
+                          <p className="flex-1 min-w-48 text-[10px] text-theme-secondary">{t("config.connect.freeSubscribe")}</p>
+                        </div>
                       ) : customConnectName ? (
                         <button
                           type="button"
@@ -909,6 +921,50 @@ export function ServerConfigModal({ serverDir, serverName, isImported, existingS
                 </div>
               </form>
             </div>
+  );
+  if (inline) {
+    return (
+      <div className="bg-theme-card border-theme-card shadow-theme-card rounded-2xl p-6">
+        {body}
+        <div className="flex items-center justify-end gap-3 pt-4 mt-2 border-t border-theme-card">
+    {justSaved && <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5" role="status"><Check className="w-4 h-4" /> {t("nui.settings.saved")}</span>}
+    <button type="button" disabled={formDisabled} onClick={handleSave} className="px-6 h-12 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-colors text-sm font-semibold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-shadow cursor-pointer">
+      <Check className="w-4 h-4" /> {t("config.save")}
+    </button>
+  </div>
+      </div>
+    );
+  }
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {/* Backdrop */}
+          <motion.div className="absolute inset-0 bg-theme-overlay backdrop-blur-sm" onClick={onClose} />
+          {/* Modal */}
+          <motion.div
+            className="relative w-full max-w-lg bg-theme-card rounded-[2rem] border-theme-card shadow-2xl z-10 space-y-6 max-h-[85vh] flex flex-col"
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ type: 'spring', duration: 0.3 }}
+          >
+            <div className="p-8 pb-0 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-theme-primary">{t("serverSettings.button")}</h3>
+                <button type="button" onClick={onClose} className="p-1.5 hover:bg-theme-muted rounded-xl text-theme-secondary hover:text-theme-primary transition-colors cursor-pointer" title={t("common.cancel")}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {body}
 
             {/* Action buttons */}
             <div className="p-8 pt-0 flex-shrink-0">

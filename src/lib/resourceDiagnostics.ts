@@ -18,6 +18,9 @@ export interface ResourceSnapshot {
   availableRamMb?: number;
   cpuUsagePercent?: number;
   allocatedRamMb?: number;
+  cpuCores?: number;
+  processRamMb?: number;
+  processCpuPercent?: number;
 }
 
 export interface ResourceDiagnostic {
