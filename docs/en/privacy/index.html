@@ -33,7 +33,7 @@
         <a href="/en/#recursos">Features</a>
         <a href="/en/#como-funciona">How it works</a>
         <a href="/en/tutorial/">Tutorial</a>
-        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
         <div class="lang-switch" data-lang-switch></div>
         <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>Sign in</a>
         <div class="nav-cta">
@@ -49,7 +49,7 @@
   <header class="download-hero legal-hero">
     <div class="container">
       <h1>Privacy Policy</h1>
-      <p class="legal-updated">Last updated: October 6, 2026</p>
+      <p class="legal-updated">Last updated: October 25, 2026</p>
     </div>
   </header>
 
@@ -62,7 +62,7 @@
       </section>
       <section class="legal-section">
         <h2>2. What stays on your computer</h2>
-        <p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (Documents/CubicaseServers, Documents/CubicaseBackups and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>
+        <p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (Documents/CubicaseServers, the backups folder — by default Documents/CubicaseBackups, or the one you choose in Settings — and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>
       </section>
       <section class="legal-section">
         <h2>3. Data we handle and why</h2>
@@ -76,6 +76,8 @@
         <tr><td><strong>Account (optional)</strong></td><td>E-mail and, if you sign in with Google or Discord, the profile name and picture they provide.</td><td>Authenticate you and enable account features.</td></tr>
         <tr><td><strong>Cubicase Plus</strong></td><td>Stripe customer and subscription identifiers, plan, status and renewal date. <strong>We do not receive or store card data</strong>; payment happens on Stripe's page.</td><td>Bill you and enable paid features.</td></tr>
         <tr><td><strong>Remote web panel (Plus)</strong></td><td>Computer name, device token, last seen, invited accounts and permissions. While the app is connected: server state, server list, online players, computer usage metrics and the last ~200 console lines, plus commands sent from the panel. This temporary content is deleted when the app disconnects.</td><td>Control the server from a browser.</td></tr>
+        <tr><td><strong>Installed panel notifications (Plus)</strong></td><td>The address of your browser or phone's notification subscription, its public keys and your preferences (which alerts to get and the language). We send alerts such as “someone joined”, “server started” or “computer offline” to that address.</td><td>Alert you, on your phone or browser, about what happens on the server.</td></tr>
+        <tr><td><strong>Discord bot (optional)</strong></td><td>When you link a Discord to your server: the identifiers of the linked Discord and Cubicase server, the identifiers of the chosen channels and operator role, the language and alert preferences, and the messages the bot posts. <strong>Names of online players</strong> are sent by the app to our service only while a Discord is linked to the server, are used only to announce who joined and left, and disappear within minutes together with the server state. When someone uses a control command, their identifier is kept for about 1 minute (spacing between commands), and their display name appears in the channel alert and in the host's console. Discord sees what the bot posts and the commands typed there, under Discord's own policy.</td><td>Show status and alerts on Discord and let people control the server from there (control, several Discords and backup are part of Plus).</td></tr>
         <tr><td><strong>Custom link and address (Plus)</strong></td><td>The chosen name, linked to your server and your account.</td><td>Show the link/address you configured.</td></tr>
         <tr><td><strong>Help Center</strong></td><td>The e-mail, subject and message you write, plus the app version and operating system.</td><td>Answer your request.</td></tr>
         <tr><td><strong>Donations</strong></td><td>Amount and currency confirmed by Stripe. We do not store your payment details.</td><td>Record the support received.</td></tr>
@@ -88,6 +90,8 @@
         <li><strong>Cloudflare</strong> — Cubicase API, storage of server records and the remote panel.</li>
         <li><strong>Supabase</strong> — accounts, subscriptions and remote panel data.</li>
         <li><strong>Stripe</strong> — payments (subscriptions and donations).</li>
+        <li><strong>Discord</strong> — the platform where the Cubicase bot posts messages and receives commands, only in the Discord servers where you added it. Discord handles that data under its own policy.</li>
+        <li><strong>Browser notification services (Google, Apple, Mozilla, Microsoft)</strong> — deliver the installed panel's notifications; they receive the (already encrypted) alert and the subscription address.</li>
         <li><strong>Resend</strong> — delivery of Help Center e-mails to us.</li>
         <li><strong>Oracle Cloud</strong> — backup (relay) server in São Paulo, used only when a direct connection is not possible; it sees the IP addresses of whoever uses it and the volume relayed, but not the content (the connection is encrypted).</li>
         <li><strong>Radmin VPN (Famatech)</strong> — an independent program you may install as a connection plan B. Cubicase sends it no data: it only checks on this computer whether it is installed and connected and, if you ask, installs it through Microsoft's winget. Radmin's use follows its own policy; in this mode the game traffic goes through the Radmin network, not through us.</li>
@@ -113,6 +117,8 @@
         <li>Account: as long as it exists; you may ask for deletion.</li>
         <li>Subscription data: while the subscription exists and for the period required by law for tax records.</li>
         <li>Remote panel: temporary console content disappears when the app disconnects; the device registration stays until you remove it.</li>
+        <li>Discord link and its preferences: until you unlink (in the app or with <code>/cubicase unlink</code>) or delete the server; names of online players: a few minutes; identifier used for the spacing between commands: about 1 minute.</li>
+        <li>Panel notification subscription: until you turn it off or remove the device.</li>
         <li>Help Center messages: as long as needed to handle and document the request.</li>
         </ul>
       </section>
@@ -147,10 +153,11 @@
       <div class="footer-links">
         <a href="/en/">Home</a>
         <a href="/en/tutorial/">Tutorial</a>
+        <a href="/en/discord/">Discord</a>
         <a href="/en/privacy/">Privacy</a>
         <a href="/en/terms/">Terms</a>
         <a href="/en/licenses/">Licenses</a>
-        <a href="https://github.com/FelipoArts/cubeforge" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
     <div class="container footer-disclaimer">Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft. Minecraft is a registered trademark of Mojang Synergies AB.</div>

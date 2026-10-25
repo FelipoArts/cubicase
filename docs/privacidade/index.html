@@ -49,7 +49,7 @@
   <header class="download-hero legal-hero">
     <div class="container">
       <h1>Política de Privacidade</h1>
-      <p class="legal-updated">Atualizado em: 6 de outubro de 2026</p>
+      <p class="legal-updated">Atualizado em: 25 de outubro de 2026</p>
     </div>
   </header>
 
@@ -62,7 +62,7 @@
       </section>
       <section class="legal-section">
         <h2>2. O que fica só no seu computador</h2>
-        <p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, Documentos/CubicaseBackups e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>
+        <p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, a pasta de backups — por padrão Documentos/CubicaseBackups, ou a que você escolher nas Configurações — e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>
       </section>
       <section class="legal-section">
         <h2>3. Dados que tratamos e por quê</h2>
@@ -76,6 +76,8 @@
         <tr><td><strong>Conta (opcional)</strong></td><td>E-mail e, se você entrar com Google ou Discord, o nome e a foto do perfil informados por eles.</td><td>Autenticar e liberar recursos da conta.</td></tr>
         <tr><td><strong>Cubicase Plus</strong></td><td>Identificador do cliente e da assinatura na Stripe, plano, situação e data de renovação. <strong>Não recebemos nem guardamos dados de cartão</strong>; o pagamento é feito na página da Stripe.</td><td>Cobrar e liberar os recursos pagos.</td></tr>
         <tr><td><strong>Painel web remoto (Plus)</strong></td><td>Nome do computador, token do dispositivo, último acesso, contas convidadas e permissões. Enquanto o app está conectado: estado do servidor, lista de servidores, jogadores online, métricas de uso do computador e as últimas ~200 linhas do console, além dos comandos enviados pelo painel. Esse conteúdo temporário é apagado quando o app se desconecta.</td><td>Controlar o servidor pelo navegador.</td></tr>
+        <tr><td><strong>Notificações do painel instalado (Plus)</strong></td><td>O endereço da inscrição de notificações do seu navegador ou celular, as chaves públicas dela e as suas preferências (quais avisos receber e o idioma). Enviamos avisos como “fulano entrou”, “servidor ligou” ou “computador offline” por esse endereço.</td><td>Avisar você, no celular ou no navegador, do que acontece no servidor.</td></tr>
+        <tr><td><strong>Bot do Discord (opcional)</strong></td><td>Quando você liga um Discord ao seu servidor: o identificador do servidor do Discord e do servidor Cubicase ligados, os identificadores dos canais e do cargo de operador escolhidos, o idioma e as preferências de aviso, e as mensagens que o bot publica. <strong>Nomes dos jogadores online</strong> são enviados pelo app à central apenas enquanto há um Discord ligado ao servidor, servem só para avisar quem entrou e saiu, e somem em poucos minutos junto com o estado do servidor. Ao usar um comando de controle, o identificador de quem o usou fica guardado por cerca de 1 minuto (intervalo entre comandos), e o nome exibido dessa pessoa aparece no aviso do canal e no console do host. O Discord vê o que o bot publica e os comandos digitados lá, conforme a política do próprio Discord.</td><td>Mostrar status e avisos no Discord e permitir controlar o servidor por lá (controle, vários Discords e backup fazem parte do Plus).</td></tr>
         <tr><td><strong>Link e endereço personalizados (Plus)</strong></td><td>O nome escolhido, associado ao seu servidor e à sua conta.</td><td>Exibir o link/endereço que você configurou.</td></tr>
         <tr><td><strong>Central de Ajuda</strong></td><td>O e-mail, o assunto e a mensagem que você escrever, mais a versão do app e o sistema operacional.</td><td>Responder ao seu pedido.</td></tr>
         <tr><td><strong>Doações</strong></td><td>Valor e moeda confirmados pela Stripe. Não guardamos seus dados de pagamento.</td><td>Registrar o apoio recebido.</td></tr>
@@ -88,6 +90,8 @@
         <li><strong>Cloudflare</strong> — API do Cubicase, armazenamento dos registros de servidor e do painel remoto.</li>
         <li><strong>Supabase</strong> — contas, assinaturas e dados do painel remoto.</li>
         <li><strong>Stripe</strong> — pagamentos (assinaturas e doações).</li>
+        <li><strong>Discord</strong> — plataforma onde o bot do Cubicase publica mensagens e recebe comandos, apenas nos servidores do Discord em que você o adicionou. O Discord trata esses dados conforme a política dele.</li>
+        <li><strong>Serviços de notificação dos navegadores (Google, Apple, Mozilla, Microsoft)</strong> — entregam as notificações do painel instalado; recebem o aviso (já cifrado) e o endereço da inscrição.</li>
         <li><strong>Resend</strong> — envio dos e-mails da Central de Ajuda até nós.</li>
         <li><strong>Oracle Cloud</strong> — servidor de reserva (relay) em São Paulo, usado só quando a conexão direta não é possível; vê os endereços IP de quem o usa e o volume repassado, mas não o conteúdo (a conexão é cifrada).</li>
         <li><strong>Radmin VPN (Famatech)</strong> — programa independente que você pode instalar como plano B de conexão. O Cubicase não envia dados a ele: apenas verifica neste computador se está instalado e conectado e, se você pedir, o instala pelo winget da Microsoft. O uso do Radmin segue a política dele; o tráfego do jogo nesse modo passa pela rede do Radmin, não por nós.</li>
@@ -113,6 +117,8 @@
         <li>Conta: enquanto existir; você pode pedir a exclusão.</li>
         <li>Dados da assinatura: enquanto a assinatura existir e pelo prazo exigido por lei para registros fiscais.</li>
         <li>Painel remoto: o conteúdo temporário do console some quando o app desconecta; o cadastro do dispositivo fica até você removê-lo.</li>
+        <li>Ligação com o Discord e suas preferências: até você desvincular (no app ou com <code>/cubicase desvincular</code>) ou apagar o servidor; nomes de jogadores online: poucos minutos; identificador usado no intervalo entre comandos: cerca de 1 minuto.</li>
+        <li>Inscrição de notificações do painel: até você desativá-las ou remover o dispositivo.</li>
         <li>Mensagens da Central de Ajuda: pelo tempo necessário para atender e documentar o pedido.</li>
         </ul>
       </section>
@@ -147,6 +153,7 @@
       <div class="footer-links">
         <a href="/">Início</a>
         <a href="/tutorial/">Tutorial</a>
+        <a href="/discord/">Discord</a>
         <a href="/privacidade/">Privacidade</a>
         <a href="/termos/">Termos</a>
         <a href="/licencas/">Licenças</a>

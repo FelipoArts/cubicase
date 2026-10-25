@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cubicase no Discord — status, avisos e controle do servidor</title>
+  <meta name="description" content="Como ligar o bot do Cubicase ao seu Discord: status ao vivo, avisos de quem entra, passo a passo para os amigos e, com o Plus, ligar, desligar e fazer backup pelo Discord." />
+  <link rel="icon" type="image/png" href="/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/assets/icon.png" />
+  <meta property="og:title" content="Cubicase no Discord — status, avisos e controle do servidor" />
+  <meta property="og:description" content="Como ligar o bot do Cubicase ao seu Discord: status ao vivo, avisos de quem entra, passo a passo para os amigos e, com o Plus, ligar, desligar e fazer backup pelo Discord." />
+  <meta property="og:image" content="/assets/logo.png" />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="alternate" hreflang="pt-BR" href="/discord/" />
+  <link rel="alternate" hreflang="en" href="/en/discord/" />
+  <link rel="alternate" hreflang="x-default" href="/discord/" />
+  <script src="/assets/i18n/en.js"></script>
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="/" class="nav-brand">
+        <img src="/assets/logo-dark.png" alt="Cubicase" />
+      </a>
+      <div class="nav-links" data-nav-links>
+        <a href="/#recursos">Recursos</a>
+        <a href="/#como-funciona">Como funciona</a>
+        <a href="/tutorial/">Tutorial</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
+        <div class="lang-switch" data-lang-switch></div>
+        <a class="btn btn-ghost nav-auth" href="/painel/" data-auth-link>Entrar</a>
+        <div class="nav-cta">
+          <a class="btn btn-primary" href="/download/">Baixar</a>
+        </div>
+      </div>
+      <button class="nav-toggle" data-nav-toggle aria-label="Abrir menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <header class="download-hero legal-hero">
+    <div class="container">
+      <h1>Cubicase no Discord</h1>
+      <p class="legal-updated">Atualizado em: 25 de outubro de 2026</p>
+    </div>
+  </header>
+
+  <main class="container legal">
+    <p class="legal-lead">O bot do Cubicase mostra no seu Discord se o servidor está ligado e quem está jogando, avisa quando alguém entra, fixa o passo a passo para os amigos entrarem e, com o Cubicase Plus, deixa quem você escolher ligar, desligar e fazer backup do servidor sem abrir o computador.</p>
+      <section class="legal-section">
+        <h2>1. O que o bot faz</h2>
+        <ul>
+        <li><strong>Status ao vivo:</strong> uma mensagem que se atualiza sozinha com ligado/desligado, jogadores online, versão e o botão de entrar.</li>
+        <li><strong>Avisos:</strong> “servidor ligado”, “desligado”, “caiu” e quem entrou e saiu (agrupados, sem inundar o canal). Você liga ou desliga cada tipo.</li>
+        <li><strong>Como entrar:</strong> uma mensagem fixada com o passo a passo e o link do servidor, para os amigos não precisarem perguntar.</li>
+        <li><strong>Controle pelo Discord (Cubicase Plus):</strong> ligar, desligar, reiniciar, fazer backup, mexer na whitelist e, se você liberar, enviar comandos ao console.</li>
+        </ul>
+      </section>
+      <section class="legal-section">
+        <h2>2. Como ligar o bot ao seu Discord</h2>
+        <ol>
+        <li>No Cubicase, abra o servidor, vá em <strong>Configurações</strong> e procure o cartão <strong>Discord</strong>. Clique em <strong>Adicionar o bot</strong> e autorize no Discord (você precisa da permissão <em>Gerenciar Servidor</em> no Discord).</li>
+        <li>Ainda no cartão, clique em <strong>Gerar código</strong>. Ele vale por 10 minutos e só pode ser usado uma vez.</li>
+        <li>No Discord, quem tem <em>Gerenciar Servidor</em> digita <code>/cubicase vincular</code> e cola o código.</li>
+        <li>Escolha onde ficam o status, os avisos e o “como entrar”: pelo cartão no app (menus de canal) ou no Discord com <code>/cubicase canal</code>. Use <strong>Enviar mensagem de teste</strong> para conferir.</li>
+        </ol>
+        <p>Pronto: o app do host precisa estar aberto para o status e os avisos acompanharem o servidor.</p>
+      </section>
+      <section class="legal-section">
+        <h2>3. Comandos</h2>
+        <table>
+        <thead><tr><th>Comando</th><th>Quem pode</th><th>O que faz</th></tr></thead>
+        <tbody>
+        <tr><td><code>/cubicase status</code></td><td>Todos</td><td>Mostra se está ligado, jogadores e como entrar.</td></tr>
+        <tr><td><code>/cubicase ajuda</code></td><td>Todos</td><td>Explica o bot e os comandos.</td></tr>
+        <tr><td><code>/cubicase vincular</code>, <code>desvincular</code></td><td>Gerenciar Servidor</td><td>Liga ou remove a ligação com o servidor do Cubicase.</td></tr>
+        <tr><td><code>/cubicase canal</code>, <code>avisos</code>, <code>convite</code>, <code>desativar</code></td><td>Gerenciar Servidor</td><td>Escolhe canais, liga e desliga avisos, publica o “como entrar”.</td></tr>
+        <tr><td><code>/cubicase diagnostico</code></td><td>Gerenciar Servidor</td><td>Confere se o bot está no servidor e enxerga o canal.</td></tr>
+        <tr><td><code>/cubicase operador</code></td><td>Gerenciar Servidor</td><td>Define o cargo que também pode controlar e libera o console.</td></tr>
+        <tr><td><code>/cubicase ligar</code>, <code>desligar</code>, <code>reiniciar</code>, <code>backup</code>, <code>whitelist</code></td><td>Gerenciar Servidor ou cargo de operador (Plus)</td><td>Controla o servidor. Cada uso deixa um registro no canal de avisos.</td></tr>
+        <tr><td><code>/cubicase console</code></td><td>Como acima, e só se liberado (Plus)</td><td>Envia um comando ao console do servidor.</td></tr>
+        </tbody></table>
+      </section>
+      <section class="legal-section">
+        <h2>4. Grátis e Cubicase Plus</h2>
+        <ul>
+        <li><strong>Grátis:</strong> status ao vivo, avisos e “como entrar”, para um servidor em um Discord.</li>
+        <li><strong>Cubicase Plus:</strong> controle do servidor pelo Discord (ligar, desligar, reiniciar, backup, whitelist e console), vários Discords por servidor e vários servidores por Discord.</li>
+        <li>Se o Plus terminar, o que passar do plano grátis continua por 7 dias e depois fica <strong>pausado, sem ser apagado</strong>. Quando o Plus volta, tudo volta.</li>
+        </ul>
+      </section>
+      <section class="legal-section">
+        <h2>5. Permissões do bot</h2>
+        <p>O bot pede só o necessário para publicar e fixar mensagens: ver canais, enviar mensagens, incorporar links, ler o histórico e fixar mensagens. <strong>Ele não pede Administrador e não lê as conversas do seu Discord</strong>: só reage aos comandos <code>/cubicase</code> e escreve nos canais que você escolher.</p>
+      </section>
+      <section class="legal-section">
+        <h2>6. Privacidade e como remover</h2>
+        <ul>
+        <li>Guardamos os identificadores do seu Discord e dos canais escolhidos, e as suas preferências. Os nomes dos jogadores online só são enviados enquanto há um Discord ligado e servem para avisar quem entrou e saiu. Detalhes na <a href="/privacidade/">Política de Privacidade</a>.</li>
+        <li>Para remover: <code>/cubicase desvincular</code>, o botão <strong>Desvincular</strong> no cartão do app, ou expulse o bot do seu Discord.</li>
+        </ul>
+      </section>
+      <section class="legal-section">
+        <h2>7. Problemas comuns</h2>
+        <ul>
+        <li><strong>“Não consegui escrever no canal”:</strong> rode <code>/cubicase diagnostico</code> no canal. Ele diz se o token, o servidor e o canal estão certos; o mais comum é uma regra de permissão do canal ou da categoria bloqueando o bot.</li>
+        <li><strong>“O Cubicase do host está fechado”:</strong> o app precisa estar aberto no computador do host para ligar, desligar e fazer backup.</li>
+        <li><strong>“Faz parte do Cubicase Plus”:</strong> o Plus é conferido na conta que ligou o servidor. Se você trocou de conta, abra o cartão Discord logado na conta com Plus e clique em <strong>Gerar código</strong>.</li>
+        <li><strong>Backup grande:</strong> a mensagem do comando é atualizada quando o backup termina (pode levar alguns minutos).</li>
+        </ul>
+      </section>
+      <section class="legal-section">
+        <h2>8. Contato</h2>
+        <p>Pela Central de Ajuda do app ou pelo e-mail <a href="mailto:felipe@cubicase.net">felipe@cubicase.net</a>. O bot é independente e não é afiliado ao Discord Inc.</p>
+      </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/assets/icon-dark.png" alt="" width="18" height="18" />
+        © 2026 Cubicase
+      </div>
+      <div class="footer-links">
+        <a href="/">Início</a>
+        <a href="/tutorial/">Tutorial</a>
+        <a href="/discord/">Discord</a>
+        <a href="/privacidade/">Privacidade</a>
+        <a href="/termos/">Termos</a>
+        <a href="/licencas/">Licenças</a>
+        <a href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+    <div class="container footer-disclaimer">O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB.</div>
+  </footer>
+
+  <script src="/assets/site.js"></script>
+</body>
+</html>

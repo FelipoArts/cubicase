@@ -1,6 +1,6 @@
-// Gera as páginas legais do site (docs/): política de privacidade, termos de uso e licenças
-// de terceiros — em português (/privacidade/, /termos/, /licencas/) e inglês
-// (/en/privacy/, /en/terms/, /en/licenses/).
+// Gera as páginas de texto longo do site (docs/): política de privacidade, termos de uso, licenças
+// de terceiros e a página do bot do Discord — em português (/privacidade/, /termos/, /licencas/, /discord/)
+// e inglês (/en/privacy/, /en/terms/, /en/licenses/, /en/discord/).
 //
 //   node scripts/build-legal-pages.mjs
 //
@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "docs");
-const UPDATED = { pt: "6 de outubro de 2026", en: "October 6, 2026" };
+const UPDATED = { pt: "25 de outubro de 2026", en: "October 25, 2026" };
 const EMAIL = "felipe@cubicase.net";
 const MAIL = `<a href="mailto:${EMAIL}">${EMAIL}</a>`;
 
@@ -21,9 +21,9 @@ const NAV = {
   en: { features: "Features", how: "How it works", tutorial: "Tutorial", signin: "Sign in", download: "Download", home: "/en/", tutorialHref: "/en/tutorial/", downloadHref: "/en/download/", menu: "Open menu", footerHome: "Home" },
 };
 const FOOTER = {
-  pt: { privacy: ["Privacidade", "/privacidade/"], terms: ["Termos", "/termos/"], licenses: ["Licenças", "/licencas/"],
+  pt: { discord: ["Discord", "/discord/"], privacy: ["Privacidade", "/privacidade/"], terms: ["Termos", "/termos/"], licenses: ["Licenças", "/licencas/"],
     disclaimer: "O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB." },
-  en: { privacy: ["Privacy", "/en/privacy/"], terms: ["Terms", "/en/terms/"], licenses: ["Licenses", "/en/licenses/"],
+  en: { discord: ["Discord", "/en/discord/"], privacy: ["Privacy", "/en/privacy/"], terms: ["Terms", "/en/terms/"], licenses: ["Licenses", "/en/licenses/"],
     disclaimer: "Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft. Minecraft is a registered trademark of Mojang Synergies AB." },
 };
 
@@ -41,7 +41,7 @@ const PAGES = {
       sections: [
         ["1. Quem é o responsável", `<p>O <strong>Cubicase</strong> é um projeto independente, desenvolvido e operado no Brasil (“nós”). Somos o controlador dos dados descritos aqui, nos termos da Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018).</p>
 <p>Contato sobre privacidade e exercício de direitos: pela <strong>Central de Ajuda dentro do app</strong> (Ajuda → Enviar mensagem) ou pelo e-mail ${MAIL}.</p>`],
-        ["2. O que fica só no seu computador", `<p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, Documentos/CubicaseBackups e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>`],
+        ["2. O que fica só no seu computador", `<p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, a pasta de backups — por padrão Documentos/CubicaseBackups, ou a que você escolher nas Configurações — e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>`],
         ["3. Dados que tratamos e por quê", `<table>
 <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
 <tbody>
@@ -52,6 +52,8 @@ const PAGES = {
 <tr><td><strong>Conta (opcional)</strong></td><td>E-mail e, se você entrar com Google ou Discord, o nome e a foto do perfil informados por eles.</td><td>Autenticar e liberar recursos da conta.</td></tr>
 <tr><td><strong>Cubicase Plus</strong></td><td>Identificador do cliente e da assinatura na Stripe, plano, situação e data de renovação. <strong>Não recebemos nem guardamos dados de cartão</strong>; o pagamento é feito na página da Stripe.</td><td>Cobrar e liberar os recursos pagos.</td></tr>
 <tr><td><strong>Painel web remoto (Plus)</strong></td><td>Nome do computador, token do dispositivo, último acesso, contas convidadas e permissões. Enquanto o app está conectado: estado do servidor, lista de servidores, jogadores online, métricas de uso do computador e as últimas ~200 linhas do console, além dos comandos enviados pelo painel. Esse conteúdo temporário é apagado quando o app se desconecta.</td><td>Controlar o servidor pelo navegador.</td></tr>
+<tr><td><strong>Notificações do painel instalado (Plus)</strong></td><td>O endereço da inscrição de notificações do seu navegador ou celular, as chaves públicas dela e as suas preferências (quais avisos receber e o idioma). Enviamos avisos como “fulano entrou”, “servidor ligou” ou “computador offline” por esse endereço.</td><td>Avisar você, no celular ou no navegador, do que acontece no servidor.</td></tr>
+<tr><td><strong>Bot do Discord (opcional)</strong></td><td>Quando você liga um Discord ao seu servidor: o identificador do servidor do Discord e do servidor Cubicase ligados, os identificadores dos canais e do cargo de operador escolhidos, o idioma e as preferências de aviso, e as mensagens que o bot publica. <strong>Nomes dos jogadores online</strong> são enviados pelo app à central apenas enquanto há um Discord ligado ao servidor, servem só para avisar quem entrou e saiu, e somem em poucos minutos junto com o estado do servidor. Ao usar um comando de controle, o identificador de quem o usou fica guardado por cerca de 1 minuto (intervalo entre comandos), e o nome exibido dessa pessoa aparece no aviso do canal e no console do host. O Discord vê o que o bot publica e os comandos digitados lá, conforme a política do próprio Discord.</td><td>Mostrar status e avisos no Discord e permitir controlar o servidor por lá (controle, vários Discords e backup fazem parte do Plus).</td></tr>
 <tr><td><strong>Link e endereço personalizados (Plus)</strong></td><td>O nome escolhido, associado ao seu servidor e à sua conta.</td><td>Exibir o link/endereço que você configurou.</td></tr>
 <tr><td><strong>Central de Ajuda</strong></td><td>O e-mail, o assunto e a mensagem que você escrever, mais a versão do app e o sistema operacional.</td><td>Responder ao seu pedido.</td></tr>
 <tr><td><strong>Doações</strong></td><td>Valor e moeda confirmados pela Stripe. Não guardamos seus dados de pagamento.</td><td>Registrar o apoio recebido.</td></tr>
@@ -61,6 +63,8 @@ const PAGES = {
 <li><strong>Cloudflare</strong> — API do Cubicase, armazenamento dos registros de servidor e do painel remoto.</li>
 <li><strong>Supabase</strong> — contas, assinaturas e dados do painel remoto.</li>
 <li><strong>Stripe</strong> — pagamentos (assinaturas e doações).</li>
+<li><strong>Discord</strong> — plataforma onde o bot do Cubicase publica mensagens e recebe comandos, apenas nos servidores do Discord em que você o adicionou. O Discord trata esses dados conforme a política dele.</li>
+<li><strong>Serviços de notificação dos navegadores (Google, Apple, Mozilla, Microsoft)</strong> — entregam as notificações do painel instalado; recebem o aviso (já cifrado) e o endereço da inscrição.</li>
 <li><strong>Resend</strong> — envio dos e-mails da Central de Ajuda até nós.</li>
 <li><strong>Oracle Cloud</strong> — servidor de reserva (relay) em São Paulo, usado só quando a conexão direta não é possível; vê os endereços IP de quem o usa e o volume repassado, mas não o conteúdo (a conexão é cifrada).</li>
 <li><strong>Radmin VPN (Famatech)</strong> — programa independente que você pode instalar como plano B de conexão. O Cubicase não envia dados a ele: apenas verifica neste computador se está instalado e conectado e, se você pedir, o instala pelo winget da Microsoft. O uso do Radmin segue a política dele; o tráfego do jogo nesse modo passa pela rede do Radmin, não por nós.</li>
@@ -80,6 +84,8 @@ const PAGES = {
 <li>Conta: enquanto existir; você pode pedir a exclusão.</li>
 <li>Dados da assinatura: enquanto a assinatura existir e pelo prazo exigido por lei para registros fiscais.</li>
 <li>Painel remoto: o conteúdo temporário do console some quando o app desconecta; o cadastro do dispositivo fica até você removê-lo.</li>
+<li>Ligação com o Discord e suas preferências: até você desvincular (no app ou com <code>/cubicase desvincular</code>) ou apagar o servidor; nomes de jogadores online: poucos minutos; identificador usado no intervalo entre comandos: cerca de 1 minuto.</li>
+<li>Inscrição de notificações do painel: até você desativá-las ou remover o dispositivo.</li>
 <li>Mensagens da Central de Ajuda: pelo tempo necessário para atender e documentar o pedido.</li>
 </ul>`],
         ["7. Transferência internacional", `<p>Os prestadores acima operam servidores fora do Brasil. Ao usar o serviço, seus dados podem ser tratados em outros países, com salvaguardas contratuais dos próprios prestadores e conforme a LGPD (art. 33).</p>`],
@@ -97,7 +103,7 @@ const PAGES = {
       sections: [
         ["1. Who is responsible", `<p><strong>Cubicase</strong> is an independent project, developed and operated in Brazil (“we”). We are the controller of the data described here under the Brazilian General Data Protection Law (LGPD, Law 13,709/2018) and, where applicable, comparable laws.</p>
 <p>Privacy contact and exercise of rights: through the <strong>in-app Help Center</strong> (Help → Send message) or by e-mail at ${MAIL}.</p>`],
-        ["2. What stays on your computer", `<p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (Documents/CubicaseServers, Documents/CubicaseBackups and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>`],
+        ["2. What stays on your computer", `<p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (Documents/CubicaseServers, the backups folder — by default Documents/CubicaseBackups, or the one you choose in Settings — and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>`],
         ["3. Data we handle and why", `<table>
 <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
 <tbody>
@@ -108,6 +114,8 @@ const PAGES = {
 <tr><td><strong>Account (optional)</strong></td><td>E-mail and, if you sign in with Google or Discord, the profile name and picture they provide.</td><td>Authenticate you and enable account features.</td></tr>
 <tr><td><strong>Cubicase Plus</strong></td><td>Stripe customer and subscription identifiers, plan, status and renewal date. <strong>We do not receive or store card data</strong>; payment happens on Stripe's page.</td><td>Bill you and enable paid features.</td></tr>
 <tr><td><strong>Remote web panel (Plus)</strong></td><td>Computer name, device token, last seen, invited accounts and permissions. While the app is connected: server state, server list, online players, computer usage metrics and the last ~200 console lines, plus commands sent from the panel. This temporary content is deleted when the app disconnects.</td><td>Control the server from a browser.</td></tr>
+<tr><td><strong>Installed panel notifications (Plus)</strong></td><td>The address of your browser or phone's notification subscription, its public keys and your preferences (which alerts to get and the language). We send alerts such as “someone joined”, “server started” or “computer offline” to that address.</td><td>Alert you, on your phone or browser, about what happens on the server.</td></tr>
+<tr><td><strong>Discord bot (optional)</strong></td><td>When you link a Discord to your server: the identifiers of the linked Discord and Cubicase server, the identifiers of the chosen channels and operator role, the language and alert preferences, and the messages the bot posts. <strong>Names of online players</strong> are sent by the app to our service only while a Discord is linked to the server, are used only to announce who joined and left, and disappear within minutes together with the server state. When someone uses a control command, their identifier is kept for about 1 minute (spacing between commands), and their display name appears in the channel alert and in the host's console. Discord sees what the bot posts and the commands typed there, under Discord's own policy.</td><td>Show status and alerts on Discord and let people control the server from there (control, several Discords and backup are part of Plus).</td></tr>
 <tr><td><strong>Custom link and address (Plus)</strong></td><td>The chosen name, linked to your server and your account.</td><td>Show the link/address you configured.</td></tr>
 <tr><td><strong>Help Center</strong></td><td>The e-mail, subject and message you write, plus the app version and operating system.</td><td>Answer your request.</td></tr>
 <tr><td><strong>Donations</strong></td><td>Amount and currency confirmed by Stripe. We do not store your payment details.</td><td>Record the support received.</td></tr>
@@ -117,6 +125,8 @@ const PAGES = {
 <li><strong>Cloudflare</strong> — Cubicase API, storage of server records and the remote panel.</li>
 <li><strong>Supabase</strong> — accounts, subscriptions and remote panel data.</li>
 <li><strong>Stripe</strong> — payments (subscriptions and donations).</li>
+<li><strong>Discord</strong> — the platform where the Cubicase bot posts messages and receives commands, only in the Discord servers where you added it. Discord handles that data under its own policy.</li>
+<li><strong>Browser notification services (Google, Apple, Mozilla, Microsoft)</strong> — deliver the installed panel's notifications; they receive the (already encrypted) alert and the subscription address.</li>
 <li><strong>Resend</strong> — delivery of Help Center e-mails to us.</li>
 <li><strong>Oracle Cloud</strong> — backup (relay) server in São Paulo, used only when a direct connection is not possible; it sees the IP addresses of whoever uses it and the volume relayed, but not the content (the connection is encrypted).</li>
 <li><strong>Radmin VPN (Famatech)</strong> — an independent program you may install as a connection plan B. Cubicase sends it no data: it only checks on this computer whether it is installed and connected and, if you ask, installs it through Microsoft's winget. Radmin's use follows its own policy; in this mode the game traffic goes through the Radmin network, not through us.</li>
@@ -136,6 +146,8 @@ const PAGES = {
 <li>Account: as long as it exists; you may ask for deletion.</li>
 <li>Subscription data: while the subscription exists and for the period required by law for tax records.</li>
 <li>Remote panel: temporary console content disappears when the app disconnects; the device registration stays until you remove it.</li>
+<li>Discord link and its preferences: until you unlink (in the app or with <code>/cubicase unlink</code>) or delete the server; names of online players: a few minutes; identifier used for the spacing between commands: about 1 minute.</li>
+<li>Panel notification subscription: until you turn it off or remove the device.</li>
 <li>Help Center messages: as long as needed to handle and document the request.</li>
 </ul>`],
         ["7. International transfers", `<p>The providers above operate servers outside Brazil. By using the service your data may be processed in other countries, under the providers' own contractual safeguards and in line with the LGPD (art. 33).</p>`],
@@ -160,13 +172,15 @@ const PAGES = {
         ["2. EULA do Minecraft e regras de terceiros", `<p>Para criar um servidor você precisa aceitar o <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">EULA do Minecraft</a>. O Cubicase só grava <code>eula=true</code> depois que <em>você</em> marca a caixa de aceite. Você é responsável por cumprir o EULA e as <a href="https://www.minecraft.net/usage-guidelines" target="_blank" rel="noopener">diretrizes de uso</a> da Mojang, inclusive as regras sobre monetização de servidores. Mods, modpacks, Java e demais componentes têm licenças e termos próprios.</p>`],
         ["3. Conta e idade", `<p>Você pode usar o app sem conta. Contas, assinaturas e o painel remoto são destinados a maiores de 18 anos; menores devem ter a participação e a autorização de um responsável legal. Mantenha seus dados de acesso em segurança; você é responsável pelas ações feitas na sua conta.</p>`],
         ["4. Uso aceitável", `<p>É proibido usar o Cubicase para: violar a lei ou direitos de terceiros; hospedar ou distribuir conteúdo ilícito ou malicioso (inclusive mods e pacotes com malware); assediar, ameaçar ou enganar pessoas; atacar redes ou computadores; sobrecarregar, automatizar em massa, contornar limites ou tentar obter acesso não autorizado ao serviço ou a servidores de outras pessoas; e se passar por outra pessoa. Podemos limitar ou suspender o acesso a quem violar estas regras.</p>`],
-        ["5. Responsabilidades do host", `<p>Quem hospeda é responsável pelo seu servidor: conteúdo, regras, moderação e jogadores convidados. <strong>Mods e pacotes são programas que rodam no seu computador</strong>: instale e importe apenas de fontes em que você confia. Faça cópias de segurança dos seus mundos; o backup automático do app ajuda, mas não é garantia. O código de convite dá acesso ao servidor a quem o tiver: compartilhe com cuidado e use a whitelist e a opção de regenerar o código.</p>`],
+        ["5. Responsabilidades do host", `<p>Quem hospeda é responsável pelo seu servidor: conteúdo, regras, moderação e jogadores convidados. <strong>Mods e pacotes são programas que rodam no seu computador</strong>: instale e importe apenas de fontes em que você confia. Faça cópias de segurança dos seus mundos; o backup automático do app ajuda, mas não é garantia. O código de convite dá acesso ao servidor a quem o tiver: compartilhe com cuidado e use a whitelist e a opção de regenerar o código.</p>
+<p><strong>Bot do Discord:</strong> quem liga um Discord ao servidor e define o cargo de operador é responsável por quem passa a poder ver o status e, com o Plus, ligar, desligar, reiniciar, fazer backup e (se liberado) enviar comandos ao console. O bot também precisa respeitar os Termos e as Diretrizes do Discord. Podemos pausar ou remover a ligação se houver abuso.</p>`],
         ["6. Cubicase Plus", `<ul>
 <li>É uma assinatura mensal ou anual, com os valores exibidos no momento da contratação. Os recursos incluídos são os descritos na página do plano e podem evoluir.</li>
 <li>O pagamento é processado pela Stripe. A assinatura <strong>renova automaticamente</strong> até ser cancelada.</li>
 <li>Você cancela quando quiser pelo portal de assinatura (Configurações do app → Conta); o acesso continua até o fim do período já pago.</li>
 <li><strong>Direito de arrependimento:</strong> em contratações feitas pela internet você pode desistir em até 7 dias corridos da contratação, com reembolso, conforme o art. 49 do Código de Defesa do Consumidor. Peça pelos contatos da <a href="/privacidade/">Política de Privacidade</a>.</li>
-<li>Se a assinatura deixar de estar ativa, os recursos pagos deixam de funcionar; o uso básico do app continua gratuito.</li>
+<li>O Plus inclui, entre outros, o painel web e as notificações, o servidor que liga sozinho, link e endereço personalizados, o modo privado e, no Discord, o controle do servidor, vários Discords e vários servidores por Discord. Sem o Plus, o Discord continua com o status e os avisos de um servidor em um Discord.</li>
+<li>Se a assinatura deixar de estar ativa, os recursos pagos deixam de funcionar; o uso básico do app continua gratuito. Ligações do Discord além do que o plano grátis permite continuam por 7 dias e depois são <strong>pausadas, sem serem apagadas</strong>; voltam quando o Plus volta.</li>
 </ul>`],
         ["7. Doações", `<p>Doações são voluntárias e não geram contrapartida, benefício nem recursos adicionais.</p>`],
         ["8. Disponibilidade e mudanças", `<p>O serviço é oferecido <strong>“como está”</strong>, sem garantia de disponibilidade contínua. Podemos alterar, limitar ou descontinuar recursos (inclusive trocar provedores de infraestrutura e de rede), com aviso razoável quando possível. O app pode se atualizar automaticamente.</p>`],
@@ -189,13 +203,15 @@ const PAGES = {
         ["2. Minecraft EULA and third-party rules", `<p>To create a server you must accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">Minecraft EULA</a>. Cubicase only writes <code>eula=true</code> after <em>you</em> tick the acceptance box. You are responsible for complying with the EULA and Mojang's <a href="https://www.minecraft.net/usage-guidelines" target="_blank" rel="noopener">usage guidelines</a>, including the rules on server monetization. Mods, modpacks, Java and other components have their own licenses and terms.</p>`],
         ["3. Account and age", `<p>You can use the app without an account. Accounts, subscriptions and the remote panel are intended for people aged 18 or over; minors need the participation and authorization of a legal guardian. Keep your sign-in details safe; you are responsible for actions taken in your account.</p>`],
         ["4. Acceptable use", `<p>You must not use Cubicase to: break the law or third-party rights; host or distribute unlawful or malicious content (including mods and packs with malware); harass, threaten or deceive people; attack networks or computers; overload the service, automate it at scale, bypass limits or try to gain unauthorized access to the service or to other people's servers; or impersonate someone else. We may limit or suspend access for anyone who breaks these rules.</p>`],
-        ["5. Host responsibilities", `<p>Whoever hosts is responsible for their server: content, rules, moderation and invited players. <strong>Mods and packs are programs that run on your computer</strong>: install and import only from sources you trust. Back up your worlds; the app's automatic backup helps but is not a guarantee. The invite code gives access to the server to anyone who has it: share it carefully and use the whitelist and the regenerate-code option.</p>`],
+        ["5. Host responsibilities", `<p>Whoever hosts is responsible for their server: content, rules, moderation and invited players. <strong>Mods and packs are programs that run on your computer</strong>: install and import only from sources you trust. Back up your worlds; the app's automatic backup helps but is not a guarantee. The invite code gives access to the server to anyone who has it: share it carefully and use the whitelist and the regenerate-code option.</p>
+<p><strong>Discord bot:</strong> whoever links a Discord to the server and sets the operator role is responsible for who can see the status and, with Plus, start, stop, restart, back up and (if enabled) send commands to the console. The bot must also respect Discord's Terms and Guidelines. We may pause or remove the link in case of abuse.</p>`],
         ["6. Cubicase Plus", `<ul>
 <li>It is a monthly or yearly subscription, at the prices shown when you subscribe. Included features are those described on the plan page and may evolve.</li>
 <li>Payment is processed by Stripe. The subscription <strong>renews automatically</strong> until cancelled.</li>
 <li>You can cancel at any time in the billing portal (app Settings → Account); access continues until the end of the period already paid.</li>
 <li><strong>Right of withdrawal:</strong> for purchases made online you may withdraw within 7 calendar days of purchase and get a refund, under art. 49 of Brazil's Consumer Defense Code. Ask through the contacts in the <a href="/en/privacy/">Privacy Policy</a>.</li>
-<li>If the subscription stops being active, paid features stop working; basic use of the app stays free.</li>
+<li>Plus includes, among others, the web panel and notifications, the server that starts by itself, custom link and address, private mode and, on Discord, server control, several Discords and several servers per Discord. Without Plus, Discord keeps the status and alerts of one server in one Discord.</li>
+<li>If the subscription stops being active, paid features stop working; basic use of the app stays free. Discord links beyond what the free plan allows keep working for 7 days and are then <strong>paused, not deleted</strong>; they come back when Plus returns.</li>
 </ul>`],
         ["7. Donations", `<p>Donations are voluntary and give no consideration, benefit or additional features.</p>`],
         ["8. Availability and changes", `<p>The service is provided <strong>“as is”</strong>, with no guarantee of continuous availability. We may change, limit or discontinue features (including switching infrastructure and network providers), with reasonable notice when possible. The app may update itself automatically.</p>`],
@@ -354,6 +370,110 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>`],
       ],
     },
   },
+
+  discord: {
+    paths: { pt: "/discord/", en: "/en/discord/" },
+    pt: {
+      title: "Cubicase no Discord — status, avisos e controle do servidor",
+      desc: "Como ligar o bot do Cubicase ao seu Discord: status ao vivo, avisos de quem entra, passo a passo para os amigos e, com o Plus, ligar, desligar e fazer backup pelo Discord.",
+      h1: "Cubicase no Discord",
+      lead: "O bot do Cubicase mostra no seu Discord se o servidor está ligado e quem está jogando, avisa quando alguém entra, fixa o passo a passo para os amigos entrarem e, com o Cubicase Plus, deixa quem você escolher ligar, desligar e fazer backup do servidor sem abrir o computador.",
+      sections: [
+        ["1. O que o bot faz", `<ul>
+<li><strong>Status ao vivo:</strong> uma mensagem que se atualiza sozinha com ligado/desligado, jogadores online, versão e o botão de entrar.</li>
+<li><strong>Avisos:</strong> “servidor ligado”, “desligado”, “caiu” e quem entrou e saiu (agrupados, sem inundar o canal). Você liga ou desliga cada tipo.</li>
+<li><strong>Como entrar:</strong> uma mensagem fixada com o passo a passo e o link do servidor, para os amigos não precisarem perguntar.</li>
+<li><strong>Controle pelo Discord (Cubicase Plus):</strong> ligar, desligar, reiniciar, fazer backup, mexer na whitelist e, se você liberar, enviar comandos ao console.</li>
+</ul>`],
+        ["2. Como ligar o bot ao seu Discord", `<ol>
+<li>No Cubicase, abra o servidor, vá em <strong>Configurações</strong> e procure o cartão <strong>Discord</strong>. Clique em <strong>Adicionar o bot</strong> e autorize no Discord (você precisa da permissão <em>Gerenciar Servidor</em> no Discord).</li>
+<li>Ainda no cartão, clique em <strong>Gerar código</strong>. Ele vale por 10 minutos e só pode ser usado uma vez.</li>
+<li>No Discord, quem tem <em>Gerenciar Servidor</em> digita <code>/cubicase vincular</code> e cola o código.</li>
+<li>Escolha onde ficam o status, os avisos e o “como entrar”: pelo cartão no app (menus de canal) ou no Discord com <code>/cubicase canal</code>. Use <strong>Enviar mensagem de teste</strong> para conferir.</li>
+</ol>
+<p>Pronto: o app do host precisa estar aberto para o status e os avisos acompanharem o servidor.</p>`],
+        ["3. Comandos", `<table>
+<thead><tr><th>Comando</th><th>Quem pode</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>/cubicase status</code></td><td>Todos</td><td>Mostra se está ligado, jogadores e como entrar.</td></tr>
+<tr><td><code>/cubicase ajuda</code></td><td>Todos</td><td>Explica o bot e os comandos.</td></tr>
+<tr><td><code>/cubicase vincular</code>, <code>desvincular</code></td><td>Gerenciar Servidor</td><td>Liga ou remove a ligação com o servidor do Cubicase.</td></tr>
+<tr><td><code>/cubicase canal</code>, <code>avisos</code>, <code>convite</code>, <code>desativar</code></td><td>Gerenciar Servidor</td><td>Escolhe canais, liga e desliga avisos, publica o “como entrar”.</td></tr>
+<tr><td><code>/cubicase diagnostico</code></td><td>Gerenciar Servidor</td><td>Confere se o bot está no servidor e enxerga o canal.</td></tr>
+<tr><td><code>/cubicase operador</code></td><td>Gerenciar Servidor</td><td>Define o cargo que também pode controlar e libera o console.</td></tr>
+<tr><td><code>/cubicase ligar</code>, <code>desligar</code>, <code>reiniciar</code>, <code>backup</code>, <code>whitelist</code></td><td>Gerenciar Servidor ou cargo de operador (Plus)</td><td>Controla o servidor. Cada uso deixa um registro no canal de avisos.</td></tr>
+<tr><td><code>/cubicase console</code></td><td>Como acima, e só se liberado (Plus)</td><td>Envia um comando ao console do servidor.</td></tr>
+</tbody></table>`],
+        ["4. Grátis e Cubicase Plus", `<ul>
+<li><strong>Grátis:</strong> status ao vivo, avisos e “como entrar”, para um servidor em um Discord.</li>
+<li><strong>Cubicase Plus:</strong> controle do servidor pelo Discord (ligar, desligar, reiniciar, backup, whitelist e console), vários Discords por servidor e vários servidores por Discord.</li>
+<li>Se o Plus terminar, o que passar do plano grátis continua por 7 dias e depois fica <strong>pausado, sem ser apagado</strong>. Quando o Plus volta, tudo volta.</li>
+</ul>`],
+        ["5. Permissões do bot", `<p>O bot pede só o necessário para publicar e fixar mensagens: ver canais, enviar mensagens, incorporar links, ler o histórico e fixar mensagens. <strong>Ele não pede Administrador e não lê as conversas do seu Discord</strong>: só reage aos comandos <code>/cubicase</code> e escreve nos canais que você escolher.</p>`],
+        ["6. Privacidade e como remover", `<ul>
+<li>Guardamos os identificadores do seu Discord e dos canais escolhidos, e as suas preferências. Os nomes dos jogadores online só são enviados enquanto há um Discord ligado e servem para avisar quem entrou e saiu. Detalhes na <a href="/privacidade/">Política de Privacidade</a>.</li>
+<li>Para remover: <code>/cubicase desvincular</code>, o botão <strong>Desvincular</strong> no cartão do app, ou expulse o bot do seu Discord.</li>
+</ul>`],
+        ["7. Problemas comuns", `<ul>
+<li><strong>“Não consegui escrever no canal”:</strong> rode <code>/cubicase diagnostico</code> no canal. Ele diz se o token, o servidor e o canal estão certos; o mais comum é uma regra de permissão do canal ou da categoria bloqueando o bot.</li>
+<li><strong>“O Cubicase do host está fechado”:</strong> o app precisa estar aberto no computador do host para ligar, desligar e fazer backup.</li>
+<li><strong>“Faz parte do Cubicase Plus”:</strong> o Plus é conferido na conta que ligou o servidor. Se você trocou de conta, abra o cartão Discord logado na conta com Plus e clique em <strong>Gerar código</strong>.</li>
+<li><strong>Backup grande:</strong> a mensagem do comando é atualizada quando o backup termina (pode levar alguns minutos).</li>
+</ul>`],
+        ["8. Contato", `<p>Pela Central de Ajuda do app ou pelo e-mail ${MAIL}. O bot é independente e não é afiliado ao Discord Inc.</p>`],
+      ],
+    },
+    en: {
+      title: "Cubicase on Discord — server status, alerts and control",
+      desc: "How to link the Cubicase bot to your Discord: live status, who-joined alerts, a step-by-step for friends and, with Plus, start, stop and back up from Discord.",
+      h1: "Cubicase on Discord",
+      lead: "The Cubicase bot shows on your Discord whether the server is on and who is playing, announces when someone joins, pins the step-by-step for friends to get in and, with Cubicase Plus, lets the people you choose start, stop and back up the server without opening the computer.",
+      sections: [
+        ["1. What the bot does", `<ul>
+<li><strong>Live status:</strong> a message that updates itself with on/off, online players, version and a join button.</li>
+<li><strong>Alerts:</strong> “server online”, “stopped”, “went down” and who joined and left (grouped, so the channel isn't flooded). You turn each type on or off.</li>
+<li><strong>How to join:</strong> a pinned message with the step-by-step and the server link, so friends don't have to ask.</li>
+<li><strong>Control from Discord (Cubicase Plus):</strong> start, stop, restart, back up, manage the whitelist and, if you enable it, send commands to the console.</li>
+</ul>`],
+        ["2. How to link the bot to your Discord", `<ol>
+<li>In Cubicase, open the server, go to <strong>Settings</strong> and find the <strong>Discord</strong> card. Click <strong>Add the bot</strong> and authorize it on Discord (you need the <em>Manage Server</em> permission there).</li>
+<li>Still on the card, click <strong>Generate code</strong>. It is valid for 10 minutes and works once.</li>
+<li>On Discord, someone with <em>Manage Server</em> types <code>/cubicase link</code> and pastes the code.</li>
+<li>Pick where the status, alerts and “how to join” go: on the card in the app (channel menus) or on Discord with <code>/cubicase channel</code>. Use <strong>Send test message</strong> to check.</li>
+</ol>
+<p>That's it: the host's app must be open for the status and alerts to follow the server.</p>`],
+        ["3. Commands", `<table>
+<thead><tr><th>Command</th><th>Who can</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>/cubicase status</code></td><td>Everyone</td><td>Shows whether it is on, players and how to join.</td></tr>
+<tr><td><code>/cubicase help</code></td><td>Everyone</td><td>Explains the bot and the commands.</td></tr>
+<tr><td><code>/cubicase link</code>, <code>unlink</code></td><td>Manage Server</td><td>Links or removes the link with the Cubicase server.</td></tr>
+<tr><td><code>/cubicase channel</code>, <code>alerts</code>, <code>invite</code>, <code>disable</code></td><td>Manage Server</td><td>Picks channels, turns alerts on and off, posts the “how to join”.</td></tr>
+<tr><td><code>/cubicase diagnostics</code></td><td>Manage Server</td><td>Checks that the bot is in the server and can see the channel.</td></tr>
+<tr><td><code>/cubicase operator</code></td><td>Manage Server</td><td>Sets the role that can also control the server and enables the console.</td></tr>
+<tr><td><code>/cubicase start</code>, <code>stop</code>, <code>restart</code>, <code>backup</code>, <code>whitelist</code></td><td>Manage Server or operator role (Plus)</td><td>Controls the server. Each use leaves a record in the alerts channel.</td></tr>
+<tr><td><code>/cubicase console</code></td><td>As above, and only if enabled (Plus)</td><td>Sends a command to the server console.</td></tr>
+</tbody></table>`],
+        ["4. Free and Cubicase Plus", `<ul>
+<li><strong>Free:</strong> live status, alerts and “how to join”, for one server in one Discord.</li>
+<li><strong>Cubicase Plus:</strong> control of the server from Discord (start, stop, restart, backup, whitelist and console), several Discords per server and several servers per Discord.</li>
+<li>If Plus ends, anything beyond the free plan keeps working for 7 days and is then <strong>paused, not deleted</strong>. When Plus returns, everything comes back.</li>
+</ul>`],
+        ["5. Bot permissions", `<p>The bot asks only for what it needs to post and pin messages: view channels, send messages, embed links, read history and pin messages. <strong>It does not ask for Administrator and does not read your Discord's conversations</strong>: it only reacts to <code>/cubicase</code> commands and writes in the channels you choose.</p>`],
+        ["6. Privacy and how to remove it", `<ul>
+<li>We store the identifiers of your Discord and the chosen channels, and your preferences. Names of online players are only sent while a Discord is linked and are used to announce who joined and left. Details in the <a href="/en/privacy/">Privacy Policy</a>.</li>
+<li>To remove: <code>/cubicase unlink</code>, the <strong>Unlink</strong> button on the app's card, or kick the bot from your Discord.</li>
+</ul>`],
+        ["7. Common problems", `<ul>
+<li><strong>“I couldn't write in the channel”:</strong> run <code>/cubicase diagnostics</code> in the channel. It tells you whether the token, server and channel are right; the most common cause is a channel or category permission rule blocking the bot.</li>
+<li><strong>“The host's Cubicase is closed”:</strong> the app must be open on the host's computer to start, stop and back up.</li>
+<li><strong>“Part of Cubicase Plus”:</strong> Plus is checked on the account that linked the server. If you switched accounts, open the Discord card signed in with the Plus account and click <strong>Generate code</strong>.</li>
+<li><strong>Big backups:</strong> the command's message is updated when the backup finishes (it can take a few minutes).</li>
+</ul>`],
+        ["8. Contact", `<p>Through the app's Help Center or by e-mail at ${MAIL}. The bot is independent and not affiliated with Discord Inc.</p>`],
+      ],
+    },
+  },
 };
 
 // ============================================================
@@ -439,6 +559,7 @@ ${sections}
       <div class="footer-links">
         <a href="${nav.home}">${nav.footerHome}</a>
         <a href="${nav.tutorialHref}">${nav.tutorial}</a>
+        <a href="${f.discord[1]}">${f.discord[0]}</a>
         <a href="${f.privacy[1]}">${f.privacy[0]}</a>
         <a href="${f.terms[1]}">${f.terms[0]}</a>
         <a href="${f.licenses[1]}">${f.licenses[0]}</a>

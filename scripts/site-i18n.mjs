@@ -18,7 +18,7 @@ export const STATIC_PAGES = ["index.html", "download/index.html"];
 export const RUNTIME_PAGES = ["entrar/index.html", "obrigado/index.html", "assinatura/sucesso/index.html", "painel/index.html"];
 
 // Páginas legais têm texto próprio em inglês (geradas por scripts/build-legal-pages.mjs), em outra URL.
-const LEGAL_EN = { "privacidade/": "privacy/", "termos/": "terms/", "licencas/": "licenses/" };
+const LEGAL_EN = { "privacidade/": "privacy/", "termos/": "terms/", "licencas/": "licenses/", "discord/": "discord/" };
 
 const ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&hellip;": "…", "&nbsp;": " ", "&#10;": "\n", "&mdash;": "—" };
 const decode = (s) => s.replace(/&(?:#\d+|\w+);/g, (m) => ENTITIES[m] ?? m);
