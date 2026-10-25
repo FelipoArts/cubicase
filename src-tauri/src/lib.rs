@@ -34,9 +34,13 @@ mod players;
 mod pack;
 mod hosting;
 mod mod_identity;
+mod mc_report;
+mod backups_dir;
 mod owner_secret;
 mod server_inspect;
 mod upgrade;
+mod worlds;
+mod perf;
 mod account_auth;
 mod radmin;
 #[cfg(test)]
@@ -297,6 +301,10 @@ struct ResourceSample {
     total_ram_mb: u64,
     available_ram_mb: u64,
     cpu_usage_percent: f32,
+    /// Núcleos lógicos da máquina (o uso de CPU do processo é a SOMA dos núcleos: até 100 × núcleos).
+    cpu_cores: usize,
+    /// RAM máxima dada ao servidor (-Xmx), em MB.
+    allocated_ram_mb: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     process_ram_mb: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1940,15 +1948,29 @@ fn read_log_tail(server_dir: &str, max_lines: usize) -> Option<String> {
 fn report_mc_status(app: &tauri::AppHandle, state: &AppState, status: &str) {
     let short_code = state.active_short_code.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(sc) = short_code {
-        let current_players = state.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).len() as u32;
+        let (current_players, names) = {
+            let online = state.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner());
+            let mut names: Vec<String> = online.iter().cloned().collect();
+            names.sort();
+            names.truncate(mc_report::MAX_NAMES);
+            (online.len() as u32, names)
+        };
+        let radmin_ip = radmin::cached_ip();
+        let port = state.minecraft_port.load(Ordering::SeqCst);
+        // Só vai para a central se algo mudou (status, jogadores, porta, IP do Radmin) ou se já é hora do sinal de vida.
+        let snapshot = mc_report::Reported { status: status.to_string(), players: current_players, names: names.clone(), port, radmin_ip: radmin_ip.clone() };
+        if !mc_report::should_send(&sc, snapshot) {
+            return;
+        }
         let mut payload = serde_json::json!({
             "shortCode": sc,
             "status": status,
             "currentPlayers": current_players,
+            // Nomes de quem está online: a central só guarda se o servidor estiver ligado a um Discord (avisos de entrada/saída).
+            "playerNames": names,
             // IP do host na rede do Radmin VPN (null se não está conectado a uma): é o plano B dos convidados.
-            "radminIp": radmin::cached_ip(),
+            "radminIp": radmin_ip,
         });
-        let port = state.minecraft_port.load(Ordering::SeqCst);
         if port != 0 {
             payload["port"] = serde_json::json!(port);
         }
@@ -2216,6 +2238,7 @@ async fn start_minecraft_server(
         // sem abrir a porta nem imprimir "Done (").
         state.minecraft_was_online.store(false, Ordering::SeqCst);
         state.minecraft_online_players.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        perf::reset_for_start(&server_dir);
         *state.minecraft_stdin.lock().unwrap_or_else(|e| e.into_inner()) = Some(pty_writer);
         *state.minecraft_process.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
         *state.minecraft_last_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -2258,8 +2281,11 @@ async fn start_minecraft_server(
                 Ok(raw_l) => {
                     let l = strip_leading_jline_prompt(&strip_ansi_codes(&raw_l));
                     log_to_file(&app_pty, &format!("[MC-PTY] {}", l));
-                    let _ = app_pty.emit("minecraft-log", &l);
-                    panel_agent::push_minecraft_log_line(&l);
+                    // Resposta a uma pergunta de TPS feita pelo próprio app: não vai para o console (ver perf.rs).
+                    if !perf::on_line(&app_pty, &l) {
+                        let _ = app_pty.emit("minecraft-log", &l);
+                        panel_agent::push_minecraft_log_line(&l);
+                    }
                     let state_ref = unsafe { &*(state_pty_handle as *const AppState) };
                     // Detect server ready line
                     if is_server_ready_line(&l) {
@@ -2358,7 +2384,6 @@ async fn start_minecraft_server(
     let state_resources_handle = app.state::<AppState>().inner() as *const AppState as usize;
     std::thread::spawn(move || {
         let mut sys = System::new_all();
-        let mut heartbeat_tick: u32 = 0;
         loop {
             let state_ref = unsafe { &*(state_resources_handle as *const AppState) };
             let process_alive = {
@@ -2373,14 +2398,10 @@ async fn start_minecraft_server(
                 break;
             }
 
-            // A cada 3 iterações (~45s, já que esta thread roda a cada 15s) reafirma
-            // "online" pra API Central — o registro de status do Minecraft expira em
-            // 90s (ver SESSION_TTL_SECONDS no Worker), e um servidor pode ficar horas
-            // sem nenhuma transição de status pra renovar isso sozinho.
-            heartbeat_tick += 1;
-            if heartbeat_tick % 3 == 0 {
-                report_mc_status(&app_resources, state_ref, "online");
-            }
+            // Reafirma "online" para a API Central a cada volta (~15 s): quem decide se vai mesmo é mc_report —
+            // só quando algo mudou (jogador entrou/saiu...) ou no sinal de vida (a central considera o status velho
+            // depois de 5 min). Antes mandava a cada ~45 s mudando ou não, o que enchia a cota de escrita da central.
+            report_mc_status(&app_resources, state_ref, "online");
 
             // No Windows, mc_pid é o PID do `cmd.exe` usado só como wrapper (ver
             // início de start_minecraft_server — roda "chcp 65001" antes do Java).
@@ -2406,12 +2427,19 @@ async fn start_minecraft_server(
                 total_ram_mb: sys.total_memory() / 1024 / 1024,
                 available_ram_mb: sys.available_memory() / 1024 / 1024,
                 cpu_usage_percent: sys.global_cpu_usage(),
+                cpu_cores: sys.cpus().len(),
+                allocated_ram_mb: u64::from(ram_gb) * 1024,
                 process_ram_mb,
                 process_cpu_percent,
             };
 
             *state_ref.minecraft_last_resource_sample.lock().unwrap_or_else(|e| e.into_inner()) = Some(sample.clone());
             let _ = app_resources.emit("mc-resource-sample", sample);
+
+            // TPS/tempo por tick: pergunta ao console (só depois de o servidor estar online).
+            if state_ref.minecraft_was_online.load(Ordering::SeqCst) {
+                perf::probe(&app_resources, state_ref);
+            }
 
             std::thread::sleep(Duration::from_secs(15));
         }
@@ -3697,8 +3725,51 @@ fn zip_add_dir(
 /// recursivo da pasta inteira) apagava os backups junto, sem chance de
 /// recuperação nenhuma.
 #[tauri::command]
-async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
-    create_world_backup(&server_dir, &backups_dir, "")
+async fn backup_world(app: tauri::AppHandle, server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
+    // Em outra thread: zipar um mundo de centenas de MB não pode travar o resto do app.
+    tokio::task::spawn_blocking(move || run_tracked_backup(&app, &server_dir, &backups_dir, "app"))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+static BACKUP_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Estado de um backup do mundo para a interface (evento `world-backup`): começou, terminou ou falhou.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BackupEvent {
+    state: &'static str,
+    /// "app" (botão, backup automático) ou "remote" (pedido pelo painel web / Discord).
+    source: String,
+    server_name: String,
+    file_name: Option<String>,
+    size_bytes: Option<u64>,
+    error: Option<String>,
+}
+
+/// Faz o backup normal do mundo avisando a interface do começo ao fim. Só um por vez: o zip é escrito num arquivo
+/// temporário que cada novo backup limpa ao começar, então dois ao mesmo tempo estragariam um ao outro.
+fn run_tracked_backup(app: &tauri::AppHandle, server_dir: &str, backups_dir: &str, source: &str) -> Result<BackupInfo, String> {
+    if BACKUP_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err(tr!("backup.alreadyRunning"));
+    }
+    let server_name = std::path::Path::new(server_dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let event = |state: &'static str, info: Option<&BackupInfo>, error: Option<String>| BackupEvent {
+        state,
+        source: source.to_string(),
+        server_name: server_name.clone(),
+        file_name: info.map(|i| i.file_name.clone()),
+        size_bytes: info.map(|i| i.size_bytes),
+        error,
+    };
+    let _ = app.emit("world-backup", event("started", None, None));
+    let result = create_world_backup(server_dir, backups_dir, "");
+    BACKUP_RUNNING.store(false, Ordering::SeqCst);
+    let _ = match &result {
+        Ok(info) => app.emit("world-backup", event("finished", Some(info), None)),
+        Err(e) => app.emit("world-backup", event("failed", None, Some(e.clone()))),
+    };
+    result
 }
 
 /// Cria o zip do mundo em `backups_dir`. `name_prefix` vai antes do nome do arquivo ("" no backup normal).
@@ -6817,7 +6888,14 @@ pub fn run() {
       // navegador — ver docs/entrar/), repassa a URL pro frontend em vez de
       // deixar o clique se perder; a instância nova encerra sozinha logo em
       // seguida, só esta sobrevive.
-      if let Some(url) = args.iter().find(|a| a.starts_with("cubicase://")) {
+      let deep_link = args.iter().find(|a| a.starts_with("cubicase://"));
+      // Só o tamanho e o esquema vão para o .log: a URL carrega tokens de sessão.
+      log_to_file(app, &format!(
+        "[AUTH] Segunda instância repassou {} argumento(s); deep link {}.",
+        args.len(),
+        match deep_link { Some(u) => format!("recebido ({} caracteres)", u.len()), None => "ausente".to_string() }
+      ));
+      if let Some(url) = deep_link {
         let _ = app.emit("deep-link-received", url.clone());
       }
     }))
@@ -6999,6 +7077,18 @@ pub fn run() {
        upgrade::estimate_server_backup,
        upgrade::backup_server_full,
        upgrade::commit_server_upgrade,
+       perf::get_perf_state,
+       backups_dir::get_backups_settings,
+       backups_dir::set_backups_root,
+       backups_dir::rename_server_backups,
+       worlds::list_worlds,
+       worlds::set_active_world,
+       worlds::create_new_world,
+       worlds::list_datapacks,
+       worlds::toggle_datapack,
+       worlds::delete_datapack,
+       worlds::inspect_world_zip,
+       worlds::import_world_zip,
        server_inspect::inspect_server_folder_cmd,
        list_world_backups,
        backup_world,

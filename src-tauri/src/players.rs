@@ -47,7 +47,7 @@ fn strip_ansi(input: &str) -> String {
 /// Corta no PRIMEIRO "]: " depois de um "/INFO" (ou nível parecido) — o que vem
 /// depois, inclusive chat de jogador, nunca influencia onde o prefixo termina.
 /// Sem prefixo reconhecível (launcher que o remove), usa a linha toda.
-fn log_payload(clean: &str) -> &str {
+pub(crate) fn log_payload(clean: &str) -> &str {
     let trimmed = clean.trim();
     if trimmed.starts_with('[') {
         if let Some(pos) = trimmed.find("]: ") {

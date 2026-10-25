@@ -170,6 +170,9 @@ struct LocalServerSummary {
     server_type: String,
     description: String,
     status: String, // "running" | "stopped"
+    /// Código do servidor na API Central (do cubicase-meta.json): é o que liga este servidor ao Discord.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_code: Option<String>,
 }
 
 fn now_iso() -> String {
@@ -191,7 +194,7 @@ struct ImportedServersMirror {
 /// Lê o mesmo caminho onde src/lib/panelServers.ts espelha
 /// `importedServerPaths` (store do Zustand, persistido só no localStorage da
 /// webview — sem isso o Rust não tem como saber quais são).
-fn load_imported_server_paths(app: &AppHandle) -> Vec<String> {
+pub(crate) fn load_imported_server_paths(app: &AppHandle) -> Vec<String> {
     let Ok(data_dir) = app.path().app_local_data_dir() else {
         return Vec::new();
     };
@@ -213,6 +216,7 @@ fn summarize_server_dir(path: &std::path::Path, active_dir: Option<&str>, has_ru
     let mut server_type = "vanilla".to_string();
     let mut description = String::new();
     let mut id = name.clone();
+    let mut short_code: Option<String> = None;
 
     if let Ok(content) = std::fs::read_to_string(path.join("cubicase-meta.json")) {
         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -228,6 +232,9 @@ fn summarize_server_dir(path: &std::path::Path, active_dir: Option<&str>, has_ru
             if let Some(v) = meta.get("uuid").and_then(|v| v.as_str()) {
                 id = v.to_string();
             }
+            if let Some(v) = meta.get("shortCode").and_then(|v| v.as_str()) {
+                short_code = Some(v.to_string());
+            }
         }
     }
 
@@ -241,6 +248,7 @@ fn summarize_server_dir(path: &std::path::Path, active_dir: Option<&str>, has_ru
         server_type,
         description,
         status: if is_running { "running".into() } else { "stopped".into() },
+        short_code,
     }
 }
 
@@ -470,6 +478,72 @@ async fn build_server_list_message_async(app: &AppHandle) -> String {
         .unwrap_or_else(|_| serde_json::json!({ "type": "server_list", "servers": [] }).to_string())
 }
 
+/// Intervalo mínimo entre dois backups pedidos pelo painel/Discord (cada um zipa o mundo inteiro).
+const REMOTE_BACKUP_MIN_GAP_MS: i64 = 120_000;
+static LAST_REMOTE_BACKUP_MS: AtomicI64 = AtomicI64::new(0);
+
+/// Pasta do servidor cujo id (uuid do cubicase-meta.json) é `server_id`, entre os da pasta padrão e os importados.
+fn find_server_dir(app: &AppHandle, server_id: &str) -> Option<std::path::PathBuf> {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(docs_dir) = app.path().document_dir() {
+        if let Ok(entries) = std::fs::read_dir(docs_dir.join("CubicaseServers")) {
+            candidates.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+        }
+    }
+    candidates.extend(load_imported_server_paths(app).into_iter().map(std::path::PathBuf::from).filter(|p| p.is_dir()));
+    candidates.into_iter().find(|p| summarize_server_dir(p, None, false).id == server_id)
+}
+
+/// Backup do mundo a pedido do painel: mesma rotina e mesma pasta do botão "Backup agora" do app
+/// (<pasta de backups>/<nome do servidor>), no máximo um a cada 2 minutos.
+async fn run_remote_backup(app: &AppHandle, tx: &UnboundedSender<String>, server_id: &str, request_id: Option<String>) {
+    // O resultado volta ao relay (e dele ao Discord, se foi de lá que o pedido veio).
+    let result = |ok: bool, file_name: Option<String>, size_bytes: Option<u64>, error: Option<String>| {
+        let _ = tx.send(serde_json::json!({
+            "type": "backup_result", "requestId": request_id, "ok": ok,
+            "fileName": file_name, "sizeBytes": size_bytes, "error": error, "ts": now_iso(),
+        }).to_string());
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let last = LAST_REMOTE_BACKUP_MS.load(Ordering::Relaxed);
+    if now - last < REMOTE_BACKUP_MIN_GAP_MS {
+        let _ = tx.send(serde_json::json!({ "type": "error", "message": "Backup recusado: já houve um há menos de 2 minutos." }).to_string());
+        result(false, None, None, Some("Já houve um backup há menos de 2 minutos.".to_string()));
+        return;
+    }
+    let Some(dir) = find_server_dir(app, server_id) else {
+        let _ = tx.send(serde_json::json!({ "type": "error", "message": "Backup recusado: servidor não encontrado neste computador." }).to_string());
+        result(false, None, None, Some("Servidor não encontrado no computador do host.".to_string()));
+        return;
+    };
+    let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    // A mesma pasta que o app usa (a padrão ou a que a pessoa escolheu em Configurações).
+    let backups_dir = crate::backups_dir::current_root(app).join(&name);
+    LAST_REMOTE_BACKUP_MS.store(now, Ordering::Relaxed);
+
+    let (server_dir, backups) = (dir.to_string_lossy().to_string(), backups_dir.to_string_lossy().to_string());
+    let app_for_backup = app.clone();
+    let done = tokio::task::spawn_blocking(move || crate::run_tracked_backup(&app_for_backup, &server_dir, &backups, "remote")).await;
+    let line = match done {
+        Ok(Ok(info)) => {
+            log_to_file(app, &format!("[PANEL] Backup remoto concluído: {}", info.file_name));
+            result(true, Some(info.file_name.clone()), Some(info.size_bytes), None);
+            format!("[Painel] Backup do mundo concluído: {}", info.file_name)
+        }
+        Ok(Err(e)) => {
+            log_to_file(app, &format!("[PANEL] Backup remoto falhou: {}", e));
+            result(false, None, None, Some(e.clone()));
+            format!("[Painel] Backup do mundo falhou: {}", e)
+        }
+        Err(e) => {
+            result(false, None, None, Some(e.to_string()));
+            format!("[Painel] Backup do mundo falhou: {}", e)
+        }
+    };
+    let _ = app.emit("minecraft-log", &line);
+    let _ = tx.send(serde_json::json!({ "type": "log_line", "line": line, "ts": now_iso() }).to_string());
+}
+
 fn by_suffix(by: &Option<String>) -> String {
     by.as_deref().map(|n| format!(" (por {})", n)).unwrap_or_default()
 }
@@ -543,6 +617,12 @@ async fn handle_incoming_message(app: &AppHandle, raw: &str, tx: &tokio::sync::m
             // aqui. O listener no frontend (page.tsx) também aplica a regra de
             // "recusar se outro servidor já estiver rodando".
             let _ = app.emit("panel-start-server-request", server_id);
+        }
+        "backup" => {
+            let Some(server_id) = value.get("serverId").and_then(|v| v.as_str()) else { return; };
+            announce_panel_action(app, tx, &by, "pediu um backup do mundo");
+            let request_id = value.get("requestId").and_then(|v| v.as_str()).and_then(players::sanitize_request_id);
+            run_remote_backup(app, tx, server_id, request_id).await;
         }
         "players_refresh" => {
             request_player_list_refresh(app, LIST_REFRESH_MANUAL_MIN_MS).await;

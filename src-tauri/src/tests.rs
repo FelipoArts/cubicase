@@ -46,6 +46,12 @@ fn backups_dir_for(tmp: &TempDir) -> String {
     tmp.path().join("_external_backups").to_string_lossy().to_string()
 }
 
+/// O comando `backup_world` agora recebe um `AppHandle` (para avisar a interface do começo e do fim), e os testes
+/// não têm app de verdade: este atalho faz o mesmo backup sem o aviso, pela mesma rotina de criação do zip.
+async fn backup_world(server_dir: String, backups_dir: String) -> Result<BackupInfo, String> {
+    create_world_backup(&server_dir, &backups_dir, "")
+}
+
 /// Constrói um `tauri::State<AppState>` de teste SEM precisar de um app Tauri
 /// de verdade (nem de `tauri::test::mock_app()`/feature "test", que nesta
 /// máquina quebra o próprio binário de teste no link — STATUS_ENTRYPOINT_NOT_FOUND,
@@ -1518,4 +1524,121 @@ async fn restaurar_backup_completo_devolve_mods_e_versao_sem_misturar_com_os_nov
     let zip = zip::ZipArchive::new(fs::File::open(std::path::Path::new(&backups).join(&safety.file_name)).unwrap()).unwrap();
     let names: Vec<String> = zip.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
     assert!(names.iter().any(|n| n == "mods/sodium-1.20.4.jar"), "{names:?}");
+}
+
+// ------------------------------------------------------------
+// Mundos: listar e trocar o mundo ativo
+// ------------------------------------------------------------
+
+#[tokio::test]
+async fn lista_os_mundos_e_troca_o_ativo_sem_apagar_nada() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("srv");
+    let real_level = include_bytes!("test_fixtures/level_1_20_4.dat");
+    for w in ["world", "Outro Mundo"] {
+        fs::create_dir_all(dir.join(w)).unwrap();
+        fs::write(dir.join(w).join("level.dat"), real_level).unwrap();
+    }
+    fs::create_dir_all(dir.join("mods")).unwrap(); // sem level.dat: não é mundo
+    fs::create_dir_all(dir.join("world_nether/DIM-1")).unwrap(); // dimensão do Paper: não é mundo
+    fs::create_dir_all(dir.join(".oculta")).unwrap();
+    fs::write(dir.join("server.properties"), "level-name=world\nmotd=oi\n").unwrap();
+    let dir_str = dir.to_string_lossy().to_string();
+
+    let worlds = worlds::list_worlds(dir_str.clone()).await.unwrap();
+    let names: Vec<&str> = worlds.iter().map(|w| w.folder.as_str()).collect();
+    assert_eq!(names, vec!["world", "Outro Mundo"], "o ativo vem primeiro: {names:?}");
+    assert!(worlds[0].is_active && !worlds[1].is_active);
+    assert_eq!(worlds[1].mc_version.as_deref(), Some("1.20.4"));
+
+    let app_state = AppState::default();
+    worlds::set_active_world(state_from(&app_state), dir_str.clone(), "Outro Mundo".to_string()).await.unwrap();
+    let props = fs::read_to_string(dir.join("server.properties")).unwrap();
+    assert!(props.contains("level-name=Outro Mundo") && props.contains("motd=oi"), "{props}");
+    assert!(dir.join("world/level.dat").is_file(), "o mundo anterior continua intacto");
+    assert!(worlds::list_worlds(dir_str.clone()).await.unwrap()[0].folder == "Outro Mundo");
+
+    // nome que não é um mundo (ou perigoso): recusado e nada muda
+    for bad in ["mods", "nao-existe", "..", "a/b"] {
+        assert!(worlds::set_active_world(state_from(&app_state), dir_str.clone(), bad.to_string()).await.is_err(), "{bad}");
+    }
+    assert!(fs::read_to_string(dir.join("server.properties")).unwrap().contains("level-name=Outro Mundo"));
+}
+
+#[tokio::test]
+async fn trocar_de_mundo_exige_servidor_parado() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("srv");
+    fs::create_dir_all(dir.join("world")).unwrap();
+    fs::write(dir.join("world/level.dat"), include_bytes!("test_fixtures/level_1_20_4.dat")).unwrap();
+    fs::write(dir.join("server.properties"), "level-name=x\n").unwrap();
+    let app_state = AppState::default();
+    *app_state.minecraft_process.lock().unwrap() = Some(spawn_fake_running_process());
+    assert!(worlds::set_active_world(state_from(&app_state), dir.to_string_lossy().to_string(), "world".into()).await.is_err());
+    assert!(fs::read_to_string(dir.join("server.properties")).unwrap().contains("level-name=x"));
+    let taken = app_state.minecraft_process.lock().unwrap().take();
+    if let Some(mut child) = taken {
+        let _ = child.kill();
+    }
+}
+
+#[tokio::test]
+async fn novo_mundo_define_nome_e_seed_sem_tocar_no_mundo_atual() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("srv");
+    fs::create_dir_all(dir.join("world")).unwrap();
+    fs::write(dir.join("world/level.dat"), b"x").unwrap();
+    fs::write(dir.join("server.properties"), "level-name=world
+level-seed=antiga
+motd=oi
+").unwrap();
+    let d = dir.to_string_lossy().to_string();
+    let app_state = AppState::default();
+
+    worlds::create_new_world(state_from(&app_state), d.clone(), "Aventura 2".into(), Some("  12345 ".into())).await.unwrap();
+    let props = fs::read_to_string(dir.join("server.properties")).unwrap();
+    assert!(props.contains("level-name=Aventura 2") && props.contains("level-seed=12345") && props.contains("motd=oi"), "{props}");
+    assert!(dir.join("world/level.dat").is_file());
+
+    // seed vazia limpa a antiga (senão o mundo novo nasceria com a seed do anterior)
+    worlds::create_new_world(state_from(&app_state), d.clone(), "Aventura 3".into(), None).await.unwrap();
+    assert!(fs::read_to_string(dir.join("server.properties")).unwrap().contains("level-seed=
+"));
+
+    for (name, seed) in [("world", None), ("mods", None), ("..", None), ("ok", Some("a
+online-mode=false"))] {
+        assert!(worlds::create_new_world(state_from(&app_state), d.clone(), name.into(), seed.map(|s| s.to_string())).await.is_err(), "{name}");
+    }
+    assert!(!fs::read_to_string(dir.join("server.properties")).unwrap().contains("online-mode"));
+}
+
+#[tokio::test]
+async fn datapacks_listar_desativar_e_remover() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("srv");
+    fs::create_dir_all(dir.join("mundo/datapacks/pasta-pack")).unwrap();
+    fs::write(dir.join("server.properties"), "level-name=mundo
+").unwrap();
+    fs::write(dir.join("mundo/datapacks/vida.zip"), b"zip").unwrap();
+    fs::write(dir.join("mundo/datapacks/antigo.zip.disabled"), b"zip").unwrap();
+    fs::write(dir.join("mundo/datapacks/leia-me.txt"), b"nao e datapack").unwrap();
+    let d = dir.to_string_lossy().to_string();
+    let app_state = AppState::default();
+
+    let list = worlds::list_datapacks(d.clone()).await.unwrap();
+    let summary: Vec<(String, bool, bool)> = list.iter().map(|p| (p.display_name.clone(), p.enabled, p.is_dir)).collect();
+    assert_eq!(summary, vec![("antigo".into(), false, false), ("pasta-pack".into(), true, true), ("vida".into(), true, false)]);
+
+    worlds::toggle_datapack(state_from(&app_state), d.clone(), "vida.zip".into()).await.unwrap();
+    assert!(dir.join("mundo/datapacks/vida.zip.disabled").is_file() && !dir.join("mundo/datapacks/vida.zip").exists());
+    worlds::toggle_datapack(state_from(&app_state), d.clone(), "antigo.zip.disabled".into()).await.unwrap();
+    assert!(dir.join("mundo/datapacks/antigo.zip").is_file());
+    assert!(worlds::toggle_datapack(state_from(&app_state), d.clone(), "pasta-pack".into()).await.is_err(), "pasta não liga/desliga");
+
+    worlds::delete_datapack(state_from(&app_state), d.clone(), "pasta-pack".into()).await.unwrap();
+    assert!(!dir.join("mundo/datapacks/pasta-pack").exists());
+    for bad in ["..", "../server.properties", "nao-existe.zip", "a/b"] {
+        assert!(worlds::delete_datapack(state_from(&app_state), d.clone(), bad.into()).await.is_err(), "{bad}");
+    }
+    assert!(dir.join("server.properties").is_file());
 }
