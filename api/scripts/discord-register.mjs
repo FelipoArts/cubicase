@@ -2,8 +2,11 @@
 //   DISCORD_APP_ID=... DISCORD_BOT_TOKEN=... node api/scripts/discord-register.mjs
 // No PowerShell:
 //   $env:DISCORD_APP_ID="..."; $env:DISCORD_BOT_TOKEN="..."; node api/scripts/discord-register.mjs
-// Comandos globais podem levar alguns minutos para aparecer em todos os servidores. Para testar na hora em um servidor
-// seu, informe também DISCORD_GUILD_ID (o comando fica só nele).
+// Sem DISCORD_GUILD_ID o registro é GLOBAL (vale para todos os servidores onde o bot estiver; pode levar alguns minutos
+// para aparecer). Com DISCORD_GUILD_ID, o comando fica só naquele servidor (bom para testar).
+//
+// Depois de registrar globalmente, limpe os comandos do servidor de teste para não aparecerem duplicados:
+//   DISCORD_APP_ID=... DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=... node api/scripts/discord-register.mjs --clear
 import { readFile } from "node:fs/promises";
 
 const appId = process.env.DISCORD_APP_ID;
@@ -14,7 +17,12 @@ if (!appId || !token) {
   process.exit(1);
 }
 
-const commands = JSON.parse(await readFile(new URL("../src/discord-commands.json", import.meta.url), "utf8"));
+const clear = process.argv.includes("--clear");
+if (clear && !guildId) {
+  console.error("--clear só funciona com DISCORD_GUILD_ID: ele remove os comandos DAQUELE servidor (os globais não são tocados).");
+  process.exit(1);
+}
+const commands = clear ? [] : JSON.parse(await readFile(new URL("../src/discord-commands.json", import.meta.url), "utf8"));
 const url = guildId
   ? `https://discord.com/api/v10/applications/${appId}/guilds/${guildId}/commands`
   : `https://discord.com/api/v10/applications/${appId}/commands`;
@@ -30,4 +38,6 @@ if (!res.ok) {
   process.exit(1);
 }
 const registered = JSON.parse(body);
-console.log(`OK: ${registered.length} comando(s) registrado(s) ${guildId ? `no servidor ${guildId}` : "globalmente"}: ${registered.map((c) => "/" + c.name).join(", ")}`);
+console.log(clear
+  ? `OK: comandos do servidor ${guildId} removidos (os globais continuam).`
+  : `OK: ${registered.length} comando(s) registrado(s) ${guildId ? `no servidor ${guildId}` : "globalmente"}: ${registered.map((c) => "/" + c.name).join(", ")}`);
