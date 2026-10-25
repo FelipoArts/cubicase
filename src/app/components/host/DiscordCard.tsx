@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Send, Unlink } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
-import { useT } from "@/i18n";
+import { getLocale, useT } from "@/i18n";
 import {
   createDiscordLinkCode, getDiscordInstallUrl, listDiscordChannels, listDiscordLinks, listDiscordRoles, saveDiscordConfig, sendDiscordTest, unlinkDiscord,
   type DiscordChannel, type DiscordRole, type DiscordChannelKind, type DiscordEventKind, type DiscordLink, type DiscordLinkCode,
@@ -107,6 +107,13 @@ export function DiscordCard({ shortCode }: { shortCode: string | null }) {
         </div>
 
         <p className="text-[11px] text-theme-secondary">{t("discord.freeNote")}</p>
+        <button
+          type="button"
+          className="text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer"
+          onClick={() => void open(getLocale() === "en" ? "https://cubicase.net/en/discord/" : "https://cubicase.net/discord/").catch(fail)}
+        >
+          {t("discord.learnMore")}
+        </button>
       </div>
     </Card>
   );

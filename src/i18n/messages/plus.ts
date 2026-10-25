@@ -12,7 +12,7 @@ export default defineMessages({
     "plus.benefits.title": "O que você ganha",
 
     "plus.b.panel.title": "Painel no celular e no navegador",
-    "plus.b.panel.text": "Ligue, desligue e reinicie o servidor, veja o console e expulse ou bana jogadores de qualquer lugar. Instale como app e receba um aviso quando alguém entrar ou o servidor cair.",
+    "plus.b.panel.text": "Ligue, desligue e reinicie o servidor, veja o console e expulse ou bana jogadores de qualquer lugar. Instale como app e receba um aviso quando alguém entrar ou o servidor cair. Também dá para controlar pelo Discord: ligar, desligar e fazer backup com o bot.",
     "plus.b.panel.example": "Fora de casa? Abra o painel e resolva em dois toques.",
     "plus.b.wake.title": "Servidor que liga e desliga sozinho",
     "plus.b.wake.text": "Quando um amigo tenta entrar, o servidor acorda. Quando fica vazio, ele desliga. Seu computador descansa e você não precisa ficar de olho.",
@@ -89,7 +89,7 @@ export default defineMessages({
     "plus.benefits.title": "What you get",
 
     "plus.b.panel.title": "Panel on your phone and browser",
-    "plus.b.panel.text": "Start, stop and restart the server, watch the console and kick or ban players from anywhere. Install it as an app and get an alert when someone joins or the server goes down.",
+    "plus.b.panel.text": "Start, stop and restart the server, watch the console and kick or ban players from anywhere. Install it as an app and get an alert when someone joins or the server goes down. You can also control it from Discord: start, stop and back up with the bot.",
     "plus.b.panel.example": "Away from home? Open the panel and fix it in two taps.",
     "plus.b.wake.title": "A server that starts and stops by itself",
     "plus.b.wake.text": "When a friend tries to join, the server wakes up. When it's empty, it shuts down. Your computer rests and you don't have to keep an eye on it.",
