@@ -1,0 +1,18 @@
+{
+  "id": "/painel/",
+  "name": "Cubicase — Painel",
+  "short_name": "Cubicase",
+  "description": "Acompanhe e controle seu servidor de Minecraft de qualquer lugar.",
+  "lang": "pt-BR",
+  "start_url": "/painel/",
+  "scope": "/painel/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "icons": [
+    { "src": "/assets/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/pwa/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -7,7 +7,13 @@
   <meta name="description" content="Painel web remoto do Cubicase Plus: acompanhe e controle seu servidor de qualquer lugar." />
   <meta name="robots" content="noindex" />
   <link rel="icon" type="image/png" href="/assets/icon.png" />
-  <link rel="apple-touch-icon" href="/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/assets/pwa/apple-touch-icon.png" />
+  <link rel="manifest" href="/painel/manifest.webmanifest" />
+  <meta name="theme-color" content="#0a0a0c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Cubicase" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -229,6 +235,8 @@
         <span class="badge-shared" id="access-badge" hidden>Acesso compartilhado</span>
       </div>
       <div class="right">
+        <button type="button" class="btn-mini" id="btn-install" hidden>Instalar app</button>
+        <button type="button" class="btn-mini" id="btn-notify" hidden>Notificações</button>
         <button type="button" class="btn-mini" id="btn-share" hidden>Compartilhar acesso</button>
         <button type="button" class="link-btn" id="btn-change-device">Trocar computador</button>
       </div>
@@ -317,6 +325,31 @@
       <div class="share-section">
         <h3>Convites pendentes</h3>
         <div id="share-invites"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="notify-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Notificações</h2>
+        <button type="button" class="link-btn" id="notify-close">Fechar</button>
+      </div>
+      <p class="perm-hint" style="margin: 0 0 14px;">Receba um aviso no celular ou no computador, mesmo com o painel fechado.</p>
+
+      <p class="notice" id="notify-ios" hidden>No iPhone e no iPad as notificações só funcionam com o painel instalado: toque em Compartilhar e depois em “Adicionar à Tela de Início”. Abra o painel pelo ícone novo e volte aqui.</p>
+      <p class="notice is-error" id="notify-blocked" hidden>As notificações estão bloqueadas neste navegador. Libere nas configurações do site e abra esta janela de novo.</p>
+
+      <div id="notify-main">
+        <label class="check-row"><input type="checkbox" id="notify-enabled" /> <strong>Avisar neste aparelho sobre este computador</strong></label>
+        <div id="notify-prefs" style="margin: 14px 0 0 26px; display: grid; gap: 10px;">
+          <label class="check-row"><input type="checkbox" id="notify-pref-players" checked /> Jogador entrou ou saiu</label>
+          <label class="check-row"><input type="checkbox" id="notify-pref-server" checked /> Servidor ligou ou desligou</label>
+          <label class="check-row"><input type="checkbox" id="notify-pref-offline" checked /> O Cubicase do computador ficou offline</label>
+          <p class="console-hint" id="notify-players-hint" hidden>Os nomes dos jogadores só aparecem para quem pode ver o console.</p>
+        </div>
+        <p class="console-hint" style="margin-top: 14px;">Quem pede uma ação pelo painel não recebe o aviso dela.</p>
+        <p class="login-status" id="notify-status" hidden></p>
       </div>
     </div>
   </div>
@@ -634,6 +667,19 @@
       const { owned = [], shared = [], pendingInvites = [] } = r.data;
       if (owned.length + shared.length + pendingInvites.length === 0) { empty.hidden = false; return; }
 
+      // Veio de uma notificação (?device=ID): abre direto esse computador, sem passar pela lista.
+      const deep = takeDeepLink();
+      if (deep) {
+        const mine = owned.find((d) => d.id === deep.deviceId);
+        const theirs = shared.find((d) => d.id === deep.deviceId);
+        const target = mine ?? theirs;
+        if (target) {
+          if (deep.doStart) { pendingDeepStart = { serverName: deep.serverName || "" }; setTimeout(() => { pendingDeepStart = null; }, 30000); }
+          openDevice({ id: target.id, deviceName: target.deviceName, isOwner: !!mine });
+          return;
+        }
+      }
+
       const addSection = (title) => {
         const h = document.createElement("div");
         h.className = "device-section-title";
@@ -763,6 +809,7 @@
       resetPanelView();
       showStep("panel");
       connect();
+      refreshNotifyButton();
     }
 
     // Espelha o último "status" recebido — usado só para não deixar o
@@ -1269,6 +1316,7 @@
       if (msg.type === "server_list") {
         lastServers = msg.servers || [];
         renderServerList();
+        tryDeepStart();
       }
     }
 
@@ -1454,8 +1502,250 @@
       }
     }
 
+    // ---- App instalável (PWA) e notificações ----
+    // O service worker (sw.js) só recebe os pushes e abre o painel ao tocar na notificação. As inscrições
+    // ficam no relay, uma por (aparelho × computador), com as preferências de cada uma (ver api/src/panel-push.ts).
+
+    const NOTIFY_FLAG = (deviceId) => `cubicase_push_${deviceId}`; // preferências com que esta pessoa ligou, para reinscrever sozinho se o navegador trocar a inscrição
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isStandalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    const pushCapable = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    let vapidKey; // undefined = ainda não consultei; null = o relay não tem notificações configuradas
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/painel/sw.js", { scope: "/painel/" }).catch(() => {});
+      navigator.serviceWorker.addEventListener("message", (e) => {
+        if (e.data?.type === "open-device") openFromNotification(e.data);
+      });
+    }
+
+    let installPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      el("btn-install").hidden = isStandalone;
+    });
+    window.addEventListener("appinstalled", () => { installPrompt = null; el("btn-install").hidden = true; });
+    el("btn-install").addEventListener("click", async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => null);
+      installPrompt = null;
+      el("btn-install").hidden = true;
+    });
+
+    function b64urlToBytes(b64) {
+      const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+      const bin = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+      return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    }
+
+    async function loadVapidKey() {
+      if (vapidKey !== undefined) return vapidKey;
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/panel/push/key`);
+        const json = await resp.json().catch(() => null);
+        vapidKey = resp.ok && json?.data?.publicKey ? json.data.publicKey : null;
+      } catch { return null; } // sem rede agora: tenta de novo na próxima vez
+      return vapidKey;
+    }
+
+    const notifyStatusEl = el("notify-status");
+    function notifyStatus(message, isError = false) {
+      notifyStatusEl.textContent = message;
+      notifyStatusEl.hidden = !message;
+      notifyStatusEl.classList.toggle("is-error", isError);
+    }
+
+    function readNotifyPrefs() {
+      return { players: el("notify-pref-players").checked, server: el("notify-pref-server").checked, offline: el("notify-pref-offline").checked };
+    }
+    function writeNotifyPrefs(p) {
+      el("notify-pref-players").checked = p.players !== false;
+      el("notify-pref-server").checked = p.server !== false;
+      el("notify-pref-offline").checked = p.offline !== false;
+    }
+    function savedNotifyPrefs(deviceId) {
+      try { const raw = localStorage.getItem(NOTIFY_FLAG(deviceId)); return raw ? JSON.parse(raw) : null; } catch { return null; }
+    }
+    function saveNotifyPrefs(deviceId, prefs) {
+      try { if (prefs) localStorage.setItem(NOTIFY_FLAG(deviceId), JSON.stringify(prefs)); else localStorage.removeItem(NOTIFY_FLAG(deviceId)); } catch {}
+    }
+
+    /** Inscrição do navegador (cria se faltar). Exige permissão já concedida. */
+    async function browserSubscription() {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const key = await loadVapidKey();
+        if (!key) throw new Error("sem chave");
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(key) });
+      }
+      return sub;
+    }
+
+    async function pushUpsert(deviceId, prefs) {
+      const sub = await browserSubscription();
+      const r = await api(`/devices/${deviceId}/push`, { method: "POST", body: { subscription: sub.toJSON(), prefs, lang: i18n.lang === "en" ? "en" : "pt-BR" } });
+      if (!r.ok) throw new Error(r.message || "falhou");
+      saveNotifyPrefs(deviceId, prefs);
+    }
+
+    async function pushRemove(deviceId) {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      saveNotifyPrefs(deviceId, null);
+      // A inscrição do navegador é uma só para todos os seus computadores; só a do relay (deste computador) é apagada.
+      if (sub) await api(`/devices/${deviceId}/push`, { method: "DELETE", body: { endpoint: sub.endpoint } });
+    }
+
+    async function pushState(deviceId) {
+      if (Notification.permission !== "granted") return { subscribed: false };
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) return { subscribed: false };
+      const r = await api(`/devices/${deviceId}/push/check`, { method: "POST", body: { endpoint: sub.endpoint } });
+      return r.ok && r.data?.subscribed ? { subscribed: true, prefs: r.data.prefs } : { subscribed: false };
+    }
+
+    /** O navegador pode trocar a inscrição (limpeza de dados, expiração): se esta pessoa tinha ligado, liga de novo em silêncio. */
+    async function resyncPush(deviceId) {
+      const saved = savedNotifyPrefs(deviceId);
+      if (!saved || !pushCapable || Notification.permission !== "granted") return;
+      try {
+        const state = await pushState(deviceId);
+        if (!state.subscribed) await pushUpsert(deviceId, saved);
+      } catch {}
+    }
+
+    async function refreshNotifyButton() {
+      const btn = el("btn-notify");
+      btn.hidden = true;
+      if (!pushCapable && !(isIos && !isStandalone)) return;
+      const key = await loadVapidKey();
+      if (!key || !currentDevice) return;
+      btn.hidden = false;
+      resyncPush(currentDevice.id);
+    }
+
+    async function openNotifyModal() {
+      const deviceId = currentDevice?.id;
+      if (!deviceId) return;
+      const needsInstall = !pushCapable && isIos && !isStandalone;
+      el("notify-ios").hidden = !needsInstall;
+      el("notify-blocked").hidden = !(pushCapable && Notification.permission === "denied");
+      el("notify-main").hidden = !pushCapable || Notification.permission === "denied";
+      notifyStatus("");
+      const canSeePlayers = can("viewConsole");
+      el("notify-pref-players").disabled = !canSeePlayers;
+      el("notify-players-hint").hidden = canSeePlayers;
+      el("notify-modal").hidden = false;
+      if (el("notify-main").hidden) return;
+
+      el("notify-enabled").disabled = true;
+      let state = { subscribed: false };
+      try { state = await pushState(deviceId); } catch {}
+      el("notify-enabled").checked = state.subscribed;
+      writeNotifyPrefs(state.subscribed ? state.prefs : (savedNotifyPrefs(deviceId) ?? {}));
+      el("notify-enabled").disabled = false;
+    }
+
+    el("btn-notify").addEventListener("click", openNotifyModal);
+    el("notify-close").addEventListener("click", () => { el("notify-modal").hidden = true; });
+    el("notify-modal").addEventListener("click", (e) => { if (e.target === el("notify-modal")) el("notify-modal").hidden = true; });
+
+    el("notify-enabled").addEventListener("change", async (e) => {
+      const box = e.target;
+      const deviceId = currentDevice?.id;
+      if (!deviceId) return;
+      box.disabled = true;
+      try {
+        if (box.checked) {
+          // Pedir a permissão só aqui, depois de um toque: navegadores ignoram (ou bloqueiam) pedidos fora de um gesto.
+          const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+          if (perm !== "granted") {
+            box.checked = false;
+            el("notify-blocked").hidden = perm !== "denied";
+            if (perm === "denied") el("notify-main").hidden = true;
+            else notifyStatus(i18n.t("Permissão não concedida."), true);
+            return;
+          }
+          await pushUpsert(deviceId, readNotifyPrefs());
+          notifyStatus(i18n.t("Notificações ativadas."));
+        } else {
+          await pushRemove(deviceId);
+          notifyStatus(i18n.t("Notificações desativadas."));
+        }
+      } catch {
+        box.checked = !box.checked;
+        notifyStatus(i18n.t("Não foi possível alterar as notificações. Tente de novo."), true);
+      } finally {
+        box.disabled = false;
+      }
+    });
+
+    for (const id of ["notify-pref-players", "notify-pref-server", "notify-pref-offline"]) {
+      el(id).addEventListener("change", async () => {
+        if (!el("notify-enabled").checked || !currentDevice) return;
+        try { await pushUpsert(currentDevice.id, readNotifyPrefs()); notifyStatus(i18n.t("Preferências salvas.")); }
+        catch { notifyStatus(i18n.t("Não foi possível salvar as preferências."), true); }
+      });
+    }
+
+    // ---- Abrir direto de uma notificação (?device=ID e, no botão "Iniciar servidor", &do=start&server=NOME) ----
+    // Nunca executa nada sozinho: iniciar o servidor sempre pede confirmação.
+
+    const DEEP_KEY = "cubicase_panel_deeplink";
+    let pendingDeepStart = null; // { serverName } até a lista de servidores chegar
+
+    function readDeepLinkFromUrl() {
+      const q = new URLSearchParams(location.search);
+      const device = q.get("device");
+      if (!device || !/^[A-Za-z0-9-]{8,64}$/.test(device)) return;
+      const link = { deviceId: device, doStart: q.get("do") === "start", serverName: (q.get("server") || "").slice(0, 60) };
+      try { sessionStorage.setItem(DEEP_KEY, JSON.stringify(link)); } catch {}
+      history.replaceState(null, "", location.pathname);
+    }
+    function takeDeepLink() {
+      try {
+        const raw = sessionStorage.getItem(DEEP_KEY);
+        sessionStorage.removeItem(DEEP_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+
+    async function openFromNotification({ deviceId, doStart, serverName }) {
+      if (!deviceId) return;
+      if (doStart) { pendingDeepStart = { serverName: serverName || "" }; setTimeout(() => { pendingDeepStart = null; }, 30000); }
+      if (currentStep === "panel" && currentDevice?.id === deviceId) { tryDeepStart(); return; }
+      if (currentStep === "login") { try { sessionStorage.setItem(DEEP_KEY, JSON.stringify({ deviceId, doStart, serverName })); } catch {} return; }
+      const r = await api("/devices").catch(() => null);
+      if (!r?.ok) return;
+      const owned = (r.data.owned ?? []).find((d) => d.id === deviceId);
+      const shared = (r.data.shared ?? []).find((d) => d.id === deviceId);
+      const d = owned ?? shared;
+      if (!d) return;
+      closeSocket();
+      openDevice({ id: d.id, deviceName: d.deviceName, isOwner: !!owned });
+    }
+
+    function tryDeepStart() {
+      if (!pendingDeepStart || !agentConnected || !lastServers.length || currentAccess === null) return;
+      const { serverName } = pendingDeepStart;
+      pendingDeepStart = null;
+      if (!can("start")) { showToast(i18n.t("Você não tem permissão para iniciar servidores."), true); return; }
+      const stopped = lastServers.filter((x) => x.status !== "running");
+      const target = stopped.find((x) => x.name.toLowerCase() === serverName.toLowerCase()) ?? (stopped.length === 1 ? stopped[0] : null);
+      if (!target) { showToast(i18n.t("Não encontrei esse servidor parado na lista."), true); return; }
+      const anyRunning = lastServers.some((x) => x.status === "running");
+      if (anyRunning) { showToast(i18n.t("Já há um servidor rodando neste computador."), true); return; }
+      if (!confirm(i18n.t("Iniciar o servidor \"{name}\" agora?", { name: target.name }))) return;
+      requestStartServer(target.id, { stopFirst: false });
+    }
+
     // ---- Boot ----
 
+    readDeepLinkFromUrl();
     const initialInvite = readInviteFromUrl();
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) afterLogin();

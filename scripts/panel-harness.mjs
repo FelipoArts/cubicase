@@ -36,8 +36,12 @@ const realFetch = window.fetch.bind(window);
 window.fetch = async (url, opts) => {
   const u = String(url);
   const ok = (data) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { "Content-Type": "application/json" } });
-  if (u.includes("/api/v1/panel/devices")) return ok({ owned: [{ id: "d1", deviceName: "PC Teste", lastSeenAt: null }], shared: [], pendingInvites: [] });
+  if (u.includes("/api/v1/panel/devices")) return ok({ owned: [{ id: "d1000000-0000-4000-8000-000000000001", deviceName: "PC Teste", lastSeenAt: null }], shared: [], pendingInvites: [] });
   if (u.includes("/ws-ticket")) return ok({ ticket: "t1" });
+  // Notificações push: o relay "tem" chave VAPID (par de teste, sem segredo) e nenhuma inscrição ainda.
+  if (u.includes("/api/v1/panel/push/key")) return ok({ publicKey: "BLl7k6WpG_8JBxZiODGtEXiYMhXP-337kqOenOYNq0P75V2sZD6T_tfdaOeyZcF4RMNCKXSNqmVVDdj7WyJtZ8s" });
+  if (u.includes("/push/check")) return ok({ subscribed: false });
+  if (u.includes("/push")) return ok({});
   return realFetch(url, opts);
 };
 class FakeWS {
