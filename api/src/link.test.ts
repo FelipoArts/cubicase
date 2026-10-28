@@ -385,6 +385,21 @@ describe("sala de sinalização: limites", () => {
     for (let i = 0; i < 200; i++) g.ws.send(JSON.stringify({ t: "ice", candidate: { candidate: `c${i}` } }));
     expect((await g.waitFor((m) => m.t === "error" && m.code === "RATE_LIMITED", 4000)).code).toBe("RATE_LIMITED");
   });
+
+  it("o host, que fala por todos os convidados, aguenta a rajada de uma negociação em massa (o convidado continua limitado)", async () => {
+    const { shortCode, host } = await room();
+    const h = asConn(await connect(shortCode, host.credentials.signalToken));
+    const g = asConn(await connect(shortCode, await guestToken(shortCode, "install-bbbbbbbb")));
+    await g.waitFor((m) => m.t === "host_online");
+    // O convidado se apresenta ao host (oferta) e o host descobre o id que a sala deu a ele.
+    g.ws.send(JSON.stringify({ t: "offer", sdp: "x" }));
+    const offer = await h.waitFor((m) => m.t === "offer");
+    // ~8 convidados negociando juntos = resposta + ~16 candidatos cada, tudo em segundos: 8 x 17 > 120.
+    for (let i = 0; i < 400; i++) h.ws.send(JSON.stringify({ t: "ice", to: offer.from, candidate: { candidate: `c${i}` } }));
+    h.ws.send(JSON.stringify({ t: "answer", to: offer.from, sdp: "resposta" }));
+    expect((await g.waitFor((m) => m.t === "answer", 4000)).sdp).toBe("resposta"); // a última mensagem da rajada chegou
+    expect(h.msgs.some((m) => m.t === "error" && m.code === "RATE_LIMITED")).toBe(false);
+  });
 });
 
 describe("sala de sinalização: presença e ciclo de vida", () => {

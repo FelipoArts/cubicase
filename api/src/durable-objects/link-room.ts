@@ -29,7 +29,12 @@ interface Env extends LinkEnv {
 
 export const MAX_SIGNAL_CHARS = 64 * 1024;
 const RATE_WINDOW_MS = 10_000;
-const RATE_MAX_MESSAGES = 120; // por conexão, a cada 10 s (trickle ICE de uma conexão cabe com folga)
+const RATE_MAX_MESSAGES = 120; // convidado: por conexão, a cada 10 s (o trickle ICE de uma conexão cabe com folga)
+// O host fala por TODOS os convidados: cada um que negocia custa uma resposta e 15 a 20 candidatos ICE. Com o teto do
+// convidado, ~7 negociando ao mesmo tempo (vários amigos entrando juntos, ou o host reiniciando com todos conectados)
+// estouravam o limite e a resposta do último era descartada: ele ficava sem conexão. O host é autenticado (dono do
+// servidor), então o teto dele é bem maior; o tamanho de cada mensagem continua limitado.
+const RATE_MAX_MESSAGES_HOST = 3000;
 const DEFAULT_MAX_GUESTS = 50;
 const REVOKED_PREFIX = 'revoked:';
 const ALLOWED_FROM_GUEST = new Set(['hello', 'offer', 'ice', 'bye']);
@@ -159,12 +164,12 @@ export class LinkRoom {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== 'string' || message.length > MAX_SIGNAL_CHARS) return;
-    if (this.rateLimited(ws)) {
+    const att = ws.deserializeAttachment() as Attachment | null;
+    if (!att) { try { ws.close(1008, 'sem identidade'); } catch { /* */ } return; }
+    if (this.rateLimited(ws, att.role === 'host' ? RATE_MAX_MESSAGES_HOST : RATE_MAX_MESSAGES)) {
       this.send(ws, { t: 'error', code: 'RATE_LIMITED', detail: 'mensagens demais' });
       return;
     }
-    const att = ws.deserializeAttachment() as Attachment | null;
-    if (!att) { try { ws.close(1008, 'sem identidade'); } catch { /* */ } return; }
 
     let m: any;
     try { m = JSON.parse(message); } catch { return; }
@@ -235,7 +240,7 @@ export class LinkRoom {
     }
   }
 
-  private rateLimited(ws: WebSocket): boolean {
+  private rateLimited(ws: WebSocket, max: number): boolean {
     const now = Date.now();
     let r = this.rate.get(ws);
     if (!r || now - r.start > RATE_WINDOW_MS) {
@@ -243,7 +248,7 @@ export class LinkRoom {
       this.rate.set(ws, r);
     }
     r.count++;
-    return r.count > RATE_MAX_MESSAGES;
+    return r.count > max;
   }
 
   /**
