@@ -50,3 +50,22 @@ go test ./... -count=1
 Usam conexões WebRTC reais em loopback (host + vários convidados, Minecraft falso, HTTP de mods, queda e volta
 do host, queda da sinalização, sala cheia, WebSocket real). Não cobrem NAT de verdade — isso é a Fase 0 pendente
 (testes em rede real com o `spikes/link-spike`).
+
+## Teste de campo (infraestrutura real)
+
+Os testes acima usam uma sala de sinalização simulada. Para exercitar o que está PUBLICADO (API, sala no Cloudflare e o
+relay da Oracle) com este mesmo programa, rode da raiz do projeto:
+
+```bash
+node scripts/e2e-link.mjs --guests 8 --relay 4              # 8 convidados, 4 forçados pelo relay
+node scripts/e2e-link.mjs --guests 4 --relay 4 --turn tcp   # relay só por TCP (rede que bloqueia UDP)
+node scripts/e2e-link.mjs --guests 4 --relay 4 --turn tls   # relay só pela porta 443
+```
+
+Cria um servidor de teste na central, troca MBs de dados conferidos por hash entre um "Minecraft" falso e cada convidado,
+derruba um convidado de repente, derruba e religa o host e confere que todos se recuperam; apaga o servidor no fim.
+A API limita 30 entradas por minuto por IP: espere um minuto entre rodadas grandes.
+
+`CUBICASE_LINK_DEBUG=1` faz o sidecar escrever no stderr o que decide ao negociar (mensagens da sala, estados do ICE).
+O app só lê o stdout, então isso nunca aparece para o usuário.
+
