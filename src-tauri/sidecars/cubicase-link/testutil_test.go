@@ -64,6 +64,8 @@ type memHub struct {
 	guests map[string]*memSig
 	next   int
 	dials  int
+	// dropAnswers: quantas respostas do host a convidados a sala "perde" (simula mensagem descartada no caminho).
+	dropAnswers int
 }
 
 func newHub() *memHub { return &memHub{guests: map[string]*memSig{}} }
@@ -120,6 +122,10 @@ func (s *memSig) Send(ctx context.Context, m Msg) error {
 				g.deliver(Msg{T: msgHostOnline, PeerID: m.PeerID})
 			}
 		case msgAnswer, msgICE, msgError:
+			if m.T == msgAnswer && h.dropAnswers > 0 {
+				h.dropAnswers--
+				return nil
+			}
 			h.guests[m.To].deliver(m)
 		}
 	case modeGuest:

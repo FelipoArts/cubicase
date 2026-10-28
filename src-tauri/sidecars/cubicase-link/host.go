@@ -137,6 +137,7 @@ func (h *Host) onOffer(ctx context.Context, sig Signal, m Msg) {
 		return
 	}
 	p := h.peer(m.From)
+	dbg("host: oferta de %s (peer existente=%v)", m.From, p != nil)
 	if p == nil { // convidado novo
 		h.mu.Lock()
 		full := len(h.guests) >= h.cfg.MaxGuests
@@ -167,6 +168,7 @@ func (h *Host) onOffer(ctx context.Context, sig Signal, m Msg) {
 		return
 	}
 	_ = sig.Send(ctx, Msg{T: msgAnswer, To: m.From, SDP: answer.SDP})
+	dbg("host: resposta enviada para %s", m.From)
 }
 
 func (h *Host) newPeer(ctx context.Context, id string) (*hostPeer, error) {
@@ -192,6 +194,7 @@ func (h *Host) newPeer(ctx context.Context, id string) (*hostPeer, error) {
 		}
 	})
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		dbg("host: convidado %s estado=%s", id, s)
 		switch s {
 		case webrtc.PeerConnectionStateConnected:
 			if path := classifyPath(pc); path != "" {

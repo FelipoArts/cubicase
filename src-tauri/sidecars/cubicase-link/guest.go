@@ -41,7 +41,13 @@ type Guest struct {
 	fatalCh  chan error
 }
 
+// answerTimeout: quanto esperar a resposta do host a uma oferta antes de recomeçar. A resposta costuma chegar em
+// centenas de ms; se ela se perde no caminho (sala de sinalização sobrecarregada, host ocupado), a conexão ficaria em
+// "nova" para sempre — não conecta e também não falha, então nada a refaria. Variável para os testes encurtarem.
+var answerTimeout = 8 * time.Second
+
 type guestPeer struct {
+	answered  atomic.Bool  // o host já respondeu a esta oferta
 	pc        *webrtc.PeerConnection
 	ready     chan struct{} // fechado quando o canal ctl abre (caminho utilizável)
 	readyOnce sync.Once
@@ -150,6 +156,7 @@ func (g *Guest) serve(ctx context.Context, sig Signal) {
 
 // handle devolve false para encerrar esta sessão de sinalização.
 func (g *Guest) handle(ctx context.Context, sig Signal, m Msg) bool {
+	dbg("guest: sala -> %s peerId=%q", m.T, m.PeerID)
 	switch m.T {
 	case msgHostOnline:
 		g.mu.Lock()
@@ -162,7 +169,9 @@ func (g *Guest) handle(ctx context.Context, sig Signal, m Msg) bool {
 		}
 		// Reabre só se não há conexão saudável OU se este é OUTRO processo de host (uma
 		// conexão antiga pode parecer viva por segundos depois de o host original morrer).
-		if !g.peerHealthy() || g.hostChanged(m.PeerID) {
+		healthy, changed := g.peerHealthy(), g.hostChanged(m.PeerID)
+		dbg("guest: host_online saudavel=%v hostMudou=%v hostSess=%q novo=%q", healthy, changed, g.lastHostSession(), m.PeerID)
+		if !healthy || changed {
 			g.startPeer(ctx, m.PeerID)
 		}
 	case msgHostLeft:
@@ -181,6 +190,8 @@ func (g *Guest) handle(ctx context.Context, sig Signal, m Msg) bool {
 		if p := g.currentPeer(); p != nil {
 			if err := p.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: m.SDP}); err != nil {
 				emitWarning(g.em, "peer_failed", describe(err))
+			} else {
+				p.answered.Store(true)
 			}
 		}
 	case msgICE:
@@ -247,6 +258,17 @@ func (g *Guest) closePeer() {
 
 // startPeer cria a conexão com o host e envia a oferta pela sinalização.
 func (g *Guest) startPeer(ctx context.Context, hostSession string) {
+	dbg("guest: startPeer host=%q", hostSession)
+	if g.currentPeer() != nil {
+		// A conexão nova tem outra identidade (DTLS): sem este aviso o host, que ainda guarda a antiga deste convidado, trataria a
+		// oferta como renegociação dela e a recusaria.
+		g.mu.Lock()
+		sig := g.sig
+		g.mu.Unlock()
+		if sig != nil {
+			_ = sig.Send(ctx, Msg{T: msgBye})
+		}
+	}
 	g.closePeer()
 	pc, err := newPeerConnection(g.cfg)
 	if err != nil {
@@ -275,6 +297,7 @@ func (g *Guest) startPeer(ctx context.Context, hostSession string) {
 
 	var graceTimer atomic.Pointer[time.Timer]
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		dbg("guest: peer %p estado=%s (atual=%v)", p, s, g.currentPeer() == p)
 		switch s {
 		case webrtc.PeerConnectionStateConnected:
 			if t := graceTimer.Swap(nil); t != nil {
@@ -317,6 +340,7 @@ func (g *Guest) startPeer(ctx context.Context, hostSession string) {
 		return
 	}
 	ctl.OnOpen(func() {
+		dbg("guest: canal ctl aberto no peer %p", p)
 		rwc, err := ctl.Detach()
 		if err != nil {
 			return
@@ -339,6 +363,21 @@ func (g *Guest) startPeer(ctx context.Context, hostSession string) {
 	if sig != nil {
 		_ = sig.Send(ctx, Msg{T: msgOffer, SDP: offer.SDP})
 	}
+	// Sem resposta do host a tempo: recomeça com uma conexão e uma oferta novas (enquanto o host estiver na sala).
+	time.AfterFunc(answerTimeout, func() {
+		if ctx.Err() != nil || g.currentPeer() != p || p.answered.Load() {
+			return
+		}
+		g.mu.Lock()
+		up := g.hostUp
+		g.mu.Unlock()
+		if !up {
+			return // quando o host voltar, host_online recomeça a negociação
+		}
+		dbg("guest: sem resposta do host em %s; recomeçando", answerTimeout)
+		emitInfo(g.em, "o host não respondeu à negociação; tentando de novo")
+		g.startPeer(ctx, g.lastHostSession())
+	})
 }
 
 func (g *Guest) restartICE(ctx context.Context, p *guestPeer) {
@@ -508,6 +547,7 @@ func (g *Guest) openChannel(ctx context.Context, label string) (io.ReadWriteClos
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-deadline.C:
+			dbg("guest: openChannel(%s) sem peer pronto (peer atual=%p)", label, g.currentPeer())
 			return nil, errors.New("host indisponível")
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -527,6 +567,7 @@ ready:
 	case rwc := <-opened:
 		return rwc, nil
 	case <-time.After(openChannelTimeout):
+		dbg("guest: openChannel(%s) tempo esgotado no peer %p estado=%s", label, p, p.pc.ConnectionState())
 		_ = dc.Close()
 		return nil, errors.New("tempo esgotado abrindo o canal")
 	case <-ctx.Done():
