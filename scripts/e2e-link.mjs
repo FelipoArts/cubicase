@@ -32,6 +32,14 @@ const PAYLOAD_MB = Number(arg("mb", 2));
 // Como o relay é alcançado pelos convidados forçados: udp (padrão), tcp (UDP bloqueado) ou tls (só a porta 443, a que
 // passa por quase todo firewall).
 const TURN_MODE = arg("turn", "udp");
+// Laboratório de rede (lab/): o host roda em OUTRA rede simulada (prefixo de comando, ex.: "ip netns exec hostlan"), e cada
+// lado usa o STUN do laboratório, que enxerga o endereço "público" do NAT simulado. Sem isto, tudo roda na mesma máquina.
+const HOST_PREFIX = arg("host-prefix", "");
+const STUN_HOST = arg("stun-host", "");
+const STUN_GUEST = arg("stun-guest", "");
+const PHASES = new Set(arg("phases", "solo,concurrent,crash,restart").split(","));
+// Expressão regular do caminho esperado para os convidados NÃO forçados pelo relay (ex.: "punched|direct" ou "^relay$").
+const EXPECT_PATH = arg("expect-path", "");
 
 const MC_PORT = 39000;      // "Minecraft" falso do host (devolve tudo que recebe)
 const GUEST_BASE = 39100;   // porta local de cada convidado
@@ -63,11 +71,14 @@ async function newSession(shortCode, mode, installationId, ownerSecret) {
 
 // ---------------- processos do cubicase-link ----------------
 class Peer {
-  constructor(name, cfg) {
+  constructor(name, cfg, prefix = "") {
     this.name = name;
     this.events = [];
     this.waiters = [];
-    this.proc = spawn(BIN, ["--stdin"], { stdio: ["pipe", "pipe", "pipe"] });
+    // Com prefixo (laboratório), o programa roda dentro de outra rede; "exec" mantém um só processo, que o kill alcança.
+    this.proc = prefix
+      ? spawn("sh", ["-c", `exec ${prefix} ${BIN} --stdin`], { stdio: ["pipe", "pipe", "pipe"] })
+      : spawn(BIN, ["--stdin"], { stdio: ["pipe", "pipe", "pipe"] });
     let buf = "";
     this.proc.stdout.on("data", (d) => {
       buf += d.toString();
@@ -101,9 +112,9 @@ class Peer {
   async stop() { try { this.proc.stdin.end(); } catch { /* */ } await Promise.race([this.exited, sleep(3000)]); this.kill(); }
 }
 
-const baseCfg = (creds) => ({
+const baseCfg = (creds, stun) => ({
   peerId: creds.peerId, signalUrl: creds.signalUrl, signalToken: creds.signalToken,
-  ice: creds.ice,
+  ice: stun ? { ...creds.ice, stunUrls: [`stun:${stun}`] } : creds.ice,
 });
 
 // ---------------- o "Minecraft" do host: devolve tudo que recebe ----------------
@@ -152,7 +163,7 @@ async function exchange(g, mb, tag) {
 }
 
 // ---------------- cenário ----------------
-let server, ownerSecret, host;
+let server, ownerSecret, host, labEcho = null;
 const guests = [];
 
 async function startGuest(i, forceRelay) {
@@ -165,7 +176,7 @@ async function startGuest(i, forceRelay) {
     creds.ice.turn = { ...creds.ice.turn, urls };
   }
   const g = { name: `convidado${i}${forceRelay ? "(relay)" : "(direto)"}`, forceRelay, port: GUEST_BASE + i, creds, installationId };
-  g.peer = new Peer(g.name, { mode: "guest", ...baseCfg(creds), relayOnly: forceRelay, localPort: g.port, modsPort: MODS_BASE + i, registryPort: REGISTRY_PORT });
+  g.peer = new Peer(g.name, { mode: "guest", ...baseCfg(creds, STUN_GUEST), relayOnly: forceRelay, localPort: g.port, modsPort: MODS_BASE + i, registryPort: REGISTRY_PORT });
   g.startedAt = Date.now();
   await g.peer.waitFor((e) => e.status === "online" || e.info === "listening" || e.path, 45000, "convidado pronto");
   return g;
@@ -173,8 +184,14 @@ async function startGuest(i, forceRelay) {
 
 async function main() {
   log(`API: ${API} | convidados: ${GUESTS} (${RELAY_GUESTS} forçados pelo relay, via ${TURN_MODE}) | carga: ${PAYLOAD_MB} MB por troca`);
-  await new Promise((r) => echo.listen(MC_PORT, "127.0.0.1", r));
-  await new Promise((r) => registry.listen(REGISTRY_PORT, "127.0.0.1", r));
+  if (HOST_PREFIX) {
+    // O "Minecraft" falso precisa estar na mesma rede do host.
+    labEcho = spawn("sh", ["-c", `exec ${HOST_PREFIX} node ${path.join(ROOT, "scripts", "lab-echo.mjs")} ${MC_PORT}`], { stdio: "ignore" });
+    await sleep(700);
+  } else {
+    await new Promise((r) => echo.listen(MC_PORT, "127.0.0.1", r));
+    await new Promise((r) => registry.listen(REGISTRY_PORT, "127.0.0.1", r));
+  }
 
   // 1. servidor de teste na central + host
   const created = await api("POST", "/api/v1/servers", { body: { name: `E2E-${Date.now().toString(36)}`, version: "1.20.1", serverType: "vanilla", description: "teste de campo (apagado ao final)" } });
@@ -184,7 +201,7 @@ async function main() {
 
   const hostCreds = await newSession(server.shortCode, "host", `e2e-host-${randomUUID().slice(0, 8)}`, ownerSecret);
   log(`relay disponível: ${hostCreds.relay} | STUN: ${hostCreds.ice.stunUrls.join(",")} | TURN: ${hostCreds.ice.turn ? hostCreds.ice.turn.urls.join(",") : "nenhum"}`);
-  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 });
+  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds, STUN_HOST), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
   await host.waitFor((e) => e.status === "online", 30000, "host online");
   log("host online na sala de sinalização");
 
@@ -201,24 +218,34 @@ async function main() {
 
   // 3. cada um sozinho: integridade, caminho usado e latência
   log("--- troca de dados, um convidado por vez");
-  for (const g of guests) {
+  for (const g of PHASES.has("solo") ? guests : []) {
     const r = await exchange(g, PAYLOAD_MB, "um de cada vez");
     const lat = await latency(g.port).catch(() => ({ p50: -1, max: -1 }));
     g.path = g.peer.lastPath();
     g.solo = { ...r, ...lat };
     log(`  ${g.name.padEnd(20)} caminho=${String(g.path).padEnd(10)} ${r.ok ? "bytes ok" : "BYTES DIFERENTES"}  ${r.mbps.toFixed(1)} MB/s  latência p50=${lat.p50}ms max=${lat.max}ms`);
     if (g.forceRelay) check(g.path === "relay", `${g.name} devia estar pelo relay, mas o caminho foi ${g.path}`);
+    if (EXPECT_PATH && !g.forceRelay) {
+      const okPath = new RegExp(EXPECT_PATH).test(String(g.path));
+      check(okPath, `${g.name}: caminho esperado /${EXPECT_PATH}/, veio ${g.path}`);
+      if (!okPath && process.env.CUBICASE_LINK_DEBUG) {
+        log(`  registro interno de ${g.name}:`); g.peer.stderr.slice(-(Number(process.env.E2E_STDERR_LINES) || 50)).forEach((l) => log("    ", l.slice(0, 260)));
+        log("  registro interno do host:"); host.stderr.slice(-(Number(process.env.E2E_STDERR_LINES) || 50)).forEach((l) => log("    ", l.slice(0, 260)));
+      }
+    }
   }
 
   // 4. todos ao mesmo tempo, 3 conexões por convidado
+  if (PHASES.has("concurrent")) {
   log("--- todos ao mesmo tempo (3 conexões por convidado)");
   const started = Date.now();
   const all = await Promise.all(guests.flatMap((g) => [0, 1, 2].map((k) => exchange(g, PAYLOAD_MB / 2, `simultâneo #${k + 1}`))));
   const okCount = all.filter((r) => r.ok).length;
   log(`  ${okCount}/${all.length} trocas corretas em ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  }
 
   // 5. um convidado some de repente; os outros seguem; um novo entra
-  if (guests.length >= 3) {
+  if (PHASES.has("crash") && guests.length >= 3) {
     log("--- um convidado cai de repente");
     const victim = guests[1];
     victim.peer.kill();
@@ -235,13 +262,35 @@ async function main() {
     guests.splice(guests.indexOf(victim), 1);
   }
 
+  // 5b. a rede do convidado cai por um tempo (WIRE_BLACKOUT do laboratório) e volta: ele reconecta sozinho?
+  if (PHASES.has("recover")) {
+    log("--- recuperação depois de queda de rede (espera o corte começar e tenta até 150 s)");
+    await sleep(Number(arg("recover-delay", "10")) * 1000);
+    const t0 = Date.now();
+    const times = [];
+    for (const g of guests) {
+      let ok = false;
+      while (!ok && Date.now() - t0 < 150000) {
+        const r = await Promise.race([exchange(g, 0.25, "recuperação"), sleep(15000).then(() => ({ ok: false }))]).catch(() => ({ ok: false }));
+        ok = r.ok;
+        if (!ok) await sleep(3000);
+      }
+      times.push(ok ? ((Date.now() - t0) / 1000).toFixed(0) + "s" : "NÃO VOLTOU");
+      if (!ok || (process.env.E2E_DUMP && g === guests[0])) { log(`  registro interno de ${g.name}:`); g.peer.stderr.filter((l) => !/^ice /.test(l)).slice(-60).forEach((l) => log("    ", l.slice(0, 220))); log("  eventos:"); g.peer.events.slice(-12).forEach((e) => log("    ", JSON.stringify({ ...e, at: `${((e.at - t0) / 1000).toFixed(1)}s` }))); }
+      else log(`  ${g.name} voltou a trocar dados após ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    }
+    problems.splice(0, problems.length, ...problems.filter((p) => !p.includes("recuperação")));
+    check(!times.includes("NÃO VOLTOU"), `convidados que não voltaram depois da queda: ${times.join(", ")}`);
+  }
+
   // 6. o host cai e volta
+  if (PHASES.has("restart")) {
   log("--- o host cai e volta");
   const hostDownAt = Date.now();
   host.kill();
   await sleep(3000);
   const hostCreds2 = await newSession(server.shortCode, "host", `e2e-host-${randomUUID().slice(0, 8)}`, ownerSecret);
-  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds2), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 });
+  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds2, STUN_HOST), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
   await host.waitFor((e) => e.status === "online", 30000, "host online de novo").catch((e) => check(false, e.message));
   let recovered = 0;
   for (const g of guests) {
@@ -265,12 +314,13 @@ async function main() {
   problems.splice(0, problems.length, ...problems.filter((p) => !p.includes("após o host voltar")));
   log(`  ${recovered}/${guests.length} convidados voltaram a trocar dados depois que o host voltou`);
   check(recovered === guests.length, `só ${recovered}/${guests.length} convidados se recuperaram depois da queda do host`);
+  }
 }
 
 async function cleanup() {
   for (const g of guests) await g.peer.stop();
   if (host) await host.stop();
-  echo.close(); registry.close();
+  if (labEcho) labEcho.kill("SIGKILL"); else { echo.close(); registry.close(); }
   if (server && ownerSecret) {
     await api("DELETE", `/api/v1/servers/${server.shortCode}`, { headers: { "X-Owner-Secret": ownerSecret } }).then(() => log("servidor de teste apagado da central"), (e) => log("não consegui apagar o servidor de teste:", e.message));
   }

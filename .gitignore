@@ -79,3 +79,6 @@ play-site/
 
 # Spikes (binarios de teste)
 spikes/**/*.exe
+
+# Binarios do laboratorio de rede (gerados; ver lab/README.md)
+lab/bin/
