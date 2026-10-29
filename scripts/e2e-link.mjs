@@ -41,10 +41,15 @@ const PHASES = new Set(arg("phases", "solo,concurrent,crash,restart").split(",")
 // Expressão regular do caminho esperado para os convidados NÃO forçados pelo relay (ex.: "punched|direct" ou "^relay$").
 const EXPECT_PATH = arg("expect-path", "");
 
-const MC_PORT = 39000;      // "Minecraft" falso do host (devolve tudo que recebe)
-const GUEST_BASE = 39100;   // porta local de cada convidado
-const MODS_BASE = 39200;    // porta do proxy de mods de cada convidado (não usada no teste, mas precisa ser única)
-const REGISTRY_PORT = 39001;
+// Vários testes ao mesmo tempo na mesma máquina (cada um com o seu host e os seus convidados): cada "slot" usa outras portas.
+const SLOT = Number(arg("slot", 0));
+// Com --spread-ip cada chamada à API leva um IP de origem diferente (CF-Connecting-IP): só vale numa API local, onde o limite
+// de 30 entradas por minuto por IP atrapalharia o teste de escala; a API publicada ignora esse cabeçalho vindo de fora.
+const SPREAD_IP = process.argv.includes("--spread-ip");
+const MC_PORT = 39000 + SLOT * 300;      // "Minecraft" falso do host (devolve tudo que recebe)
+const GUEST_BASE = 39100 + SLOT * 300;   // porta local de cada convidado
+const MODS_BASE = 39200 + SLOT * 300;    // porta do proxy de mods de cada convidado (não usada no teste, mas precisa ser única)
+const REGISTRY_PORT = 39001 + SLOT * 300;
 
 const t0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1).padStart(5)}s]`, ...a);
@@ -59,7 +64,7 @@ async function api(method, route, { body, headers } = {}) {
   let res;
   for (let attempt = 1; ; attempt++) {
     try {
-      res = await fetch(API + route, { method, headers: { "Content-Type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+      res = await fetch(API + route, { method, headers: { "Content-Type": "application/json", ...(SPREAD_IP ? { "CF-Connecting-IP": `10.${SLOT}.${Math.floor(Math.random() * 250)}.${1 + Math.floor(Math.random() * 250)}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
       break;
     } catch (e) {
       if (attempt >= 4) throw e;

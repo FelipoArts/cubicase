@@ -17,6 +17,12 @@ HOST_NAT=${HOST_NAT:-cone}; GUEST_NAT=${GUEST_NAT:-cone}
 HOST_UDP=${HOST_UDP:-open}; GUEST_UDP=${GUEST_UDP:-open}
 WIRE=${WIRE:-}; ARGS=${ARGS:-"--guests 3 --relay 0 --mb 1"}
 BIN=/work/lab/bin
+# API: a publicada (padrão) ou uma local (ex.: API_URL=http://host.docker.internal:8787). INSTANCES testes rodam ao mesmo tempo,
+# cada um com o seu servidor, o seu host e os seus convidados (escala).
+API_URL=${API_URL:-https://cubeforge-api.cubeforge.workers.dev}
+INSTANCES=${INSTANCES:-1}
+case "$API_URL" in *host.docker.internal*) hip=$(getent ahostsv4 host.docker.internal | awk '{print $1}' | head -1); API_URL=${API_URL/host.docker.internal/$hip};; esac
+set -o pipefail
 
 log() { echo "[lab] $*"; }
 ns() { ip netns exec "$@"; }
@@ -80,14 +86,18 @@ ns inet "$BIN/labstun" -listen :3478 >/tmp/labstun.log 2>&1 &
 ns wire "$BIN/labwire" -a wA -b wB $WIRE ${WIRE_BLACKOUT:+-blackout $WIRE_BLACKOUT} >/tmp/labwire.log 2>&1 &
 sleep 1
 # conferências rápidas: o convidado enxerga a internet e o STUN?
-ns guestlan curl -s -m 8 -o /dev/null -w "[lab] convidado -> API: HTTP %{http_code} em %{time_total}s\n" https://cubeforge-api.cubeforge.workers.dev/health
-ns hostlan curl -s -m 8 -o /dev/null -w "[lab] host -> API: HTTP %{http_code} em %{time_total}s\n" https://cubeforge-api.cubeforge.workers.dev/health
+ns guestlan curl -s -m 8 -o /dev/null -w "[lab] convidado -> API: HTTP %{http_code} em %{time_total}s\n" "$API_URL/health"
+ns hostlan curl -s -m 8 -o /dev/null -w "[lab] host -> API: HTTP %{http_code} em %{time_total}s\n" "$API_URL/health"
 
 # o teste roda DENTRO da rede do convidado; o host (e o "Minecraft" falso) sobem na rede do host
 cd /work
-ns guestlan node scripts/e2e-link.mjs --bin "$BIN/cubicase-link" --host-prefix "ip netns exec hostlan" \
-  --stun-host "100.64.1.1:3478" --stun-guest "100.64.2.1:3478" $ARGS
-code=$?
+pids=()
+for ((i = 0; i < INSTANCES; i++)); do
+  ns guestlan node scripts/e2e-link.mjs --api "$API_URL" --slot "$i" --bin "$BIN/cubicase-link" --host-prefix "ip netns exec hostlan"     --stun-host "100.64.1.1:3478" --stun-guest "100.64.2.1:3478" $ARGS 2>&1 | sed "s/^/[#$i] /" &
+  pids+=($!)
+done
+code=0
+for pid in "${pids[@]}"; do wait "$pid" || code=1; done
 if [ -n "${DUMP:-}" ]; then
   for n in rh rg; do echo "[lab] conntrack UDP em $n:"; ns $n grep -E "udp" /proc/net/nf_conntrack 2>/dev/null | cut -c1-230; done
   echo "[lab] labstun:"; tail -8 /tmp/labstun.log
