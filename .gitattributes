@@ -1,0 +1,2 @@
+# Scripts que rodam dentro de contêiner Linux precisam de LF (CRLF quebra o bash)
+lab/*.sh text eol=lf
