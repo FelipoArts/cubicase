@@ -167,7 +167,7 @@ func (h *Host) onOffer(ctx context.Context, sig Signal, m Msg) {
 		h.dropGuest(m.From)
 		return
 	}
-	_ = sig.Send(ctx, Msg{T: msgAnswer, To: m.From, SDP: answer.SDP})
+	_ = sig.Send(ctx, Msg{T: msgAnswer, To: m.From, SDP: tagAnswer(answer.SDP, m.SDP)})
 	dbg("host: resposta enviada para %s", m.From)
 }
 

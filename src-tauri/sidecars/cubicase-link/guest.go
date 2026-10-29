@@ -188,6 +188,10 @@ func (g *Guest) handle(ctx context.Context, sig Signal, m Msg) bool {
 		}
 	case msgAnswer:
 		if p := g.currentPeer(); p != nil {
+			if ld := p.pc.LocalDescription(); ld != nil && !answerMatchesOffer(m.SDP, ld.SDP) {
+				dbg("guest: resposta de outra oferta ignorada")
+				break
+			}
 			if err := p.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: m.SDP}); err != nil {
 				emitWarning(g.em, "peer_failed", describe(err))
 			} else {
