@@ -55,7 +55,17 @@ const check = (ok, what) => { if (!ok) { problems.push(what); log("  ✗ FALHOU:
 
 // ---------------- API ----------------
 async function api(method, route, { body, headers } = {}) {
-  const res = await fetch(API + route, { method, headers: { "Content-Type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined });
+  // Rede ruim derruba a chamada antes da resposta ("fetch failed"): o app também tenta de novo, então o teste também.
+  let res;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch(API + route, { method, headers: { "Content-Type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+      break;
+    } catch (e) {
+      if (attempt >= 4) throw e;
+      await sleep(1000 * attempt);
+    }
+  }
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(`${method} ${route} -> ${res.status} ${JSON.stringify(json)?.slice(0, 200)}`);
   return json?.data ?? json;
