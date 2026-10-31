@@ -36,6 +36,7 @@ const GUIDES = [
   ["preparar-jogar", "help.guide.preparar-jogar"],
   ["mods-plugins", "help.guide.mods-plugins"],
   ["mundo-backups", "help.guide.mundo-backups"],
+  ["discord", "help.guide.discord"],
   ["problemas-conexao", "help.guide.problemas-conexao"],
   ["crashes", "help.guide.crashes"],
   ["faq", "help.guide.faq"],
