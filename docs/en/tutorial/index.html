@@ -180,27 +180,30 @@
   <h2>Getting to know the interface</h2>
   <p class="tut-lead">A quick map of everything you see in the Cubicase window.</p>
 
-  <h3>Top bar and general shortcuts</h3>
+  <h3>Side menu</h3>
   <ul>
-    <li><strong><span class="ui">Host</span> and <span class="ui">Guest</span> tabs:</strong> switch between managing your own server and using the library of your friends' servers.</li>
-    <li><strong><span class="ui">Settings</span>:</strong> general app preferences: startup tab, backups, theme, language, account and subscription. See <a href="#config-app">App settings</a>.</li>
-    <li><strong>Theme switch:</strong> quickly toggles between light and dark mode (also in <span class="ui">Settings</span>).</li>
+    <li><strong><span class="ui">My servers</span>:</strong> all the servers you created or imported. At the top of the list are the icons for <span class="ui">Import Existing Server</span>, <span class="ui">Import Modpack (.zip/.mrpack)</span>, <span class="ui">Import .cubicase pack</span> and <span class="ui">Create New Server</span> (hover over an icon to see its name). Each server in the list has shortcuts for its settings and for deleting it.</li>
+    <li><strong><span class="ui">Play</span> → <span class="ui">Join a server</span>:</strong> opens the library with your friends' servers. See <a href="#entrar-servidor">Join a friend's server</a>.</li>
+    <li><strong><span class="ui">Cubicase Plus</span>, <span class="ui">Help center</span> and <span class="ui">Settings</span>:</strong> sit at the bottom of the menu. Help opens shortcuts to this tutorial and the form to report bugs (see <a href="#ajuda-contato">Help center and contact</a>); settings hold the app preferences: startup tab, backups, theme, language, account and subscription (see <a href="#config-app">App settings</a>).</li>
+    <li><strong>Collapse menu:</strong> the last button at the bottom shrinks the menu to icons. You can drag the menu's edge to change its width.</li>
+  </ul>
+
+  <h3>Server screen</h3>
+  <p>When you pick a server in the menu, you get:</p>
+  <ul>
+    <li><strong>Header:</strong> name, type and version, status (Online, Starting, Stopping, Crash, Offline), the invite code (click to copy) and the <span class="ui">Start Server</span> / <span class="ui">Stop Server</span> button.</li>
+    <li><strong>Tabs:</strong> <span class="ui">Overview</span> (invite for your friends, online players, memory and CPU use, shortcuts), <span class="ui">Players</span>, <span class="ui">World</span> (world and backups), <span class="ui">Mods</span> or <span class="ui">Plugins</span> (only on servers that support them), <span class="ui">Performance</span> and <span class="ui">Settings</span> (game rules, link and address, Discord, folder and deleting the server).</li>
+    <li><strong>Console:</strong> a fixed strip at the bottom of the screen, with the <span class="ui">Minecraft</span> and <span class="ui">Connection</span> tabs and the field to send commands. Click its bar to open or collapse it.</li>
+  </ul>
+
+  <h3>Server library</h3>
+  <p>Under <span class="ui">Join a server</span>, every server you have joined stays saved, with its status, players and the play button. You can search by name, <span class="ui">Pin to top</span> your favorites and remove what you no longer use.</p>
+
+  <h3>Top right corner</h3>
+  <ul>
     <li><strong><span class="ui">Update</span> button:</strong> only appears when there is a new version. If the automatic update fails, it becomes <span class="ui">Try again</span> and you can try once more without closing the app.</li>
-    <li><strong><span class="ui">?</span> button (Help center):</strong> opens shortcuts to this tutorial and the form to report bugs, problems or suggestions. See <a href="#ajuda-contato">Help center and contact</a>.</li>
-    <li><strong>Diagnostics center:</strong> the history of warnings and errors (network, server, installation…). See <a href="#diagnosticos">Diagnostics</a>.</li>
+    <li><strong>Diagnostics center (bell):</strong> the history of warnings and errors (network, server, installation…). See <a href="#diagnosticos">Diagnostics</a>.</li>
   </ul>
-
-  <h3>Host tab</h3>
-  <ul>
-    <li><strong><span class="ui">Local Servers</span> list (sidebar):</strong> all the servers you created or imported. It holds the buttons to create a server, import a server and import a modpack.</li>
-    <li><strong>Selected server panel:</strong> name, status (Online, Starting, Stopping, Crash, Offline), invite code, start/stop buttons and RAM/CPU usage.</li>
-    <li><strong>Invite your friends:</strong> the code to share and the connection status (technical details are collapsed).</li>
-    <li><strong>Console:</strong> two tabs, <span class="ui">Minecraft Console</span> and <span class="ui">Connection</span>, with live logs.</li>
-    <li><strong>Management:</strong> players, mods/plugins, world and backups.</li>
-  </ul>
-
-  <h3>Guest tab</h3>
-  <p>The <span class="ui">Library</span> of <span class="ui">Known Servers</span>: every server you have joined stays saved, with its status, players and the play button.</p>
 
   <h3>When you close the window</h3>
   <p>Cubicase asks what to do: <span class="ui">Keep running in the background</span> (server and network keep running) or <span class="ui">Close everything</span> (stops the server, the network and the app). See <a href="#segundo-plano">Background and closing the app</a>.</p>
@@ -216,7 +219,7 @@
   <p class="tut-lead">From clicking the "+" to an installed server, step by step.</p>
 
   <ol class="tut-steps">
-    <li>In the <span class="ui">Host</span> tab, in the <span class="ui">Local Servers</span> list, click the <strong>+</strong> button and choose <span class="ui">Create New Server</span>.</li>
+    <li>In the side menu, under <span class="ui">My servers</span>, click the <span class="ui">Create New Server</span> icon (the <strong>+</strong>).</li>
     <li>Fill in the <strong>Server Name</strong> (e.g. <code>My_Server</code>). See the naming rules below.</li>
     <li>Choose the <strong>Server Type</strong>. If you're unsure, see <a href="#tipos-servidor">Which type to choose</a>.</li>
     <li>Choose the <strong>Minecraft Version</strong>. The selector has a search box and groups versions into <em>Recommended</em>, <em>Popular</em> and <em>All Versions</em>.</li>
@@ -299,7 +302,7 @@
 
   <h3>Turning on</h3>
   <ol class="tut-steps">
-    <li>Select the server in the <span class="ui">Local Servers</span> list. Only one server can run at a time: stop the current one before switching.</li>
+    <li>Select the server under <span class="ui">My servers</span>. Only one server can run at a time: stop the current one before switching.</li>
     <li>Click <span class="ui">Start Server</span>. The button shows <em>Starting…</em> while Minecraft boots, and Cubicase connects your friends automatically — there is nothing else to turn on.</li>
     <li>When everything is ready, the status changes to <em>Online for friends</em> and the invite code is live to share. If you are connected as a <em>guest</em> on another server, you have to leave it first: Cubicase asks and disconnects for you.</li>
  </ol>
@@ -357,7 +360,7 @@
   <p class="tut-lead">Three ways to hand your server to others: code, link and address.</p>
 
   <h3>Server code</h3>
-  <p>Every server has a code in the format <code>CF-XXXX</code>. To copy it, use <span class="ui">Copy Server Code</span> (or <span class="ui">Copy Code</span>) in the server panel. The guest only needs it <strong>once</strong>, because afterwards the server stays saved in their library.</p>
+  <p>Every server has a code in the format <code>CF-XXXX</code>. To copy it, use <span class="ui">Copy Server Code</span> (or <span class="ui">Copy Code</span>) in the server header or in the <span class="ui">Overview</span>. The guest only needs it <strong>once</strong>, because afterwards the server stays saved in their library.</p>
 
   <h3>Invite link</h3>
   <p>
@@ -389,9 +392,10 @@
 
   <h3>The two tabs</h3>
   <ul>
-    <li><span class="ui">Minecraft Console</span>: all of the server's output (players joining, warnings, errors). It only shows something after you start the server.</li>
+    <li><span class="ui">Minecraft</span>: all of the server's output (players joining, warnings, errors). It only shows something after you start the server.</li>
     <li><span class="ui">Connection</span>: logs of the connection with your friends. Useful for diagnosing when nobody can connect.</li>
   </ul>
+  <p>The console sits in a fixed strip at the bottom of the server screen; click its bar to open or collapse it.</p>
   <p>The <span class="ui">Clear</span> button wipes what's on screen (it doesn't delete the server's log files).</p>
 
   <h3>Sending commands</h3>
@@ -544,7 +548,9 @@
   <p><span class="ui">Reset World</span> permanently deletes the current world; Minecraft generates a new one the next time the server starts. Confirmation requires typing <code>RESET</code>. Make a backup first if there is any chance you'll want the old world back.</p>
 
   <h3>Where backups are kept</h3>
+  <p>While a backup runs, Cubicase shows the notice <em>“Backing up…”</em>. On big worlds it takes a few minutes: you can keep using the app, but don't close it until it finishes.</p>
   <p>They live in a <code>CubicaseBackups</code> folder, separated by server name. If you rename the server, Cubicase moves the backups along; if it can't, it tells you where they stayed so you can move them manually.</p>
+  <p>To keep them somewhere else (another drive, for example), pick it under <span class="ui">Settings</span> → <span class="ui">Backups</span> → <span class="ui">Backups folder</span>. It applies to every server and also to backups requested from the web panel and Discord. Changing the folder does not move existing backups (the app shows where the old ones are). If the folder is on OneDrive, every big backup is uploaded to the cloud, and Cubicase warns you; if the drive is disconnected, new backups fail until it is back.</p>
   <div class="tut-callout is-tip">
     <strong>Good practice</strong>
     <p>Backups on the same machine don't protect against a disk failure. From time to time, copy the <code>CubicaseBackups</code> folder to a flash drive or the cloud.</p>
@@ -556,7 +562,7 @@
   <h2>Server Settings</h2>
   <p class="tut-lead">A form for all the <code>server.properties</code> options and more, with no file editing.</p>
 
-  <p>Open it with the <span class="ui">Server Settings</span> button in the server panel. Two important rules:</p>
+  <p>Open it from the server's <span class="ui">Settings</span> tab (or from the settings icon next to the server in the side menu). Two important rules:</p>
   <ul>
     <li>Options can only be changed with the <strong>server stopped</strong>. While it is running, the app says "Server running".</li>
     <li>If the app can't read the real settings, it <strong>locks the form</strong> instead of risking overwriting everything with wrong values. Close it and try again.</li>
@@ -625,7 +631,7 @@
   <p class="tut-lead">Already have a Minecraft server in a folder? Bring it into Cubicase without copying or losing anything.</p>
 
   <ol class="tut-steps">
-    <li>In the <span class="ui">Local Servers</span> list, click <strong>+</strong> and choose <span class="ui">Import Existing Server</span>.</li>
+    <li>Under <span class="ui">My servers</span>, click the <span class="ui">Import Existing Server</span> icon.</li>
     <li>Select the folder where the server is (the one that contains the <code>server.jar</code> or equivalent).</li>
     <li>Cubicase analyzes the folder and detects the type and version. Then the server appears in the list and the log confirms the import.</li>
   </ol>
@@ -650,7 +656,7 @@
   <p>Cubicase accepts two formats: <code>.zip</code> (CurseForge) and <code>.mrpack</code> (Modrinth).</p>
   <ol class="tut-steps">
     <li>Download the modpack file from the CurseForge or Modrinth website.</li>
-    <li>In the <span class="ui">Local Servers</span> list, click <strong>+</strong> and choose <span class="ui">Import Modpack (.zip/.mrpack)</span>.</li>
+    <li>Under <span class="ui">My servers</span>, click the <span class="ui">Import Modpack (.zip/.mrpack)</span> icon.</li>
     <li>Click <span class="ui">Click to select the file</span> and choose the modpack.</li>
     <li>The app reads the pack and shows a summary: Minecraft version, loader and number of mods.</li>
     <li>Enter the <strong>Server Name</strong> and the <strong>Allocated RAM</strong> (big modpacks need a lot) and click <span class="ui">Import Modpack</span>.</li>
@@ -672,7 +678,7 @@
 
   <ol class="tut-steps">
     <li>Stop the server. A running server can't be deleted.</li>
-    <li>In the <span class="ui">Local Servers</span> list, use <span class="ui">Delete Server</span> on the server you want.</li>
+    <li>Under <span class="ui">My servers</span>, use the <span class="ui">Delete Server</span> icon on the server you want (or the button with the same name in its <span class="ui">Settings</span> tab).</li>
     <li>To confirm, type the server name and click <span class="ui">Delete Permanently</span>.</li>
   </ol>
   <div class="tut-callout is-danger">
@@ -820,6 +826,7 @@
   <ul>
     <li><span class="ui">Automatic world backup</span>: turns automatic creation on/off (on stop, on crash and periodically).</li>
     <li><span class="ui">Keep the last N backups</span>: how many to keep. Older ones, automatic or manual, are deleted.</li>
+    <li><span class="ui">Backups folder</span>: where the backups of every server are kept. See <a href="#mundo-backups">World and backups</a>.</li>
     <li><span class="ui">Safety backup interval (hours)</span>: in long sessions that are never stopped, creates an extra backup every so many hours.</li>
   </ul>
   <p>Details on restoring in <a href="#mundo-backups">World and backups</a>.</p>
@@ -863,6 +870,7 @@
     <li><strong>On-demand server:</strong> the server starts on its own when someone tries to join and shuts down on its own after a while with no players.</li>
     <li><strong>Custom invite link:</strong> <code>play.cubicase.net/your-name</code>.</li>
     <li><strong>Custom Minecraft address:</strong> an easy-to-remember name instead of the code-based one.</li>
+    <li><strong>Control from Discord:</strong> start, stop, restart, back up, manage the whitelist and send commands to the console through the bot's commands, plus several Discords per server. See <a href="#discord">Discord bot</a>.</li>
   </ul>
 
   <h3>Subscribing</h3>
@@ -908,6 +916,46 @@
     <p>Turning the server on from your phone before you get home, or letting a trusted friend restart the server when you're away.</p>
   </div>
   <p>If the panel asks to start a server while another one is already running, the app refuses and tells you ("Remote start refused"), because only one server runs at a time.</p>
+</article>
+
+<article class="tut-article" id="discord" data-title="Discord bot" data-group="Settings and account">
+  <span class="tut-tag is-mid">Intermediate</span>
+  <h2>Discord bot</h2>
+  <p class="tut-lead">Show your server's status on Discord and, with Plus, control it with commands.</p>
+
+  <h3>What it does</h3>
+  <ul>
+    <li><strong>Live status:</strong> a message that updates itself with on/off, online players, version and a join button.</li>
+    <li><strong>Alerts:</strong> “server online”, “stopped”, “went down” and who joined and left, grouped so the channel isn't flooded.</li>
+    <li><strong>How to join:</strong> a pinned message with the step-by-step and the server link, so friends don't have to ask.</li>
+    <li><strong>Control from Discord (<a href="#plus">Cubicase Plus</a>):</strong> start, stop, restart, back up, manage the whitelist and, if you enable it, send commands to the console.</li>
+  </ul>
+
+  <h3>How to link the bot to your Discord</h3>
+  <ol>
+    <li>In Cubicase, open the server, go to the <span class="ui">Settings</span> tab and find the <span class="ui">Discord</span> card. Click <span class="ui">Add the bot</span> and authorize it on Discord (you need the <em>Manage Server</em> permission there).</li>
+    <li>Still on the card, click <span class="ui">Generate code</span>. It is valid for 10 minutes and works once.</li>
+    <li>On Discord, someone with <em>Manage Server</em> types <code>/cubicase link</code> and pastes the code.</li>
+    <li>Pick where the status, alerts and “how to join” go: on the card in the app or on Discord with <code>/cubicase channel</code>. Use <span class="ui">Send test message</span> to check.</li>
+  </ol>
+  <div class="tut-callout is-warn">
+    <strong>The host's app must be open</strong>
+    <p>The status, alerts and control commands only work while Cubicase is open on the host's computer.</p>
+  </div>
+
+  <h3>Main commands</h3>
+  <ul>
+    <li><code>/cubicase status</code> and <code>/cubicase help</code>: anyone can use them.</li>
+    <li><code>/cubicase link</code>, <code>unlink</code>, <code>channel</code>, <code>alerts</code>, <code>invite</code>, <code>disable</code>, <code>diagnostics</code> and <code>operator</code>: for people with <em>Manage Server</em>.</li>
+    <li><code>/cubicase start</code>, <code>stop</code>, <code>restart</code>, <code>backup</code>, <code>whitelist</code> and <code>console</code>: server control (Plus). Each use leaves a record in the alerts channel.</li>
+  </ul>
+
+  <h3>If something goes wrong</h3>
+  <ul>
+    <li><strong>“I couldn't write in the channel”:</strong> run <code>/cubicase diagnostics</code> in the channel. The most common cause is a permission rule on the channel or category blocking the bot.</li>
+    <li><strong>“Part of Cubicase Plus”:</strong> Plus is checked on the account that linked the server. If you switched accounts, open the Discord card signed in to the account with Plus and click <span class="ui">Generate code</span>.</li>
+  </ul>
+  <p>All the details (bot permissions, free plan and Plus, privacy and how to remove it) are on the <a href="/en/discord/">Discord bot page</a>.</p>
 </article>
 
 <article class="tut-article" id="segundo-plano" data-title="Background and closing the app" data-group="Settings and account">
@@ -1063,7 +1111,7 @@
   <p class="tut-lead">Found a bug, have a question or an idea? Talk directly to the people who make Cubicase, without leaving the program.</p>
 
   <ol class="tut-steps">
-    <li>Click the <span class="ui">?</span> button in the app's top bar.</li>
+    <li>Click <span class="ui">Help center</span> at the bottom of the side menu.</li>
     <li>Choose the <span class="ui">Type</span>: <em>Bug</em>, <em>Problem or question</em>, <em>Suggestion</em> or <em>Something else</em>.</li>
     <li>Write the <span class="ui">Subject</span> (one sentence) and the <span class="ui">Description</span>: what happened, what you expected and, if you can, the steps to reproduce.</li>
     <li>Enter <span class="ui">Your email</span>: that's where the reply goes. It stays saved on this computer for next time.</li>
@@ -1074,7 +1122,7 @@
     <p>Say the Minecraft version, the server type (Vanilla, Forge…), whether there are mods, and what appeared in the console or the Diagnostics Center. The more detail, the faster the fix.</p>
   </div>
   <p>The same window has the <span class="ui">Quick guides</span>, shortcuts that open the most useful articles of this tutorial in your browser.</p>
-  <p>About privacy: we use your email only to reply to the message. Nothing beyond what you wrote and the app and system version (if you leave it checked) is sent.</p>
+  <p>About privacy: we use your email only to reply to the message. Nothing beyond what you wrote and the app and system version (if you leave it checked) is sent. The report is kept on our server for up to 120 days so we can follow up on it.</p>
 </article>
 
 <article class="tut-article" id="faq" data-title="Frequently asked questions" data-group="Problems and questions">

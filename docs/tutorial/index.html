@@ -180,27 +180,30 @@
   <h2>Conhecendo a interface</h2>
   <p class="tut-lead">Um mapa rápido de tudo o que aparece na janela do Cubicase.</p>
 
-  <h3>Barra superior e atalhos gerais</h3>
+  <h3>Menu lateral</h3>
   <ul>
-    <li><strong>Abas <span class="ui">Host</span> e <span class="ui">Convidado</span>:</strong> alternam entre gerenciar o seu servidor e usar a biblioteca de servidores de amigos.</li>
-    <li><strong><span class="ui">Configurações</span>:</strong> preferências do app: aba inicial, backups, tema, idioma, conta e assinatura. Veja <a href="#config-app">Configurações do app</a>.</li>
-    <li><strong>Alternador de tema:</strong> muda entre modo claro e escuro rapidamente (também em <span class="ui">Configurações</span>).</li>
+    <li><strong><span class="ui">Meus servidores</span>:</strong> todos os servidores que você criou ou importou. No topo da lista ficam os ícones para <span class="ui">Importar Servidor Existente</span>, <span class="ui">Importar Modpack (.zip/.mrpack)</span>, <span class="ui">Importar pacote .cubicase</span> e <span class="ui">Criar Novo Servidor</span> (passe o mouse sobre um ícone para ver o nome). Cada servidor da lista tem atalhos para as configurações e para excluí-lo.</li>
+    <li><strong><span class="ui">Jogar</span> → <span class="ui">Entrar em um servidor</span>:</strong> abre a biblioteca com os servidores dos seus amigos. Veja <a href="#entrar-servidor">Entrar no servidor de um amigo</a>.</li>
+    <li><strong><span class="ui">Cubicase Plus</span>, <span class="ui">Central de ajuda</span> e <span class="ui">Configurações</span>:</strong> ficam no rodapé do menu. A ajuda abre atalhos para este tutorial e o formulário para reportar bugs (veja <a href="#ajuda-contato">Central de ajuda e contato</a>); as configurações guardam as preferências do app: aba inicial, backups, tema, idioma, conta e assinatura (veja <a href="#config-app">Configurações do app</a>).</li>
+    <li><strong>Recolher menu:</strong> o último botão do rodapé reduz o menu a ícones. Dá para arrastar a borda do menu para mudar a largura.</li>
+  </ul>
+
+  <h3>Tela do servidor</h3>
+  <p>Ao escolher um servidor no menu, aparecem:</p>
+  <ul>
+    <li><strong>Cabeçalho:</strong> nome, tipo e versão, status (Online, Iniciando, Parando, Crash, Offline), o código de convite (clique para copiar) e o botão <span class="ui">Iniciar Servidor</span> / <span class="ui">Parar Servidor</span>.</li>
+    <li><strong>Abas:</strong> <span class="ui">Visão geral</span> (convite para os amigos, jogadores online, uso de memória e CPU e atalhos), <span class="ui">Jogadores</span>, <span class="ui">Mundo</span> (mundo e backups), <span class="ui">Mods</span> ou <span class="ui">Plugins</span> (só em servidores que aceitam), <span class="ui">Desempenho</span> e <span class="ui">Configurações</span> (regras do jogo, link e endereço, Discord, pasta e exclusão do servidor).</li>
+    <li><strong>Console:</strong> uma faixa fixa na parte de baixo da tela, com as abas <span class="ui">Minecraft</span> e <span class="ui">Conexão</span> e o campo para enviar comandos. Clique na barra dela para abrir ou recolher.</li>
+  </ul>
+
+  <h3>Biblioteca de servidores</h3>
+  <p>Em <span class="ui">Entrar em um servidor</span>, cada servidor em que você já entrou fica salvo, com status, jogadores e o botão de jogar. Dá para buscar pelo nome, <span class="ui">Fixar no topo</span> os favoritos e remover o que não usa mais.</p>
+
+  <h3>Canto superior direito</h3>
+  <ul>
     <li><strong>Botão <span class="ui">Atualizar</span>:</strong> só aparece quando há uma versão nova. Se a atualização automática falhar, ele vira <span class="ui">Tentar de novo</span> e você tenta outra vez sem fechar o app.</li>
-    <li><strong>Botão <span class="ui">?</span> (Central de ajuda):</strong> abre atalhos para este tutorial e o formulário para reportar bugs, problemas ou sugestões. Veja <a href="#ajuda-contato">Central de ajuda e contato</a>.</li>
-    <li><strong>Central de diagnósticos:</strong> o histórico de avisos e erros (rede, servidor, instalação…). Veja <a href="#diagnosticos">Diagnósticos</a>.</li>
+    <li><strong>Central de diagnósticos (sino):</strong> o histórico de avisos e erros (rede, servidor, instalação…). Veja <a href="#diagnosticos">Diagnósticos</a>.</li>
   </ul>
-
-  <h3>Aba Host</h3>
-  <ul>
-    <li><strong>Lista <span class="ui">Servidores Locais</span> (barra lateral):</strong> todos os servidores que você criou ou importou. Aqui ficam os botões para criar, importar servidor e importar modpack.</li>
-    <li><strong>Painel do servidor selecionado:</strong> nome, status (Online, Iniciando, Parando, Crash, Offline), código de convite, botões de iniciar/parar e uso de RAM/CPU.</li>
-    <li><strong>Convide seus amigos:</strong> o código para compartilhar e o estado da conexão (os detalhes técnicos ficam recolhidos).</li>
-    <li><strong>Console:</strong> duas abas, <span class="ui">Minecraft Console</span> e <span class="ui">Conexão</span>, com os logs ao vivo.</li>
-    <li><strong>Gerenciamento:</strong> jogadores, mods/plugins, mundo e backups.</li>
-  </ul>
-
-  <h3>Aba Convidado</h3>
-  <p>A <span class="ui">Biblioteca</span> de <span class="ui">Servidores Conhecidos</span>: cada servidor em que você já entrou fica salvo, com status, jogadores e o botão de jogar.</p>
 
   <h3>Ao fechar a janela</h3>
   <p>O Cubicase pergunta o que fazer: <span class="ui">Manter em segundo plano</span> (servidor e rede continuam rodando) ou <span class="ui">Fechar tudo</span> (encerra servidor, rede e app). Veja <a href="#segundo-plano">Segundo plano</a>.</p>
@@ -216,7 +219,7 @@
   <p class="tut-lead">Do clique no "+" até o servidor instalado, passo a passo.</p>
 
   <ol class="tut-steps">
-    <li>Na aba <span class="ui">Host</span>, na lista <span class="ui">Servidores Locais</span>, clique no botão <strong>+</strong> e escolha <span class="ui">Criar Novo Servidor</span>.</li>
+    <li>No menu lateral, em <span class="ui">Meus servidores</span>, clique no ícone <span class="ui">Criar Novo Servidor</span> (o <strong>+</strong>).</li>
     <li>Preencha o <strong>Nome do Servidor</strong> (ex.: <code>Meu_Servidor</code>). Veja as regras de nome abaixo.</li>
     <li>Escolha o <strong>Tipo do Servidor</strong>. Se estiver em dúvida, veja <a href="#tipos-servidor">Qual tipo escolher</a>.</li>
     <li>Escolha a <strong>Versão do Minecraft</strong>. O seletor tem busca e agrupa as versões em <em>Recomendadas</em>, <em>Populares</em> e <em>Todas as Versões</em>.</li>
@@ -299,7 +302,7 @@
 
   <h3>Ligando</h3>
   <ol class="tut-steps">
-    <li>Selecione o servidor na lista <span class="ui">Servidores Locais</span>. Só um servidor pode rodar por vez: pare o atual antes de trocar.</li>
+    <li>Selecione o servidor em <span class="ui">Meus servidores</span>. Só um servidor pode rodar por vez: pare o atual antes de trocar.</li>
     <li>Clique em <span class="ui">Iniciar Servidor</span>. O botão mostra <em>Iniciando…</em> enquanto o Minecraft sobe, e o Cubicase já conecta seus amigos automaticamente — não há mais nada para ligar.</li>
     <li>Quando tudo estiver pronto, o status muda para <em>Online para amigos</em> e o código de convite fica ativo para compartilhar. Quem entrou como <em>convidado</em> em outro servidor precisa sair de lá antes: o Cubicase pergunta e desconecta por você.</li>
  </ol>
@@ -357,7 +360,7 @@
   <p class="tut-lead">Três formas de passar seu servidor para os outros: código, link e endereço.</p>
 
   <h3>Código do servidor</h3>
-  <p>Todo servidor tem um código no formato <code>CF-XXXX</code>. Para copiar, use <span class="ui">Copiar Código do Servidor</span> (ou <span class="ui">Copiar Código</span>) no painel do servidor. O convidado só precisa dele <strong>uma vez</strong>, porque depois o servidor fica salvo na biblioteca dele.</p>
+  <p>Todo servidor tem um código no formato <code>CF-XXXX</code>. Para copiar, use <span class="ui">Copiar Código do Servidor</span> (ou <span class="ui">Copiar Código</span>) no cabeçalho do servidor ou na <span class="ui">Visão geral</span>. O convidado só precisa dele <strong>uma vez</strong>, porque depois o servidor fica salvo na biblioteca dele.</p>
 
   <h3>Link de convite</h3>
   <p>
@@ -389,9 +392,10 @@
 
   <h3>As duas abas</h3>
   <ul>
-    <li><span class="ui">Minecraft Console</span>: toda a saída do servidor (jogadores entrando, avisos, erros). Só mostra algo depois que você inicia o servidor.</li>
+    <li><span class="ui">Minecraft</span>: toda a saída do servidor (jogadores entrando, avisos, erros). Só mostra algo depois que você inicia o servidor.</li>
     <li><span class="ui">Conexão</span>: logs da conexão com os amigos. Útil para diagnosticar quando ninguém consegue conectar.</li>
   </ul>
+  <p>O console fica numa faixa fixa na parte de baixo da tela do servidor; clique na barra dela para abrir ou recolher.</p>
   <p>O botão <span class="ui">Limpar</span> apaga o que está na tela (não apaga arquivos de log do servidor).</p>
 
   <h3>Enviando comandos</h3>
@@ -544,7 +548,9 @@
   <p><span class="ui">Resetar Mundo</span> apaga o mundo atual permanentemente; o Minecraft gera um novo na próxima vez que o servidor iniciar. A confirmação exige digitar <code>RESETAR</code>. Faça um backup antes se houver qualquer chance de você querer o mundo antigo de volta.</p>
 
   <h3>Onde ficam os backups</h3>
+  <p>Enquanto um backup roda, o Cubicase mostra o aviso <em>“Fazendo backup de…”</em>. Em mundos grandes leva alguns minutos: pode continuar usando o app, mas não o feche até terminar.</p>
   <p>Ficam numa pasta <code>CubicaseBackups</code>, separados por nome de servidor. Se você renomear o servidor, o Cubicase move os backups junto; se não conseguir, avisa onde eles ficaram para você mover manualmente.</p>
+  <p>Para guardar em outro lugar (outro disco, por exemplo), escolha em <span class="ui">Configurações</span> → <span class="ui">Backups</span> → <span class="ui">Pasta dos backups</span>. Ela vale para todos os servidores e também para os backups pedidos pelo painel web e pelo Discord. Mudar a pasta não move os backups que já existem (o app mostra onde estão os antigos). Se a pasta estiver no OneDrive, cada backup grande é enviado para a nuvem, e o Cubicase avisa; se o disco estiver desconectado, os backups novos falham até ele voltar.</p>
   <div class="tut-callout is-tip">
     <strong>Boa prática</strong>
     <p>Backups na mesma máquina não protegem contra falha do disco. De vez em quando copie a pasta <code>CubicaseBackups</code> para um pen drive ou nuvem.</p>
@@ -556,7 +562,7 @@
   <h2>Configurações do Servidor</h2>
   <p class="tut-lead">Um formulário para todas as opções do <code>server.properties</code> e mais, sem editar arquivo nenhum.</p>
 
-  <p>Abra com o botão <span class="ui">Configurações do Servidor</span> no painel do servidor. Duas regras importantes:</p>
+  <p>Abra pela aba <span class="ui">Configurações</span> do servidor (ou pelo ícone de configurações ao lado dele no menu lateral). Duas regras importantes:</p>
   <ul>
     <li>As opções só podem ser alteradas com o <strong>servidor parado</strong>. Com ele rodando, o app avisa "Servidor em execução".</li>
     <li>Se o app não conseguir ler as configurações reais, ele <strong>bloqueia o formulário</strong> em vez de arriscar sobrescrever tudo com valores errados. Feche e tente de novo.</li>
@@ -625,7 +631,7 @@
   <p class="tut-lead">Já tem um servidor de Minecraft numa pasta? Traga ele para o Cubicase sem copiar nem perder nada.</p>
 
   <ol class="tut-steps">
-    <li>Na lista <span class="ui">Servidores Locais</span>, clique em <strong>+</strong> e escolha <span class="ui">Importar Servidor Existente</span>.</li>
+    <li>Em <span class="ui">Meus servidores</span>, clique no ícone <span class="ui">Importar Servidor Existente</span>.</li>
     <li>Selecione a pasta onde está o servidor (a que contém o <code>server.jar</code> ou equivalente).</li>
     <li>O Cubicase analisa a pasta e detecta o tipo e a versão. Depois, o servidor aparece na lista e o log confirma a importação.</li>
   </ol>
@@ -650,7 +656,7 @@
   <p>O Cubicase aceita dois formatos: <code>.zip</code> (CurseForge) e <code>.mrpack</code> (Modrinth).</p>
   <ol class="tut-steps">
     <li>Baixe o arquivo do modpack no site do CurseForge ou do Modrinth.</li>
-    <li>Na lista <span class="ui">Servidores Locais</span>, clique em <strong>+</strong> e escolha <span class="ui">Importar Modpack (.zip/.mrpack)</span>.</li>
+    <li>Em <span class="ui">Meus servidores</span>, clique no ícone <span class="ui">Importar Modpack (.zip/.mrpack)</span>.</li>
     <li>Clique em <span class="ui">Clique para selecionar o arquivo</span> e escolha o modpack.</li>
     <li>O app lê o pacote e mostra um resumo: versão do Minecraft, loader e quantidade de mods.</li>
     <li>Informe o <strong>Nome do Servidor</strong> e a <strong>RAM Alocada</strong> (modpacks grandes pedem bastante) e clique em <span class="ui">Importar Modpack</span>.</li>
@@ -672,7 +678,7 @@
 
   <ol class="tut-steps">
     <li>Pare o servidor. Não é possível excluir um servidor em execução.</li>
-    <li>Na lista <span class="ui">Servidores Locais</span>, use <span class="ui">Deletar Servidor</span> no servidor desejado.</li>
+    <li>Em <span class="ui">Meus servidores</span>, use o ícone <span class="ui">Deletar Servidor</span> do servidor desejado (ou o botão da mesma função na aba <span class="ui">Configurações</span> dele).</li>
     <li>Para confirmar, digite o nome do servidor e clique em <span class="ui">Excluir Permanentemente</span>.</li>
   </ol>
   <div class="tut-callout is-danger">
@@ -820,6 +826,7 @@
   <ul>
     <li><span class="ui">Backup automático do mundo</span>: liga/desliga a geração automática (ao parar, ao crashar e periodicamente).</li>
     <li><span class="ui">Manter últimos N backups</span>: quantos guardar. Os mais antigos, automáticos ou manuais, são apagados.</li>
+    <li><span class="ui">Pasta dos backups</span>: onde ficam os backups de todos os servidores. Veja <a href="#mundo-backups">Mundo e backups</a>.</li>
     <li><span class="ui">Intervalo do backup de segurança (horas)</span>: em sessões longas que nunca são paradas, gera um backup extra a cada tanto de horas.</li>
   </ul>
   <p>Detalhes de como restaurar em <a href="#mundo-backups">Mundo e backups</a>.</p>
@@ -863,6 +870,7 @@
     <li><strong>Servidor sob demanda:</strong> o servidor liga sozinho quando alguém tenta entrar e desliga sozinho depois de um tempo sem jogadores.</li>
     <li><strong>Link de convite personalizado:</strong> <code>play.cubicase.net/seu-nome</code>.</li>
     <li><strong>Endereço personalizado no Minecraft:</strong> um nome fácil de lembrar em vez do baseado no código.</li>
+    <li><strong>Controle pelo Discord:</strong> ligar, desligar, reiniciar, fazer backup, mexer na whitelist e enviar comandos ao console pelos comandos do bot, além de vários Discords por servidor. Veja <a href="#discord">Bot do Discord</a>.</li>
   </ul>
 
   <h3>Assinar</h3>
@@ -908,6 +916,46 @@
     <p>Ligar o servidor pelo celular antes de chegar em casa, ou deixar um amigo de confiança reiniciar o servidor quando você não está.</p>
   </div>
   <p>Se o painel pedir para iniciar um servidor enquanto outro já está rodando, o app recusa e avisa ("Início remoto recusado"), porque só um servidor roda por vez.</p>
+</article>
+
+<article class="tut-article" id="discord" data-title="Bot do Discord" data-group="Configurações e conta">
+  <span class="tut-tag is-mid">Intermediário</span>
+  <h2>Bot do Discord</h2>
+  <p class="tut-lead">Mostre o status do seu servidor no Discord e, com o Plus, controle-o por comandos.</p>
+
+  <h3>O que ele faz</h3>
+  <ul>
+    <li><strong>Status ao vivo:</strong> uma mensagem que se atualiza sozinha com ligado/desligado, jogadores online, versão e o botão de entrar.</li>
+    <li><strong>Avisos:</strong> “servidor ligado”, “desligado”, “caiu” e quem entrou e saiu, agrupados para não inundar o canal.</li>
+    <li><strong>Como entrar:</strong> uma mensagem fixada com o passo a passo e o link do servidor, para os amigos não precisarem perguntar.</li>
+    <li><strong>Controle pelo Discord (<a href="#plus">Cubicase Plus</a>):</strong> ligar, desligar, reiniciar, fazer backup, mexer na whitelist e, se você liberar, enviar comandos ao console.</li>
+  </ul>
+
+  <h3>Como ligar o bot ao seu Discord</h3>
+  <ol>
+    <li>No Cubicase, abra o servidor, vá na aba <span class="ui">Configurações</span> e procure o cartão <span class="ui">Discord</span>. Clique em <span class="ui">Adicionar o bot</span> e autorize no Discord (você precisa da permissão <em>Gerenciar Servidor</em> lá).</li>
+    <li>Ainda no cartão, clique em <span class="ui">Gerar código</span>. Ele vale por 10 minutos e só pode ser usado uma vez.</li>
+    <li>No Discord, quem tem <em>Gerenciar Servidor</em> digita <code>/cubicase vincular</code> e cola o código.</li>
+    <li>Escolha onde ficam o status, os avisos e o “como entrar”: pelo cartão no app ou no Discord com <code>/cubicase canal</code>. Use <span class="ui">Enviar mensagem de teste</span> para conferir.</li>
+  </ol>
+  <div class="tut-callout is-warn">
+    <strong>O app do host precisa estar aberto</strong>
+    <p>O status, os avisos e os comandos de controle só funcionam enquanto o Cubicase está aberto no computador do host.</p>
+  </div>
+
+  <h3>Comandos principais</h3>
+  <ul>
+    <li><code>/cubicase status</code> e <code>/cubicase ajuda</code>: qualquer pessoa pode usar.</li>
+    <li><code>/cubicase vincular</code>, <code>desvincular</code>, <code>canal</code>, <code>avisos</code>, <code>convite</code>, <code>desativar</code>, <code>diagnostico</code> e <code>operador</code>: para quem tem <em>Gerenciar Servidor</em>.</li>
+    <li><code>/cubicase ligar</code>, <code>desligar</code>, <code>reiniciar</code>, <code>backup</code>, <code>whitelist</code> e <code>console</code>: controle do servidor (Plus). Cada uso deixa um registro no canal de avisos.</li>
+  </ul>
+
+  <h3>Se der erro</h3>
+  <ul>
+    <li><strong>“Não consegui escrever no canal”:</strong> rode <code>/cubicase diagnostico</code> no canal. O mais comum é uma regra de permissão do canal ou da categoria bloqueando o bot.</li>
+    <li><strong>“Faz parte do Cubicase Plus”:</strong> o Plus é conferido na conta que ligou o servidor. Se você trocou de conta, abra o cartão Discord logado na conta com Plus e clique em <span class="ui">Gerar código</span>.</li>
+  </ul>
+  <p>Todos os detalhes (permissões do bot, plano grátis e Plus, privacidade e como remover) estão na <a href="/discord/">página do bot do Discord</a>.</p>
 </article>
 
 <article class="tut-article" id="segundo-plano" data-title="Segundo plano e fechar o app" data-group="Configurações e conta">
@@ -1063,7 +1111,7 @@
   <p class="tut-lead">Achou um bug, tem uma dúvida ou uma ideia? Fale direto com quem faz o Cubicase, sem sair do programa.</p>
 
   <ol class="tut-steps">
-    <li>Clique no botão <span class="ui">?</span> na barra superior do app.</li>
+    <li>Clique em <span class="ui">Central de ajuda</span> no rodapé do menu lateral.</li>
     <li>Escolha o <span class="ui">Tipo</span>: <em>Bug</em>, <em>Problema ou dúvida</em>, <em>Sugestão</em> ou <em>Outro assunto</em>.</li>
     <li>Escreva o <span class="ui">Assunto</span> (uma frase) e a <span class="ui">Descrição</span>: o que aconteceu, o que você esperava e, se puder, os passos para repetir.</li>
     <li>Informe o <span class="ui">Seu e-mail</span>: é para lá que a resposta vai. Ele fica salvo neste computador para as próximas vezes.</li>
@@ -1074,7 +1122,7 @@
     <p>Diga a versão do Minecraft, o tipo de servidor (Vanilla, Forge…), se há mods, e o que apareceu no console ou na Central de Diagnósticos. Quanto mais detalhe, mais rápida a solução.</p>
   </div>
   <p>Na mesma janela há os <span class="ui">Guias rápidos</span>, atalhos que abrem os artigos mais úteis deste tutorial no navegador.</p>
-  <p>Sobre a privacidade: usamos o seu e-mail só para responder à mensagem. Nada além do que você escreveu e da versão do app e do sistema (se você deixar marcado) é enviado.</p>
+  <p>Sobre a privacidade: usamos o seu e-mail só para responder à mensagem. Nada além do que você escreveu e da versão do app e do sistema (se você deixar marcado) é enviado. O relato fica guardado no nosso servidor por até 120 dias, para podermos acompanhá-lo.</p>
 </article>
 
 <article class="tut-article" id="faq" data-title="Perguntas frequentes" data-group="Problemas e dúvidas">
