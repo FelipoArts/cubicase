@@ -14,6 +14,7 @@ import {
   notifyChange, notifyContactLost, announce, getConfig, saveConfig, newConfig, setStatusChannel, setAlertsChannel, postInvite, disableChannel, setControl,
   sendTest, EVENT_KINDS, type McSnapshot, type GuildConfig, type ChannelKind,
 } from './discord-sync';
+import { handleAdminRequest, healthCron, storeFeedback } from './admin';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
 import { buildLinkCredentials, bearerToken, verifyLinkToken, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
@@ -96,6 +97,11 @@ interface Env extends LinkEnv {
   RESEND_API_KEY?: string;
   FEEDBACK_TO_EMAIL?: string;
   FEEDBACK_FROM_EMAIL?: string;
+  // Painel do dono (/admin), ver admin.ts. Sem ADMIN_TOKEN as rotas respondem 404.
+  //   wrangler secret put ADMIN_TOKEN              (senha longa e aleatória)
+  //   wrangler secret put ADMIN_DISCORD_WEBHOOK    (webhook de um canal só seu: avisos de serviço fora do ar)
+  ADMIN_TOKEN?: string;
+  ADMIN_DISCORD_WEBHOOK?: string;
 }
 
 // 'sleeping' = wake-on-demand armado, host de pé só em modo de espera (sem
@@ -202,6 +208,7 @@ const ICON_RATE_LIMIT = 6;          // enviar/trocar o ícone do servidor: açã
 const SLUG_RATE_LIMIT = 5;          // definir/trocar link de convite: ação manual e rara, mesmo raciocínio de REGEN_CODE_RATE_LIMIT
 const CONNECT_NAME_RATE_LIMIT = 5;  // definir/trocar endereço de conexão: mesmo raciocínio de SLUG_RATE_LIMIT
 const SLUG_RESOLVE_RATE_LIMIT = 20; // resolver slug->shortCode: chamado pela página de convite (uma vez por visita) — folgado o bastante pra não incomodar visitas legítimas, apertado o bastante pra desanimar varredura de slugs
+const ADMIN_FAIL_LIMIT = 10;       // painel do dono: tentativas com token errado por IP/min (só as erradas gravam no KV)
 const FEEDBACK_RATE_LIMIT = 3;      // central de ajuda: por IP/min — relato é ação manual e rara; barra spam e duplo clique em cascata
 const FEEDBACK_DEDUPE_SECONDS = 3600; // o mesmo relato (mesmo e-mail/assunto/texto) só passa uma vez por hora
 const LINK_WS_RATE_LIMIT = 120;       // conexões à sala P2P por IP/min: reconexões legítimas cabem; barra varredura
@@ -1996,13 +2003,19 @@ async function handleFeedback(req: Request, env: Env, cors: Record<string, strin
   // Bot preencheu o campo escondido: finge sucesso e descarta.
   if (feedback.honeypot) return json(ok(ResponseCodes.SUCCESS, 'Mensagem enviada. Obrigado!'), 200, cors);
 
-  if (!feedbackMailConfigured(env)) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O envio de mensagens está indisponível no momento.'), 503, cors);
-
   // Mesmo relato reenviado (duplo clique, outra janela): aceita sem mandar de novo.
-  const dupKey = `feedback:dup:${await feedbackFingerprint(feedback)}`;
+  const fingerprint = await feedbackFingerprint(feedback);
+  const dupKey = `feedback:dup:${fingerprint}`;
   if (await env.CUBEFORGE_REGISTRY.get(dupKey)) return json(ok(ResponseCodes.SUCCESS, 'Mensagem enviada. Obrigado!'), 200, cors);
 
-  if (!(await sendFeedbackEmail(env, feedback))) {
+  // O relato fica guardado para o painel do dono mesmo que o e-mail não saia (mesmo conteúdo = mesma chave, sem duplicar).
+  const mailOn = feedbackMailConfigured(env);
+  const emailed = mailOn && (await sendFeedbackEmail(env, feedback));
+  const { honeypot: _hp, ...saved } = feedback;
+  await storeFeedback(env, saved, fingerprint, emailed).catch((err) => console.error('[feedback] não consegui guardar o relato:', err));
+
+  if (!mailOn) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O envio de mensagens está indisponível no momento.'), 503, cors);
+  if (!emailed) {
     return json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível enviar sua mensagem agora. Tente novamente em instantes.'), 502, cors);
   }
   await env.CUBEFORGE_REGISTRY.put(dupKey, '1', { expirationTtl: FEEDBACK_DEDUPE_SECONDS });
@@ -2066,6 +2079,7 @@ export default {
   // Rotina agendada (wrangler.toml > triggers): percebe o host que sumiu sem avisar e atualiza o Discord.
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(watchDiscordContact(env));
+    ctx.waitUntil(healthCron(env).catch((err) => console.error('[admin] checagem de saúde falhou:', err)));
   },
 };
 
@@ -2075,6 +2089,10 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
     if (m === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
       const cfg = { ttlSeconds: SESSION_TTL_SECONDS, leaseTtlSeconds: Math.ceil(LEASE_DURATION_MS / 1000), shortCodeLength: parseInt(env.SHORT_CODE_LENGTH || '6') };
+
+      // Painel do dono (página + /api/v1/admin/*) — ver admin.ts
+      const adminRes = await handleAdminRequest(req, env, clientIp(req), () => checkRateLimit(env, 'admin-fail', clientIp(req), ADMIN_FAIL_LIMIT));
+      if (adminRes) return adminRes;
 
       // POST /api/v1/feedback — central de ajuda (bug, problema, sugestão) -> e-mail do dono
       if (m === 'POST' && p === '/api/v1/feedback') {
