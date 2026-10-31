@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "docs");
-const UPDATED = { pt: "25 de outubro de 2026", en: "October 25, 2026" };
+const UPDATED = { pt: "31 de outubro de 2026", en: "October 31, 2026" };
 const EMAIL = "felipe@cubicase.net";
 const MAIL = `<a href="mailto:${EMAIL}">${EMAIL}</a>`;
 
@@ -55,7 +55,7 @@ const PAGES = {
 <tr><td><strong>Notificações do painel instalado (Plus)</strong></td><td>O endereço da inscrição de notificações do seu navegador ou celular, as chaves públicas dela e as suas preferências (quais avisos receber e o idioma). Enviamos avisos como “fulano entrou”, “servidor ligou” ou “computador offline” por esse endereço.</td><td>Avisar você, no celular ou no navegador, do que acontece no servidor.</td></tr>
 <tr><td><strong>Bot do Discord (opcional)</strong></td><td>Quando você liga um Discord ao seu servidor: o identificador do servidor do Discord e do servidor Cubicase ligados, os identificadores dos canais e do cargo de operador escolhidos, o idioma e as preferências de aviso, e as mensagens que o bot publica. <strong>Nomes dos jogadores online</strong> são enviados pelo app à central apenas enquanto há um Discord ligado ao servidor, servem só para avisar quem entrou e saiu, e somem em poucos minutos junto com o estado do servidor. Ao usar um comando de controle, o identificador de quem o usou fica guardado por cerca de 1 minuto (intervalo entre comandos), e o nome exibido dessa pessoa aparece no aviso do canal e no console do host. O Discord vê o que o bot publica e os comandos digitados lá, conforme a política do próprio Discord.</td><td>Mostrar status e avisos no Discord e permitir controlar o servidor por lá (controle, vários Discords e backup fazem parte do Plus).</td></tr>
 <tr><td><strong>Link e endereço personalizados (Plus)</strong></td><td>O nome escolhido, associado ao seu servidor e à sua conta.</td><td>Exibir o link/endereço que você configurou.</td></tr>
-<tr><td><strong>Central de Ajuda</strong></td><td>O e-mail, o assunto e a mensagem que você escrever, mais a versão do app e o sistema operacional.</td><td>Responder ao seu pedido.</td></tr>
+<tr><td><strong>Central de Ajuda</strong></td><td>O e-mail, o assunto e a mensagem que você escrever, mais a versão do app e o sistema operacional. Além de seguir por e-mail, o pedido fica guardado no nosso servidor por até 120 dias.</td><td>Responder ao seu pedido e acompanhá-lo.</td></tr>
 <tr><td><strong>Doações</strong></td><td>Valor e moeda confirmados pela Stripe. Não guardamos seus dados de pagamento.</td><td>Registrar o apoio recebido.</td></tr>
 </tbody></table>`],
         ["4. Com quem compartilhamos (operadores e terceiros)", `<p>Não vendemos dados e não exibimos publicidade. Usamos estes prestadores para entregar o serviço; cada um trata os dados conforme a própria política:</p>
@@ -86,7 +86,7 @@ const PAGES = {
 <li>Painel remoto: o conteúdo temporário do console some quando o app desconecta; o cadastro do dispositivo fica até você removê-lo.</li>
 <li>Ligação com o Discord e suas preferências: até você desvincular (no app ou com <code>/cubicase desvincular</code>) ou apagar o servidor; nomes de jogadores online: poucos minutos; identificador usado no intervalo entre comandos: cerca de 1 minuto.</li>
 <li>Inscrição de notificações do painel: até você desativá-las ou remover o dispositivo.</li>
-<li>Mensagens da Central de Ajuda: pelo tempo necessário para atender e documentar o pedido.</li>
+<li>Mensagens da Central de Ajuda: até 120 dias no nosso servidor (e pelo tempo necessário para atender e documentar o pedido no e-mail).</li>
 </ul>`],
         ["7. Transferência internacional", `<p>Os prestadores acima operam servidores fora do Brasil. Ao usar o serviço, seus dados podem ser tratados em outros países, com salvaguardas contratuais dos próprios prestadores e conforme a LGPD (art. 33).</p>`],
         ["8. Segurança", `<p>Usamos conexões criptografadas (HTTPS e criptografia da rede), guardamos o segredo de dono de cada servidor apenas como hash, limitamos o acesso a credenciais e aplicamos limites de uso contra abuso. Nenhum sistema é totalmente seguro; se houver um incidente que possa afetar você, avisaremos como a lei exige.</p>`],
@@ -117,7 +117,7 @@ const PAGES = {
 <tr><td><strong>Installed panel notifications (Plus)</strong></td><td>The address of your browser or phone's notification subscription, its public keys and your preferences (which alerts to get and the language). We send alerts such as “someone joined”, “server started” or “computer offline” to that address.</td><td>Alert you, on your phone or browser, about what happens on the server.</td></tr>
 <tr><td><strong>Discord bot (optional)</strong></td><td>When you link a Discord to your server: the identifiers of the linked Discord and Cubicase server, the identifiers of the chosen channels and operator role, the language and alert preferences, and the messages the bot posts. <strong>Names of online players</strong> are sent by the app to our service only while a Discord is linked to the server, are used only to announce who joined and left, and disappear within minutes together with the server state. When someone uses a control command, their identifier is kept for about 1 minute (spacing between commands), and their display name appears in the channel alert and in the host's console. Discord sees what the bot posts and the commands typed there, under Discord's own policy.</td><td>Show status and alerts on Discord and let people control the server from there (control, several Discords and backup are part of Plus).</td></tr>
 <tr><td><strong>Custom link and address (Plus)</strong></td><td>The chosen name, linked to your server and your account.</td><td>Show the link/address you configured.</td></tr>
-<tr><td><strong>Help Center</strong></td><td>The e-mail, subject and message you write, plus the app version and operating system.</td><td>Answer your request.</td></tr>
+<tr><td><strong>Help Center</strong></td><td>The e-mail, subject and message you write, plus the app version and operating system. Besides being sent by e-mail, the request is kept on our server for up to 120 days.</td><td>Answer and follow up on your request.</td></tr>
 <tr><td><strong>Donations</strong></td><td>Amount and currency confirmed by Stripe. We do not store your payment details.</td><td>Record the support received.</td></tr>
 </tbody></table>`],
         ["4. Who we share it with (processors and third parties)", `<p>We do not sell data and we show no advertising. We use these providers to deliver the service; each handles data under its own policy:</p>
@@ -148,7 +148,7 @@ const PAGES = {
 <li>Remote panel: temporary console content disappears when the app disconnects; the device registration stays until you remove it.</li>
 <li>Discord link and its preferences: until you unlink (in the app or with <code>/cubicase unlink</code>) or delete the server; names of online players: a few minutes; identifier used for the spacing between commands: about 1 minute.</li>
 <li>Panel notification subscription: until you turn it off or remove the device.</li>
-<li>Help Center messages: as long as needed to handle and document the request.</li>
+<li>Help Center messages: up to 120 days on our server (and as long as needed to handle and document the request in e-mail).</li>
 </ul>`],
         ["7. International transfers", `<p>The providers above operate servers outside Brazil. By using the service your data may be processed in other countries, under the providers' own contractual safeguards and in line with the LGPD (art. 33).</p>`],
         ["8. Security", `<p>We use encrypted connections (HTTPS and network encryption), store each server's owner secret only as a hash, restrict access to credentials and apply usage limits against abuse. No system is fully secure; if an incident may affect you, we will notify you as the law requires.</p>`],
