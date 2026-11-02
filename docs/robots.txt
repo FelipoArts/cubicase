@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /painel/
+Disallow: /entrar/
+Disallow: /obrigado/
+Disallow: /assinatura/
+
+Sitemap: https://cubicase.net/sitemap.xml

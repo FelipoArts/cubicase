@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "docs");
+const SITE = "https://cubicase.net";
 const UPDATED = { pt: "31 de outubro de 2026", en: "October 31, 2026" };
 const EMAIL = "felipe@cubicase.net";
 const MAIL = `<a href="mailto:${EMAIL}">${EMAIL}</a>`;
@@ -501,15 +502,17 @@ function render(pageKey, lang) {
   <link rel="apple-touch-icon" href="/assets/icon.png" />
   <meta property="og:title" content="${esc(c.title)}" />
   <meta property="og:description" content="${esc(c.desc)}" />
-  <meta property="og:image" content="/assets/logo.png" />
+  <meta property="og:image" content="${SITE}/assets/logo.png" />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="${SITE}${page.paths[lang]}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/style.css" />
-  <link rel="alternate" hreflang="pt-BR" href="${page.paths.pt}" />
-  <link rel="alternate" hreflang="en" href="${page.paths.en}" />
-  <link rel="alternate" hreflang="x-default" href="${page.paths.pt}" />
+  <link rel="canonical" href="${SITE}${page.paths[lang]}" />
+  <link rel="alternate" hreflang="pt-BR" href="${SITE}${page.paths.pt}" />
+  <link rel="alternate" hreflang="en" href="${SITE}${page.paths.en}" />
+  <link rel="alternate" hreflang="x-default" href="${SITE}${page.paths.pt}" />
   <script src="/assets/i18n/en.js"></script>
   <script src="/assets/i18n.js"></script>
 </head>

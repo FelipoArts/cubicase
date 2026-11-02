@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://cubicase.net/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/download/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/download/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/download/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/download/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/download/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/download/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/download/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/download/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/tutorial/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/tutorial/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/tutorial/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/tutorial/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/tutorial/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/tutorial/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/tutorial/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/tutorial/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/discord/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/discord/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/discord/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/discord/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/discord/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/discord/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/discord/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/discord/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/privacidade/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/privacidade/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/privacy/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/privacidade/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/privacy/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/privacidade/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/privacy/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/privacidade/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/termos/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/termos/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/terms/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/termos/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/terms/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/termos/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/terms/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/termos/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/licencas/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/licencas/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/licenses/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/licencas/" />
+  </url>
+  <url>
+    <loc>https://cubicase.net/en/licenses/</loc>
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://cubicase.net/licencas/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://cubicase.net/en/licenses/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://cubicase.net/licencas/" />
+  </url>
+</urlset>
