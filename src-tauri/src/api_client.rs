@@ -160,6 +160,20 @@ impl HttpTransport {
     }
 }
 
+/// O que acompanha o pedido de criação de uma sessão de conexão.
+struct CreateSessionAuth {
+    /// Anexa o segredo de dono do servidor (só quem hospeda).
+    owner_secret: bool,
+    /// Token da conta logada. A API valida no Supabase e usa para: saber se o host é Cubicase Plus (modo
+    /// privado e relay sem cota) e ligar a sessão, de host ou de convidado, ao perfil da conta na lista de
+    /// membros. Sem conta (ou token vencido) a sessão segue igual, só sem perfil.
+    bearer: Option<String>,
+}
+
+fn create_session_auth(is_host: bool, code: &str, bearer: Option<String>) -> CreateSessionAuth {
+    CreateSessionAuth { owner_secret: is_host && !code.is_empty(), bearer }
+}
+
 fn generate_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -191,18 +205,19 @@ impl ApiTransport for HttpTransport {
         req = req.header("X-Correlation-Id", &request.correlation_id);
 
         // Hospedar (sessão "host") exige ser o dono do servidor: anexa o segredo
-        // de dono (ver owner_secret.rs). Convidado não manda nada.
+        // de dono (ver owner_secret.rs). Quem está com a conta logada (host ou convidado)
+        // também manda o token dela: ver `create_session_auth`.
         if request.method == "POST" && request.path.ends_with("/connection-sessions") {
             let is_host = request.body.as_ref()
                 .and_then(|b| b.get("mode"))
                 .and_then(|m| m.as_str()) == Some("host");
             let code = request.path.trim_start_matches("/api/v1/servers/").split('/').next().unwrap_or("");
-            if is_host && !code.is_empty() {
+            let auth = create_session_auth(is_host, code, crate::account_auth::bearer());
+            if auth.owner_secret {
                 req = req.header("X-Owner-Secret", crate::owner_secret::get_or_create(code));
-                // Conta logada: a API usa para saber se o host é Cubicase Plus (modo privado e relay sem cota).
-                if let Some(token) = crate::account_auth::bearer() {
-                    req = req.header("Authorization", format!("Bearer {}", token));
-                }
+            }
+            if let Some(token) = auth.bearer {
+                req = req.header("Authorization", format!("Bearer {}", token));
             }
         }
 
@@ -572,5 +587,35 @@ mod session_path_tests {
         assert_eq!(session_id_from_path("/api/v1/connection-sessions/abc-123?reason=x&requestId=y"), Some("abc-123"));
         assert_eq!(session_id_from_path("/api/v1/servers/ABC123/connection-sessions"), None);
         assert_eq!(session_id_from_path("/api/v1/connection-sessions/"), None);
+    }
+}
+
+#[cfg(test)]
+mod create_session_auth_tests {
+    use super::create_session_auth;
+
+    #[test]
+    fn host_manda_segredo_de_dono_e_a_conta() {
+        let a = create_session_auth(true, "ABC123", Some("tok".into()));
+        assert!(a.owner_secret);
+        assert_eq!(a.bearer.as_deref(), Some("tok"));
+    }
+
+    #[test]
+    fn convidado_logado_manda_a_conta_mas_nunca_o_segredo_de_dono() {
+        let a = create_session_auth(false, "ABC123", Some("tok".into()));
+        assert!(!a.owner_secret);
+        assert_eq!(a.bearer.as_deref(), Some("tok"));
+    }
+
+    #[test]
+    fn sem_conta_nao_manda_authorization() {
+        assert_eq!(create_session_auth(false, "ABC123", None).bearer, None);
+        assert_eq!(create_session_auth(true, "ABC123", None).bearer, None);
+    }
+
+    #[test]
+    fn sem_codigo_do_servidor_nao_ha_segredo_de_dono() {
+        assert!(!create_session_auth(true, "", Some("tok".into())).owner_secret);
     }
 }
