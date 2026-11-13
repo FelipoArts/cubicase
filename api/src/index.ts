@@ -2,6 +2,7 @@ import { resolveSupabaseUserId, userHasActiveSubscription, supabaseService, SUPA
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { handlePanelPushRoute } from './panel-push';
 import { handleProfileRoute } from './profile';
+import { buildRoster } from './roster';
 import { localizeResponse } from './i18n';
 import {
   verifyDiscordSignature, handleInteraction, discordConfigured, discordInstallUrl, createLinkCode, formatLinkCode,
@@ -1139,8 +1140,9 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (!env.LINK_TOKEN_SECRET) return json(fail(ResponseCodes.INTERNAL_ERROR, 'O transporte P2P não está configurado neste servidor.'), 503, cors);
   // Modo privado (relay forçado, esconde o IP) é benefício do Cubicase Plus. Um host logado com
   // Plus também marca o servidor como Plus: relay sem cota para ele e para os convidados dele.
-  if (body.relayOnly === true || (mode === 'host' && req.headers.has('Authorization'))) {
-    const userId = await resolveSupabaseUserId(req);
+  // A conta de quem pede (host ou convidado) é validada uma vez só: serve ao Plus e à lista de membros (perfil).
+  const userId = req.headers.has('Authorization') ? await resolveSupabaseUserId(req) : null;
+  if (body.relayOnly === true || (mode === 'host' && userId)) {
     const isPlus = userId ? await userHasActiveSubscription(env, userId) : false;
     if (body.relayOnly === true) {
       if (!userId) return json(fail(ResponseCodes.BAD_REQUEST, 'Não autenticado.'), 401, cors);
@@ -1154,7 +1156,7 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
   if (existingSessionId) await revokeConnectionSession(env, existingSessionId, shortCode);
 
-  return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors);
+  return await createLinkSession(shortCode, mode, body, req, env, slotKey, cors, userId);
 }
 
 /**
@@ -1162,12 +1164,12 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
  * sinalização e as credenciais ICE (STUN/TURN). Não há heartbeat: a presença do host é o
  * próprio WebSocket da sala (ver link-room.ts), então a sessão vive o mesmo tempo que o token (LINK_TOKEN_TTL_SECONDS) no KV.
  */
-async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body: any, req: Request, env: Env, slotKey: string, cors: Record<string, string>): Promise<Response> {
+async function createLinkSession(shortCode: string, mode: 'host' | 'guest', body: any, req: Request, env: Env, slotKey: string, cors: Record<string, string>, userId: string | null = null): Promise<Response> {
   const sid = uuid(); const now = new Date();
   const ttl = LINK_TOKEN_TTL_SECONDS;
   const exp = new Date(now.getTime() + ttl * 1000);
   const relayAllowed = await relayWithinQuota(env, shortCode);
-  const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true, relayAllowed });
+  const link = await buildLinkCredentials(env, { origin: new URL(req.url).origin, shortCode, role: mode, peerId: sid, relayOnly: body.relayOnly === true, relayAllowed, userId });
 
   const session: ConnectionSessionEntity = {
     sessionId: sid, shortCode, launcher: 'link-v1', launcherVersion: 1, protocolVersion: 1,
@@ -2061,6 +2063,23 @@ function panelJson(r: PanelResult, cors: Record<string, string>): Response {
   return json(r.status < 400 ? ok(r.code, r.message, r.data) : fail(r.code, r.message, r.data), r.status, cors);
 }
 
+/**
+ * GET /api/v1/link/roster/{sc} — quem está no servidor agora, com perfil público e selo Plus. Autenticado pelo
+ * token de link (host ou convidado DAQUELA sala): a própria sala confere. Sem escrita em KV, para o app poder
+ * consultar de tempos em tempos.
+ */
+async function handleLinkRoster(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const room = env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode));
+  const resp = await room.fetch(`https://link-room.internal/roster/${shortCode}`, {
+    headers: { Authorization: req.headers.get('Authorization') ?? '' },
+  });
+  if (resp.status === 401) return json(fail(ResponseCodes.BAD_REQUEST, 'Sessão inválida ou expirada.'), 401, cors);
+  if (!resp.ok) return json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível ler a lista de membros.'), 502, cors);
+  const raw: any = await resp.json().catch(() => null);
+  if (!raw || !Array.isArray(raw.members)) return json(fail(ResponseCodes.INTERNAL_ERROR, 'Resposta inválida da sala.'), 502, cors);
+  return json(ok(ResponseCodes.SUCCESS, 'Membros.', { members: await buildRoster(env, raw.members) }), 200, cors);
+}
+
 /** GET /panel/ws/{deviceId}?role=agent|panel — encaminha o upgrade de WebSocket para o Durable Object do dispositivo. */
 async function handlePanelWebSocket(deviceId: string, req: Request, env: Env): Promise<Response> {
   const id = env.HOST_CHANNEL.idFromName(deviceId);
@@ -2300,6 +2319,10 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
         );
         if (result) return panelJson(result, cors);
       }
+
+      // GET /api/v1/link/roster/{sc} — lista de membros do servidor (a sala confere o token de link)
+      const mRoster = p.match(/^\/api\/v1\/link\/roster\/([A-Za-z0-9]+)$/);
+      if (m === 'GET' && mRoster) return await handleLinkRoster(mRoster[1].toUpperCase(), req, env, cors);
 
       // GET /api/v1/link/ws/{sc} — sala de sinalização do transporte P2P (o token é verificado dentro da sala)
       const mLink = p.match(/^\/api\/v1\/link\/ws\/([A-Za-z0-9]+)$/);

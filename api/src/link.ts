@@ -29,6 +29,11 @@ export interface LinkClaims {
   role: LinkRole;
   /** Sessão (ConnectionSession) dona do token. */
   pid: string;
+  /**
+   * Conta (Supabase) de quem pediu a sessão, quando estava logado. Só o Worker grava este campo, depois de validar
+   * o token da conta; o cliente nunca escolhe. Serve para a lista de membros (perfil público). Tokens antigos não têm.
+   */
+  uid?: string;
   iat: number;
   exp: number;
 }
@@ -107,6 +112,7 @@ export async function verifyLinkToken(env: LinkEnv, token: string | null | undef
     const c = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1]))) as Partial<LinkClaims>;
     if (typeof c.sc !== 'string' || typeof c.pid !== 'string' || (c.role !== 'host' && c.role !== 'guest')) return null;
     if (typeof c.exp !== 'number' || typeof c.iat !== 'number' || nowMs / 1000 >= c.exp) return null;
+    if (c.uid !== undefined && typeof c.uid !== 'string') return null;
     return c as LinkClaims;
   } catch {
     return null;
@@ -152,9 +158,9 @@ export interface LinkCredentials {
 /** O que o sidecar recebe na ConnectionSession `link-v1` (ver cubicase-link/config.go). */
 export async function buildLinkCredentials(
   env: LinkEnv,
-  opts: { origin: string; shortCode: string; role: LinkRole; peerId: string; relayOnly: boolean; /** false = cota do mês esgotada: não emite credenciais do relay. */ relayAllowed?: boolean },
+  opts: { origin: string; shortCode: string; role: LinkRole; peerId: string; relayOnly: boolean; /** false = cota do mês esgotada: não emite credenciais do relay. */ relayAllowed?: boolean; /** Conta já validada de quem pediu a sessão (entra no token como `uid`). */ userId?: string | null },
 ): Promise<LinkCredentials> {
-  const signalToken = await signLinkToken(env, { sc: opts.shortCode, role: opts.role, pid: opts.peerId });
+  const signalToken = await signLinkToken(env, { sc: opts.shortCode, role: opts.role, pid: opts.peerId, ...(opts.userId ? { uid: opts.userId } : {}) });
   const relayAllowed = opts.relayAllowed !== false;
   const turn = relayAllowed ? await makeTurnCredentials(env, opts.peerId, Date.now(), opts.role === 'guest' ? TURN_GUEST_TTL_SECONDS : LINK_TOKEN_TTL_SECONDS) : null;
   const relay: RelayState = turn ? 'ok' : relayAllowed ? 'off' : 'quota';

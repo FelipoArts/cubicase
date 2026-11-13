@@ -47,6 +47,17 @@ interface Attachment {
   /** Sessão (peerId) do token. */
   pid: string;
   sc: string;
+  /** Conta de quem conectou, vinda das claims assinadas pelo Worker (ausente: sem conta ou token antigo). */
+  uid?: string;
+}
+
+/** Um membro como a sala o conhece. O `uid` só sai daqui para o Worker; nunca chega ao cliente. */
+export interface RoomMember {
+  id: string;
+  role: 'host' | 'guest';
+  uid: string | null;
+  /** É quem está pedindo a lista (mesma sessão do token). */
+  self: boolean;
 }
 
 export class LinkRoom {
@@ -65,6 +76,7 @@ export class LinkRoom {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/close') return this.handleClose();
     if (request.method === 'GET' && url.pathname === '/presence') return this.handlePresence();
+    if (request.method === 'GET' && url.pathname.startsWith('/roster/')) return this.handleRoster(request, url);
     if (request.method === 'POST' && url.pathname === '/revoke') return this.handleRevoke(request);
     if (request.headers.get('Upgrade') === 'websocket') return this.handleUpgrade(request, url);
     return new Response('Not found', { status: 404 });
@@ -83,6 +95,28 @@ export class LinkRoom {
       hostSession: att?.pid ?? null,
       guests: this.ctx.getWebSockets('guest').length,
     });
+  }
+
+  /**
+   * Quem está na sala agora (host e convidados conectados), para a lista de membros. Só responde a quem é da sala:
+   * o token de link do pedido é verificado como na conexão (assinatura, sala e revogação), então um terceiro, ou uma
+   * sessão revogada, não vê quem está jogando. Devolve o `uid` de cada um para o Worker resolver os perfis públicos.
+   */
+  private async handleRoster(request: Request, url: URL): Promise<Response> {
+    const shortCode = url.pathname.match(/^\/roster\/([A-Za-z0-9]+)$/)?.[1]?.toUpperCase();
+    if (!shortCode) return new Response('sala ausente na URL', { status: 400 });
+    const auth = request.headers.get('Authorization');
+    const claims = await verifyLinkToken(this.env, auth?.startsWith('Bearer ') ? auth.slice(7) : null);
+    if (!claims || claims.sc !== shortCode) return new Response('token inválido', { status: 401 });
+    if (await this.ctx.storage.get(REVOKED_PREFIX + claims.pid)) return new Response('sessão revogada', { status: 401 });
+
+    const members: RoomMember[] = [];
+    for (const ws of [...this.ctx.getWebSockets('host'), ...this.ctx.getWebSockets('guest')]) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (!att) continue;
+      members.push({ id: att.id, role: att.role, uid: att.uid ?? null, self: att.pid === claims.pid });
+    }
+    return Response.json({ members });
   }
 
   /** Chamado pelo Worker quando o servidor é apagado ou o código regenerado: derruba todo mundo. */
@@ -133,7 +167,7 @@ export class LinkRoom {
       for (const old of this.ctx.getWebSockets('host')) {
         try { old.close(4000, 'replaced'); } catch { /* já pode estar fechando */ }
       }
-      const att: Attachment = { role: 'host', id: 'host', pid: claims.pid, sc: shortCode };
+      const att: Attachment = { role: 'host', id: 'host', pid: claims.pid, sc: shortCode, ...(claims.uid ? { uid: claims.uid } : {}) };
       this.ctx.acceptWebSocket(server, ['host']);
       server.serializeAttachment(att);
       // Convidados já na sala passam a ver o novo host (com a sessão dele: se mudou, renegociam).
@@ -151,7 +185,7 @@ export class LinkRoom {
       return new Response(null, { status: 101, webSocket: client });
     }
     const guestId = crypto.randomUUID().slice(0, 8);
-    const att: Attachment = { role: 'guest', id: guestId, pid: claims.pid, sc: shortCode };
+    const att: Attachment = { role: 'guest', id: guestId, pid: claims.pid, sc: shortCode, ...(claims.uid ? { uid: claims.uid } : {}) };
     this.ctx.acceptWebSocket(server, ['guest', `guest:${guestId}`]);
     server.serializeAttachment(att);
     const host = this.ctx.getWebSockets('host')[0];

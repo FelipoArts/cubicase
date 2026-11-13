@@ -535,3 +535,85 @@ describe("cota mensal de relay", () => {
     expect(await used(shortCode)).toBe(42);
   });
 });
+
+// ---------------- lista de membros (roster) ----------------
+
+describe("conta no token de link (uid)", () => {
+  const e = { LINK_TOKEN_SECRET: SECRET };
+  const UID = "123e4567-e89b-42d3-a456-426614174000";
+
+  it("o uid viaja assinado no token e some sem conta", async () => {
+    const withUid = await signLinkToken(e, { sc: "ABC123", role: "guest", pid: "p", uid: UID });
+    expect(await verifyLinkToken(e, withUid)).toMatchObject({ uid: UID });
+    const without = await signLinkToken(e, { sc: "ABC123", role: "guest", pid: "p" });
+    expect((await verifyLinkToken(e, without))?.uid).toBeUndefined();
+  });
+
+  it("uid que não é texto invalida o token", async () => {
+    const head = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const body = Buffer.from(JSON.stringify({ sc: "ABC123", role: "guest", pid: "p", uid: 42, iat: 1, exp: 9_999_999_999 })).toString("base64url");
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = Buffer.from(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${head}.${body}`))).toString("base64url");
+    expect(await verifyLinkToken(e, `${head}.${body}.${sig}`)).toBeNull();
+  });
+
+  it("buildLinkCredentials só grava o uid quando recebe a conta", async () => {
+    const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p", relayOnly: false };
+    const cfg = { ...e, TURN_SECRET: "t", TURN_URLS: "turn:x:3478" };
+    const a = await buildLinkCredentials(cfg, { ...base, userId: UID });
+    expect(await verifyLinkToken(e, a.signalToken)).toMatchObject({ uid: UID });
+    const b = await buildLinkCredentials(cfg, base);
+    expect((await verifyLinkToken(e, b.signalToken))?.uid).toBeUndefined();
+  });
+});
+
+describe("GET /api/v1/link/roster/{sc}", () => {
+  const e = { LINK_TOKEN_SECRET: SECRET };
+  const HOST_UID = "aaaaaaaa-e89b-42d3-a456-426614174001";
+  const GUEST_UID = "bbbbbbbb-e89b-42d3-a456-426614174002";
+  const tok = (sc: string, role: "host" | "guest", pid: string, uid?: string) => signLinkToken(e, { sc, role, pid, ...(uid ? { uid } : {}) });
+  const roster = (sc: string, token: string | null) =>
+    SELF.fetch(`${BASE}/api/v1/link/roster/${sc}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+
+  it("lista host e convidados (host primeiro), marca quem pediu e nunca devolve o uid", async () => {
+    const { shortCode } = await createServer();
+    const hostTok = await tok(shortCode, "host", "sess-host-0001", HOST_UID);
+    const guestTok = await tok(shortCode, "guest", "sess-guest-001", GUEST_UID);
+    const anonTok = await tok(shortCode, "guest", "sess-anon-0001");
+    asConn(await connect(shortCode, guestTok));
+    asConn(await connect(shortCode, anonTok));
+    asConn(await connect(shortCode, hostTok));
+
+    const res = await roster(shortCode, guestTok);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    const members = body.data.members as any[];
+    expect(members).toHaveLength(3);
+    expect(members[0]).toMatchObject({ id: "host", role: "host", self: false });
+    expect(members.filter((m) => m.self)).toHaveLength(1);
+    expect(members.find((m) => m.self)?.role).toBe("guest");
+    // sem Supabase configurado no teste, ninguém tem perfil nem Plus
+    expect(members.every((m) => m.profile === null && m.plus === false)).toBe(true);
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain(HOST_UID);
+    expect(raw).not.toContain(GUEST_UID);
+  });
+
+  it("recusa sem token, com token inválido e com token de OUTRA sala", async () => {
+    const a = await createServer();
+    const b = await createServer();
+    expect((await roster(a.shortCode, null)).status).toBe(401);
+    expect((await roster(a.shortCode, "lixo.lixo.lixo")).status).toBe(401);
+    const other = await tok(b.shortCode, "guest", "sess-guest-009");
+    expect((await roster(a.shortCode, other)).status).toBe(401);
+  });
+
+  it("sessão revogada não enxerga mais quem está na sala", async () => {
+    const { shortCode, host } = await room();
+    asConn(await connect(shortCode, host.credentials.signalToken));
+    expect((await roster(shortCode, host.credentials.signalToken)).status).toBe(200);
+    const stub = env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode));
+    await stub.fetch("https://link-room.internal/revoke", { method: "POST", body: JSON.stringify({ pid: host.sessionId }) });
+    expect((await roster(shortCode, host.credentials.signalToken)).status).toBe(401);
+  });
+});

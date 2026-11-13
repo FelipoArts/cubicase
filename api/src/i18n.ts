@@ -138,6 +138,11 @@ export const EN_MESSAGES: Record<string, string> = {
   'Motivo muito longo (máximo 100 caracteres).': 'Reason too long (100 characters max).',
   'Você não tem permissão para ver os jogadores.': "You don't have permission to see the players.",
 
+  // ---- Lista de membros do servidor (GET /api/v1/link/roster) ----
+  'Sessão inválida ou expirada.': 'Invalid or expired session.',
+  'Não foi possível ler a lista de membros.': "Couldn't read the member list.",
+  'Resposta inválida da sala.': 'Invalid response from the room.',
+
   // ---- Painel web: membros e convites (panel-members.ts) ----
   'Sessão inválida ou expirada. Faça login novamente.': 'Invalid or expired session. Please sign in again.',
   'Painel web não configurado neste servidor.': "The web panel isn't configured on this server.",
