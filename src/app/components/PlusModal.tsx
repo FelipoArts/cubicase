@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { ArrowRight, BedDouble, Check, Link2, Loader2, Lock, ShieldCheck, Smartphone, Sparkles, Users, X, Globe, ExternalLink, AlertTriangle } from "lucide-react";
+import { ArrowRight, BedDouble, Check, Link2, Loader2, Lock, ShieldCheck, Smartphone, Sparkles, Users, X, Zap, Globe, ExternalLink, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errorMessage";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
@@ -40,12 +40,13 @@ interface Props {
   onConfigureServer: () => void;
 }
 
-const BENEFITS: { id: "panel" | "wake" | "link" | "address" | "private" | "team"; icon: typeof Smartphone; accent: string; compare?: boolean }[] = [
+const BENEFITS: { id: "panel" | "wake" | "link" | "address" | "private" | "relay" | "team"; icon: typeof Smartphone; accent: string; compare?: boolean }[] = [
   { id: "panel", icon: Smartphone, accent: "from-indigo-500 to-violet-600" },
   { id: "wake", icon: BedDouble, accent: "from-sky-500 to-indigo-600" },
   { id: "link", icon: Link2, accent: "from-emerald-500 to-teal-600", compare: true },
   { id: "address", icon: Globe, accent: "from-amber-500 to-orange-600", compare: true },
   { id: "private", icon: ShieldCheck, accent: "from-rose-500 to-pink-600" },
+  { id: "relay", icon: Zap, accent: "from-cyan-500 to-blue-600", compare: true },
   { id: "team", icon: Users, accent: "from-fuchsia-500 to-purple-600" },
 ];
 
