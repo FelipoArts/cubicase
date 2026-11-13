@@ -13,6 +13,7 @@ import { useConnectionHelp } from "@/lib/connectionHelp";
 import type { KnownServer } from "@/app/store";
 import { PLAYABLE_SERVER_TYPES, useGuestController, type GuestViewProps } from "@/app/components/guest/useGuestController";
 import { GuestModals } from "@/app/components/guest/GuestModals";
+import { MembersCard } from "@/app/components/MembersCard";
 import { useT } from "@/i18n";
 import { GlobalActions } from "./GlobalActions";
 import { ResizeHandle, usePanel } from "./panels";
@@ -293,6 +294,9 @@ export function GuestWorkspace(props: GuestViewProps) {
                 <Fact label={t("nui.guest.fact.type")} value={g.serverKindLabel(s.serverType)} />
                 <Fact label={t("nui.guest.fact.seen")} value={mcOnline && !stale ? t("guest.onlineFor", { time: g.formatUptime(s.onlineSince) }) : g.formatLastSeen(s.lastSeenOnline, g.now)} />
               </div>
+
+              {/* Perfil de quem está no servidor, enquanto este computador está conectado a ele. */}
+              <MembersCard active={connected && g.isOnline} />
 
               <div className="bg-theme-card border-theme-card shadow-theme-card rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
                 <div>

@@ -8,6 +8,7 @@ import { meshAddressLabel } from "@/lib/meshAddress";
 import { processCpuOfMachine, usePerfStore } from "@/lib/perfMonitor";
 import { openPlus, useSubscriptionInfo } from "@/lib/plusUi";
 import type { HostController } from "@/app/components/host/useHostController";
+import { MembersCard } from "@/app/components/MembersCard";
 import { Avatar, Card } from "../ui";
 
 type Tab = "overview" | "players" | "world" | "mods" | "performance" | "settings";
@@ -89,6 +90,9 @@ export function OverviewTab({ c, onGoTo }: { c: HostController; onGoTo: (t: Tab)
         </span>
         {plus ? <ExternalLink className="w-4 h-4 text-theme-secondary shrink-0" /> : <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-indigo-600 text-white shrink-0"><Lock className="w-3 h-3" />Plus</span>}
       </button>
+
+      {/* Perfil de quem está conectado pelo Cubicase (só enquanto os amigos conseguem entrar). */}
+      <MembersCard active={friendsOnline} />
 
       <div className="grid lg:grid-cols-3 gap-5">
         <Card title={t("nui.overview.players")} className="lg:col-span-2" action={<button type="button" onClick={() => onGoTo("players")} className="text-xs font-bold text-indigo-600 hover:underline cursor-pointer">{t("nui.overview.manage")}</button>}>

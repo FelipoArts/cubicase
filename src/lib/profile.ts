@@ -11,8 +11,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAppStore } from "@/app/store";
 import { getLocale, t } from "@/i18n";
 import type { UserProfile } from "@/lib/profileCatalog";
-
-const API_BASE = "https://cubeforge-api.cubeforge.workers.dev";
+import { API_BASE } from "@/lib/apiBase";
 
 interface ApiEnvelope<T> {
   success: boolean;

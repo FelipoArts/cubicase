@@ -883,6 +883,22 @@ fn set_private_mode(state: tauri::State<'_, AppState>, enabled: bool, access_tok
     account_auth::set(access_token);
 }
 
+/// Para onde o app consulta a lista de membros do servidor (host ou convidado): o código e o token de
+/// link da sessão P2P atual. `None` quando não há sessão conectada.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RosterTarget {
+    short_code: String,
+    signal_token: String,
+}
+
+#[tauri::command]
+fn get_roster_target(state: tauri::State<'_, AppState>) -> Option<RosterTarget> {
+    let sm = state.active_session_manager.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let (short_code, signal_token) = sm.roster_target()?;
+    Some(RosterTarget { short_code, signal_token })
+}
+
 /// Opt-in de desenvolvimento: procura um `network_session.json` local (cwd,
 /// pasta pai, pasta do executável ou AppData — cobre tanto `tauri dev` quanto
 /// produção) e só retorna algo se `provider` for exatamente "mock". Qualquer
@@ -7039,6 +7055,7 @@ pub fn run() {
        set_locale,
        start_network_node,
        set_private_mode,
+       get_roster_target,
        stop_network_node,
        add_minecraft_server_entry,
        find_installed_minecraft_versions,
