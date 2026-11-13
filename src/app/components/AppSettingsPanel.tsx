@@ -15,6 +15,7 @@ import { useConnectionHelp } from "@/lib/connectionHelp";
 import { AppearanceSettings } from "@/app/components/AppearanceSettings";
 import { BackupFolderSettings } from "@/app/components/BackupFolderSettings";
 import type { PlusFeature } from "@/lib/plusUi";
+import { ProfileEditor } from "@/app/components/ProfileEditor";
 import { LanguageSelector } from "@/app/components/LanguageSelector";
 import { useT, formatDateTime, type TKey } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -493,6 +494,7 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
               <p className="text-sm font-bold text-theme-primary">{user.email}</p>
               {providers.length > 0 && <p className="text-[11px] text-theme-secondary">{t("settings.account.providers", { providers: providers.join(", ") })}</p>}
             </div>
+            <ProfileEditor />
             <div className="space-y-1.5">
               <p className="text-xs font-bold text-theme-primary">{t("settings.account.setPassword")}</p>
               <p className="text-[11px] text-theme-secondary">{t("settings.account.setPasswordHint")}</p>

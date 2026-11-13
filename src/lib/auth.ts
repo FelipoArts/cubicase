@@ -21,6 +21,7 @@
 import { open } from "@tauri-apps/plugin-shell";
 import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link";
 import { supabase } from "@/lib/supabaseClient";
+import { syncProfile } from "@/lib/profile";
 import { useAppStore, type AuthUser } from "@/app/store";
 import { getLocale, t } from "@/i18n";
 import { pushDiagnostic } from "@/app/diagnostics";
@@ -114,9 +115,11 @@ export async function initAuthListener(): Promise<() => void> {
   // Sessão que já existia, persistida pelo supabase-js de uma execução anterior.
   const { data: { session } } = await supabase.auth.getSession();
   setUser(session?.user ? toAuthUser(session.user) : null);
+  void syncProfile();
 
   const { data: authSub } = supabase.auth.onAuthStateChange((_event, newSession) => {
     setUser(newSession?.user ? toAuthUser(newSession.user) : null);
+    void syncProfile(); // carrega o perfil da conta que entrou (ou limpa, se saiu)
   });
 
   // Cold start: se o app acabou de ser aberto pelo próprio deep link de login

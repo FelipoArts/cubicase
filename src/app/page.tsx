@@ -1162,8 +1162,8 @@ export default function Home() {
         mode={mode}
         onSetMode={setMode}
         onOpenHelp={() => setShowHelp(true)}
-        onOpenSettings={() => {
-          setAppSettingsCategory(undefined);
+        onOpenSettings={(category) => {
+          setAppSettingsCategory(category);
           setShowAppSettings(true);
         }}
       />

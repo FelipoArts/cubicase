@@ -8,6 +8,10 @@ import { pushDiagnostic } from "@/app/diagnostics";
 import { useT, t as tn } from "@/i18n";
 import type { HostController } from "@/app/components/host/useHostController";
 import { ServerAvatar } from "@/app/components/ServerAvatar";
+import { ProfileAvatar } from "@/app/components/ProfileAvatar";
+import type { SettingsCategory } from "@/app/components/AppSettingsPanel";
+import { useAppStore } from "@/app/store";
+import { colorOf } from "@/lib/profileCatalog";
 import { ResizeHandle, type usePanel } from "./panels";
 import { goToHostTab } from "./hostNav";
 
@@ -19,7 +23,8 @@ interface Props {
   mode: "host" | "guest";
   onSetMode: (m: "host" | "guest") => void;
   onOpenHelp: () => void;
-  onOpenSettings: () => void;
+  /** Abre as Configurações, opcionalmente já numa categoria (o perfil da barra lateral abre em "conta"). */
+  onOpenSettings: (category?: SettingsCategory) => void;
   panel: ReturnType<typeof usePanel>;
 }
 
@@ -28,6 +33,7 @@ const ROW = "w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-
 
 export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel }: Props) {
   const { t } = useT();
+  const profile = useAppStore((s) => s.profile);
   const compact = panel.collapsed;
   // Mesma logo da tela anterior (versão para fundo claro/escuro). Só depois de montar, para não divergir do HTML estático.
   const { resolvedTheme } = useTheme();
@@ -141,12 +147,24 @@ export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel 
       </nav>
 
       <div className="p-3 group-data-[compact=true]/side:p-2 border-t border-theme-card space-y-1">
+        {profile && (
+          <button
+            type="button"
+            onClick={() => onOpenSettings("conta")}
+            title={t("profile.sidebar.open")}
+            aria-label={t("profile.sidebar.open")}
+            className={cn(ROW, "border-transparent text-theme-primary hover:bg-theme-muted")}
+          >
+            <ProfileAvatar avatarId={profile.avatarId} colorId={profile.nameColor} size="sm" />
+            <span className={cn("truncate", HIDE)} style={{ color: colorOf(profile.nameColor).hex }}>{profile.displayName}</span>
+          </button>
+        )}
         <button type="button" onClick={c.onOpenSubscribe} title={t("host.plus.subscribe")} className={cn(ROW, "border-transparent text-indigo-600 hover:bg-theme-accent")}>
           <Sparkles className="w-4 h-4 shrink-0" /><span className={cn("truncate", HIDE)}>Cubicase Plus</span>
         </button>
         {[
           { icon: HelpCircle, label: t("help.button"), onClick: onOpenHelp },
-          { icon: Settings, label: t("app.settings"), onClick: onOpenSettings },
+          { icon: Settings, label: t("app.settings"), onClick: () => onOpenSettings() },
         ].map(({ icon: Icon, label, onClick }) => (
           <button key={label} type="button" title={label} onClick={onClick} className={cn(ROW, "border-transparent text-theme-secondary hover:text-theme-primary hover:bg-theme-muted")}>
             <Icon className="w-4 h-4 shrink-0" /><span className={cn("truncate", HIDE)}>{label}</span>

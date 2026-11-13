@@ -1,6 +1,7 @@
 "use client";
 
 import { HostModals } from "@/app/components/host/HostModals";
+import type { SettingsCategory } from "@/app/components/AppSettingsPanel";
 import { useHostController, type HostViewProps } from "@/app/components/host/useHostController";
 import type { GuestViewProps } from "@/app/components/guest/useGuestController";
 import { GuestWorkspace } from "./GuestWorkspace";
@@ -19,7 +20,7 @@ interface Props {
   mode: "host" | "guest";
   onSetMode: (m: "host" | "guest") => void;
   onOpenHelp: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (category?: SettingsCategory) => void;
 }
 
 export function NewShell({ host, guest, mode, onSetMode, onOpenHelp, onOpenSettings }: Props) {

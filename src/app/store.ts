@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ServerInfo } from '@/lib/server';
+import type { UserProfile } from '@/lib/profileCatalog';
 
 // Estado do ciclo de vida do servidor Minecraft. 'sleeping' só se aplica a
 // KnownServer.minecraftStatus (wake-on-demand armado, ver PlayersPanel/
@@ -144,6 +145,10 @@ interface AppSettings {
   // AuthUser acima. Não persistido.
   user: AuthUser | null;
 
+  // Perfil público da conta logada (nome, avatar, cor) — ver src/lib/profile.ts.
+  // null sem conta ou enquanto não foi criado. Não persistido: o Worker é a fonte.
+  profile: UserProfile | null;
+
   // shortCode de um convite recebido via deep link (cubicase://join/<shortCode>,
   // ver src/lib/joinDeepLink.ts) que a GuestView ainda não processou — runtime
   // apenas, nunca persistido. GuestView zera pra null assim que consome.
@@ -193,6 +198,7 @@ interface AppSettings {
   removeOnlinePlayer: (name: string) => void;
   setLastCrashInfo: (info: CrashInfo | null) => void;
   setUser: (user: AuthUser | null) => void;
+  setProfile: (profile: UserProfile | null) => void;
   setPendingJoinShortCode: (shortCode: string | null) => void;
   setLocalServers: (servers: ServerInfo[]) => void;
   setGuestConnectedShortCode: (shortCode: string | null) => void;
@@ -274,6 +280,7 @@ export const useAppStore = create<AppSettings>()(
       onlinePlayers: [],
       lastCrashInfo: null,
       user: null,
+      profile: null,
       pendingJoinShortCode: null,
       knownServers: [],
       localServers: [],
@@ -313,6 +320,7 @@ export const useAppStore = create<AppSettings>()(
       })),
       setLastCrashInfo: (info) => set({ lastCrashInfo: info }),
       setUser: (user) => set({ user }),
+      setProfile: (profile) => set({ profile }),
       setPendingJoinShortCode: (shortCode) => set({ pendingJoinShortCode: shortCode }),
       setLocalServers: (servers) => set({ localServers: servers }),
       setGuestConnectedShortCode: (shortCode) => set({ guestConnectedShortCode: shortCode }),

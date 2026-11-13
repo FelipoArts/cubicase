@@ -1,6 +1,7 @@
 import { resolveSupabaseUserId, userHasActiveSubscription, supabaseService, SUPABASE_URL } from './supabase';
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { handlePanelPushRoute } from './panel-push';
+import { handleProfileRoute } from './profile';
 import { localizeResponse } from './i18n';
 import {
   verifyDiscordSignature, handleInteraction, discordConfigured, discordInstallUrl, createLinkCode, formatLinkCode,
@@ -2278,6 +2279,16 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
         if (!(await checkRateLimit(env, 'panel-push', clientIp(req), PANEL_PUSH_RATE_LIMIT))) return rateLimitedResponse(cors);
         const pushResult = await handlePanelPushRoute(req, env, m, p);
         if (pushResult) return panelJson(pushResult, cors);
+      }
+
+      // Perfil do jogador (nome, avatar e cor) — ver profile.ts
+      if (p.startsWith('/api/v1/profile/')) {
+        const profileResult = await handleProfileRoute(
+          req,
+          { env, rateLimit: (bucket, key, limit) => checkRateLimit(env, bucket, key, limit) },
+          m, p,
+        );
+        if (profileResult) return panelJson(profileResult, cors);
       }
 
       // Acesso compartilhado do painel (dispositivos, membros, convites) — ver panel-members.ts
