@@ -54,8 +54,9 @@ describe("tutorial (pt e en)", () => {
 
   it("a versão em inglês está marcada como inglês e aponta para a portuguesa", () => {
     expect(en).toContain('<html lang="en">');
-    expect(en).toContain('hreflang="pt-BR" href="/tutorial/"');
-    expect(pt).toContain('hreflang="en" href="/en/tutorial/"');
+    // Desde o commit de SEO os alternates usam URL absoluta (https://cubicase.net/...).
+    expect(en).toContain('hreflang="pt-BR" href="https://cubicase.net/tutorial/"');
+    expect(pt).toContain('hreflang="en" href="https://cubicase.net/en/tutorial/"');
   });
 
   it("a versão em inglês não deixou texto em português (acentos)", () => {
