@@ -16,6 +16,7 @@ import { AppearanceSettings } from "@/app/components/AppearanceSettings";
 import { BackupFolderSettings } from "@/app/components/BackupFolderSettings";
 import type { PlusFeature } from "@/lib/plusUi";
 import { ProfileEditor } from "@/app/components/ProfileEditor";
+import { PlusAccountCard, PlusUpsellCard } from "@/app/components/PlusAccountCard";
 import { LanguageSelector } from "@/app/components/LanguageSelector";
 import { useT, formatDateTime, type TKey } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -298,6 +299,7 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
   useLockBodyScroll(isOpen);
 
   const plusActive = isSubscriptionActive(subscription);
+  const plusStreakView = useAppStore((s) => s.plusStreak);
 
   const numberInput = "w-28 h-10 px-3 border border-theme-card rounded-xl focus:border-indigo-500 focus:outline-none transition-all font-mono text-sm text-theme-primary bg-theme-card disabled:opacity-50";
 
@@ -449,33 +451,15 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
     <div className="space-y-5">
       {/* Cubicase Plus: vitrine para quem não assina, resumo e gerenciamento para quem assina */}
       {plusActive && subscription ? (
-        <section className="rounded-2xl border border-theme-accent bg-theme-accent p-5 space-y-3">
-          <div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-indigo-600" /><h4 className="text-sm font-bold text-theme-primary">{t("settings.sub.title")}</h4></div>
-          <p className="text-sm text-theme-primary">
-            {t(subscription.plan === "annual" ? "settings.sub.active.annual" : "settings.sub.active.monthly")}
-            {subscription.currentPeriodEnd &&
-              t(subscription.cancelAtPeriodEnd ? "settings.sub.cancelsOn" : "settings.sub.renewsOn", {
-                date: formatDateTime(subscription.currentPeriodEnd, { dateStyle: "short" }),
-              })}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={handleManageSubscription} disabled={subAction !== null} className="h-10 px-4 bg-theme-card border border-theme-card hover:bg-theme-muted disabled:opacity-50 text-theme-primary font-semibold text-xs rounded-xl transition-colors cursor-pointer">
-              {subAction === "portal" ? t("settings.sub.opening") : t("settings.sub.manage")}
-            </button>
-            {onOpenPlus && <button type="button" onClick={() => onOpenPlus()} className="h-10 px-4 text-indigo-600 font-semibold text-xs rounded-xl hover:bg-theme-card transition-colors cursor-pointer">{t("settings.sub.seePlus")}</button>}
-          </div>
-        </section>
+        <PlusAccountCard
+          subscription={subscription}
+          streak={plusStreakView}
+          busy={subAction !== null}
+          onManage={handleManageSubscription}
+          onSeeBenefits={onOpenPlus ? () => onOpenPlus() : undefined}
+        />
       ) : (
-        onOpenPlus && (
-          <button
-            type="button"
-            onClick={() => onOpenPlus()}
-            className="w-full flex items-center justify-between gap-3 p-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-left cursor-pointer shadow-md"
-          >
-            <span className="flex items-center gap-3"><Sparkles className="w-5 h-5 shrink-0" /><span><span className="block text-sm font-bold">{t("plus.settings.cta")}</span><span className="block text-xs text-white/80">{subLoading ? t("settings.sub.checking") : t("plus.settings.ctaHint")}</span></span></span>
-            <span aria-hidden>→</span>
-          </button>
-        )
+        onOpenPlus && <PlusUpsellCard loading={subLoading} onOpen={() => onOpenPlus()} />
       )}
       {subError && <p className="text-xs text-rose-500">{subError}</p>}
 

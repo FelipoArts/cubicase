@@ -28,7 +28,7 @@ table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{text-align:left
 .banner{border-radius:12px;padding:12px 14px;margin-bottom:12px;font-weight:600;border:1px solid var(--line);background:var(--card)}
 .banner.ok{border-color:var(--accent)}.banner.bad{border-color:var(--bad);color:var(--bad)}.banner.warn{border-color:var(--warn);color:var(--warn)}
 .err{color:var(--bad);font-size:13px}
-.fb{border-top:1px solid var(--line);padding:10px 0}.fb:first-child{border:0}.fb pre{white-space:pre-wrap;word-break:break-word;font:inherit;margin:6px 0}
+.fb{border-top:1px solid var(--line);padding:10px 0}.fb:first-child{border:0}.fb pre{white-space:pre-wrap;word-break:break-word;font:inherit;margin:6px 0}.pimg{border-radius:8px;object-fit:cover;border:1px solid var(--line)}
 form{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:260px}
 svg text{fill:var(--muted);font-size:10px}
 </style>
@@ -95,19 +95,37 @@ function feedbackHtml(f){
   return sect('Suporte — relatos recebidos ('+items.length+')',items.length?items.map(function(x){return '<div class="fb"><strong>'+esc(x.subject)+'</strong> <span class="tag">'+esc(x.category)+'</span>'+(x.emailed?'':' <span class="tag" style="color:var(--bad)">e-mail não saiu</span>')+'<div class="muted">'+esc(x.email)+' · app '+esc(x.appVersion||'?')+' · '+esc(x.os||'?')+' · '+esc(when(x.createdAt))+'</div><pre>'+esc(x.message)+'</pre><a href="mailto:'+encodeURIComponent(x.email)+'?subject='+encodeURIComponent('Re: '+x.subject)+'">Responder</a> · <button data-del="'+esc(x.id)+'">Resolvido (apagar)</button></div>'}).join(''):'<p class="muted">Nenhum relato guardado. Eles ficam 120 dias e só aparecem aqui depois do deploy desta versão.</p>')
 }
 
+var REASONS={image:'Imagem imprópria',name_or_bio:'Nome ou bio ofensiva',other:'Outro motivo'};
+function reportsHtml(r){
+  var items=r.items||[];
+  return sect('Denúncias de perfil ('+items.length+')',items.length?items.map(function(x){
+    var t=x.target,imgs='';
+    if(t&&t.avatarHash)imgs+='<img class="pimg" src="/api/v1/profile-image/'+esc(t.avatarHash)+'" alt="Foto" width="64" height="64">';
+    if(t&&t.bannerHash)imgs+='<img class="pimg" src="/api/v1/profile-image/'+esc(t.bannerHash)+'" alt="Banner" width="192" height="64">';
+    var who=t?'<strong>'+esc(t.displayName)+'</strong>'+(t.bio?'<div class="muted">Bio: '+esc(t.bio)+'</div>':''):'<span class="muted">Perfil já apagado pela pessoa</span>';
+    var btns=t?('<button data-rep="'+esc(x.id)+'" data-act="clear_images">Remover imagens</button> <button data-rep="'+esc(x.id)+'" data-act="clear_bio">Remover bio</button> <button data-rep="'+esc(x.id)+'" data-act="rename">Trocar nome</button> '):'';
+    return '<div class="fb">'+who+' <span class="tag">'+esc(REASONS[x.reason]||x.reason)+'</span>'+(x.openForTarget>1?' <span class="tag" style="color:var(--bad)">'+x.openForTarget+' denúncias</span>':'')+'<div class="muted">servidor '+esc(x.serverShortCode||'?')+' · '+esc(when(x.createdAt))+'</div>'+(x.note?'<pre>'+esc(x.note)+'</pre>':'')+(imgs?'<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">'+imgs+'</div>':'')+btns+'<button data-rep="'+esc(x.id)+'" data-act="dismiss">Arquivar (sem ação)</button></div>'
+  }).join(''):'<p class="muted">Nenhuma denúncia aberta.</p>')
+}
+
 var busy=false;
 function load(force){
   if(busy||!token)return;busy=true;$('refresh').disabled=true;var q=force?'?refresh=1':'';
   var app=$('app');if(!app.innerHTML)app.innerHTML='<p class="muted">Carregando…</p>';
-  Promise.all([api('/api/v1/admin/health'+q),api('/api/v1/admin/overview'+q),api('/api/v1/admin/feedback')]).then(function(r){
-    app.innerHTML=healthHtml(r[0])+overviewHtml(r[1])+feedbackHtml(r[2]);$('stamp').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR')
+  Promise.all([api('/api/v1/admin/health'+q),api('/api/v1/admin/overview'+q),api('/api/v1/admin/feedback'),api('/api/v1/admin/profile-reports')]).then(function(r){
+    app.innerHTML=healthHtml(r[0])+reportsHtml(r[3])+overviewHtml(r[1])+feedbackHtml(r[2]);$('stamp').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR')
   }).catch(function(e){if(token)app.innerHTML='<p class="err">'+esc(e.message)+'</p>'}).then(function(){busy=false;$('refresh').disabled=false})
 }
 $('loginForm').addEventListener('submit',function(e){e.preventDefault();var t=$('tok').value.trim();if(!t)return;token=t;$('loginErr').textContent='';
   api('/api/v1/admin/health').then(function(){try{sessionStorage.setItem('cubicase-admin',t)}catch(e){}$('tok').value='';show();load(false)}).catch(function(err){token=null;$('loginErr').textContent=err.message})});
 $('refresh').addEventListener('click',function(){load(true)});
 $('logout').addEventListener('click',function(){$('app').innerHTML='';logout()});
-$('app').addEventListener('click',function(e){var id=e.target&&e.target.getAttribute&&e.target.getAttribute('data-del');if(!id||!confirm('Apagar este relato do painel?'))return;api('/api/v1/admin/feedback/'+id,{method:'DELETE'}).then(function(){load(false)})});
+$('app').addEventListener('click',function(e){
+  var rep=e.target&&e.target.getAttribute&&e.target.getAttribute('data-rep');
+  if(rep){var act=e.target.getAttribute('data-act'),labels={clear_images:'Remover as imagens deste perfil?',clear_bio:'Remover a bio deste perfil?',rename:'Trocar o nome deste perfil por um genérico?',dismiss:'Arquivar a denúncia sem ação?'};
+    if(!confirm(labels[act]||'Confirmar?'))return;
+    api('/api/v1/admin/profile-reports/'+rep+'/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:act})}).then(function(){load(false)}).catch(function(err){alert(err.message)});return}
+  var id=e.target&&e.target.getAttribute&&e.target.getAttribute('data-del');if(!id||!confirm('Apagar este relato do painel?'))return;api('/api/v1/admin/feedback/'+id,{method:'DELETE'}).then(function(){load(false)})});
 setInterval(function(){if(!document.hidden)load(false)},60000);
 show();if(token)load(false);
 })();

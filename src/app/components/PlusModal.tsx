@@ -14,6 +14,7 @@ import {
   type SubscriptionInfo, type SubscriptionPlan,
 } from "@/lib/subscription";
 import { setSubscriptionInfo, usePlusUi } from "@/lib/plusUi";
+import { syncProfile } from "@/lib/profile";
 import { formatDateTime, formatNumber, useT, type TKey } from "@/i18n";
 
 // ============================================================
@@ -72,6 +73,7 @@ export function PlusModal({ isOpen, onClose, onOpenSubscriptionSettings, onConfi
       const info = await getSubscriptionStatus();
       setSub(info);
       setSubscriptionInfo(info); // o resto do app (botões travados do Plus) já enxerga a mudança
+      void syncProfile(); // o nível do badge de tempo de assinatura muda junto (assinou, renovou)
       return info;
     } catch {
       setSub(null);

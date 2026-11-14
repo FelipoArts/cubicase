@@ -124,9 +124,6 @@ struct SessionState {
     heartbeat_count: u64,
     timing: SessionTiming,
     termination_reason: Option<TerminationReason>,
-    /// Token de link da sessão P2P (só em memória). É a credencial para consultar a lista de membros do
-    /// servidor na API: vale só para a sala desta sessão. Some junto com a sessão.
-    signal_token: Option<String>,
 }
 
 impl SessionState {
@@ -135,7 +132,6 @@ impl SessionState {
             status: SessionStatus::Cancelled,
             session_id: None,
             short_code: None,
-            signal_token: None,
             correlation_id: None,
             provider: None,
             host_ip: None,
@@ -240,7 +236,6 @@ impl SessionManager {
                 {
                     let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                     state.session_id = Some(session.session_id.clone());
-                    state.signal_token = session.credentials.get("signalToken").and_then(|v| v.as_str()).map(str::to_string);
                     state.provider = Some(session.launcher.clone());
                     state.revision = 1;
                     state.timing.api_call_ms = Some(state.timing.started_at.elapsed().as_millis() as u64);
@@ -380,16 +375,6 @@ impl SessionManager {
 
     pub fn get_session_id(&self) -> Option<String> {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).session_id.clone()
-    }
-
-    /// Para onde consultar a lista de membros: o código do servidor e o token de link desta sessão. Só existe
-    /// com a sessão P2P conectada (online ou degradada); antes, ou depois de parar, não há o que consultar.
-    pub fn roster_target(&self) -> Option<(String, String)> {
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.status != SessionStatus::Online && state.status != SessionStatus::Degraded {
-            return None;
-        }
-        Some((state.short_code.clone()?, state.signal_token.clone()?))
     }
 
     pub fn get_host_ip(&self) -> Option<String> {
@@ -532,21 +517,11 @@ mod link_tests {
             assert_eq!(reqs[0].body.as_ref().unwrap()["launcher"], "link-v1");
         }
 
-        // Ainda não conectou: não há sala para consultar.
-        assert_eq!(sm.roster_target(), None);
-
         sm.set_waiting_provider().unwrap();
         sm.set_online_local().expect("P2P fica online localmente");
         assert_eq!(sm.get_status(), SessionStatus::Online);
         // Nenhum PATCH de hostIp (a API recusaria "p2p"): só o pedido de criação existe.
         assert_eq!(seen.lock().unwrap().len(), 1);
-
-        // Conectado: dá o código do servidor e o token de link da sessão.
-        assert_eq!(sm.roster_target(), Some(("ABCDEF".to_string(), "t".to_string())));
-
-        // Depois de parar, a consulta deixa de existir.
-        sm.stop().await.expect("stop");
-        assert_eq!(sm.roster_target(), None);
     }
 
     #[tokio::test]

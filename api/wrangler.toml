@@ -34,6 +34,13 @@ class_name = "LinkRoom"
 tag = "v2"
 new_sqlite_classes = ["LinkRoom"]
 
+# Imagens de perfil (foto e banner, só Cubicase Plus): objetos imutáveis, chaveados pelo hash do conteúdo
+# ("img/<hash>"), servidos por GET /api/v1/profile-image/<hash>. Ver src/profile-images.ts.
+# Bucket criado com: wrangler r2 bucket create cubicase-profile-images
+[[r2_buckets]]
+binding = "PROFILE_IMAGES"
+bucket_name = "cubicase-profile-images"
+
 # Rotina agendada (a cada 5 min): percebe o host que sumiu sem avisar e atualiza o status no Discord (ver discord-sync.ts).
 [triggers]
 crons = ["*/5 * * * *"]

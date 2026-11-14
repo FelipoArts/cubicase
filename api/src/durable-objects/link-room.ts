@@ -77,6 +77,7 @@ export class LinkRoom {
     if (request.method === 'POST' && url.pathname === '/close') return this.handleClose();
     if (request.method === 'GET' && url.pathname === '/presence') return this.handlePresence();
     if (request.method === 'GET' && url.pathname.startsWith('/roster/')) return this.handleRoster(request, url);
+    if (request.method === 'GET' && url.pathname === '/online') return this.handleOnline();
     if (request.method === 'POST' && url.pathname === '/revoke') return this.handleRevoke(request);
     if (request.headers.get('Upgrade') === 'websocket') return this.handleUpgrade(request, url);
     return new Response('Not found', { status: 404 });
@@ -98,9 +99,25 @@ export class LinkRoom {
   }
 
   /**
+   * As contas conectadas agora (host e convidados que entraram com conta), para marcar quem está online na lista de
+   * membros do servidor. Só o Worker chega aqui (rota interna, não exposta): devolve contas, nunca vai ao cliente.
+   */
+  private handleOnline(): Response {
+    const uids = new Set<string>();
+    let anonymous = 0; // conectados sem conta (só dá para contar, não há quem mostrar)
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (!att) continue;
+      if (att.uid) uids.add(att.uid);
+      else if (att.role === 'guest') anonymous++; // o anfitrião sem conta não conta como convidado conectado
+    }
+    return Response.json({ uids: [...uids], anonymous });
+  }
+
+  /**
    * Quem está na sala agora (host e convidados conectados), para a lista de membros. Só responde a quem é da sala:
    * o token de link do pedido é verificado como na conexão (assinatura, sala e revogação), então um terceiro, ou uma
-   * sessão revogada, não vê quem está jogando. Devolve o `uid` de cada um para o Worker resolver os perfis públicos.
+   * sessão revogada, não vê quem está conectado. Devolve o `uid` de cada um para o Worker resolver os perfis públicos.
    */
   private async handleRoster(request: Request, url: URL): Promise<Response> {
     const shortCode = url.pathname.match(/^\/roster\/([A-Za-z0-9]+)$/)?.[1]?.toUpperCase();

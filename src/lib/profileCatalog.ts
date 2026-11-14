@@ -13,8 +13,89 @@ export interface UserProfile {
   displayName: string;
   avatarId: string;
   nameColor: string | null;
+  /** A frase "sobre você" (até BIO_MAX caracteres), ou null. */
+  bio: string | null;
+  /** Foto de perfil enviada (hash do conteúdo; ver profileImageUrl). Só existe para quem assina o Plus. */
+  avatarHash: string | null;
+  /** Imagem de banner enviada. Mesma regra da foto. */
+  bannerHash: string | null;
 }
 
+/**
+ * O perfil da PRÓPRIA conta como deve aparecer: as imagens enviadas só valem enquanto o Plus está ativo (sem ele ficam
+ * guardadas, e voltam ao reassinar). Para os perfis dos outros o Worker já entrega sem as imagens quando não há Plus.
+ */
+export function ownProfileView(profile: UserProfile, plusActive: boolean): UserProfile {
+  return plusActive ? profile : { ...profile, avatarHash: null, bannerHash: null };
+}
+
+/** Níveis do badge de tempo de assinatura do Plus (a regra e os limites moram no Worker: api/src/plus-tier.ts). */
+export type PlusTierId = "wood" | "stone" | "iron" | "gold" | "redstone" | "diamond" | "emerald" | "netherite";
+
+/** `months` é só para exibir o caminho até cada nível; quem decide o nível é o Worker (api/src/plus-tier.ts). */
+export const PLUS_TIERS: { id: PlusTierId; hex: string; months: number; labelKey: TKey }[] = [
+  { id: "wood", hex: "#a16207", months: 0, labelKey: "plustier.wood" },
+  { id: "stone", hex: "#78716c", months: 1, labelKey: "plustier.stone" },
+  { id: "iron", hex: "#64748b", months: 3, labelKey: "plustier.iron" },
+  { id: "gold", hex: "#d97706", months: 6, labelKey: "plustier.gold" },
+  { id: "redstone", hex: "#dc2626", months: 12, labelKey: "plustier.redstone" },
+  { id: "diamond", hex: "#0891b2", months: 18, labelKey: "plustier.diamond" },
+  { id: "emerald", hex: "#059669", months: 24, labelKey: "plustier.emerald" },
+  { id: "netherite", hex: "#6d28d9", months: 36, labelKey: "plustier.netherite" },
+];
+
+export function tierOf(id: string | null | undefined) {
+  return PLUS_TIERS.find((t) => t.id === id) ?? PLUS_TIERS[0];
+}
+
+/** Um "mês" de assinatura para os níveis: 30 dias (igual ao Worker). */
+export const DAYS_PER_MONTH = 30;
+
+export interface TierProgress {
+  /** Nível que o tempo contínuo já alcançou. */
+  current: (typeof PLUS_TIERS)[number];
+  /** Próximo nível, ou null no último. */
+  next: (typeof PLUS_TIERS)[number] | null;
+  /** Dias que faltam para o próximo nível (0 no último). */
+  daysToNext: number;
+  /** Quanto do caminho entre o nível atual e o próximo já foi percorrido (0 a 1; 1 no último). */
+  fraction: number;
+}
+
+/** Onde o tempo contínuo de assinatura (em dias) está no caminho dos níveis. */
+export function tierProgress(days: number): TierProgress {
+  const d = Math.max(0, Number.isFinite(days) ? days : 0);
+  let idx = 0;
+  PLUS_TIERS.forEach((lv, i) => { if (d >= lv.months * DAYS_PER_MONTH) idx = i; });
+  const current = PLUS_TIERS[idx];
+  const next = PLUS_TIERS[idx + 1] ?? null;
+  if (!next) return { current, next: null, daysToNext: 0, fraction: 1 };
+  const from = current.months * DAYS_PER_MONTH;
+  const to = next.months * DAYS_PER_MONTH;
+  return { current, next, daysToNext: Math.ceil(to - d), fraction: Math.min(1, Math.max(0, (d - from) / (to - from))) };
+}
+
+/** A sequência de assinatura da própria conta (só o dono vê): nível ativo, ou a janela de 7 dias para não perdê-lo. */
+export interface PlusStreakView {
+  phase: "active" | "grace" | "none";
+  tier: PlusTierId | null;
+  days: number;
+  graceEndsAt: string | null;
+}
+
+export const BIO_MAX = 160;
+/** Quantas linhas a bio pode ter. */
+export const BIO_MAX_LINES = 3;
+
+/** Arruma a bio como o Worker: espaços repetidos viram um, cada linha é aparada e linhas em branco somem. */
+export function normalizeBio(raw: string): string {
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/[^\S\n]+/g, " ").trim())
+    .filter((l) => l !== "")
+    .join("\n");
+}
 export const DISPLAY_NAME_MIN = 3;
 export const DISPLAY_NAME_MAX = 20;
 export const DEFAULT_AVATAR_ID = "cube";

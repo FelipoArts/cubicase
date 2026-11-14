@@ -22,6 +22,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link";
 import { supabase } from "@/lib/supabaseClient";
 import { syncProfile } from "@/lib/profile";
+import { startMembershipSync } from "@/lib/membership";
 import { useAppStore, type AuthUser } from "@/app/store";
 import { getLocale, t } from "@/i18n";
 import { pushDiagnostic } from "@/app/diagnostics";
@@ -143,10 +144,14 @@ export async function initAuthListener(): Promise<() => void> {
     void handleAuthCallbackUrl(event.payload);
   });
 
+  // Registra nos "Membros" os servidores da biblioteca da conta logada (e acompanha os que ela adicionar ou remover).
+  const stopMembership = startMembershipSync();
+
   return () => {
     authSub.subscription.unsubscribe();
     unlistenOpenUrl();
     unlistenForwarded();
+    stopMembership();
   };
 }
 

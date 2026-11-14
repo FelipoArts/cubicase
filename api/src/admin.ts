@@ -13,6 +13,7 @@
 import { connect } from 'cloudflare:sockets';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, supabaseService, type SupabaseEnv } from './supabase';
 import { ADMIN_HTML } from './admin-page';
+import { listProfileReports, resolveProfileReport } from './profile-moderation';
 
 export interface AdminEnv extends SupabaseEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
@@ -20,6 +21,8 @@ export interface AdminEnv extends SupabaseEnv {
   /** URL de um webhook do Discord (canal só seu) para os alertas de serviço fora do ar. */
   ADMIN_DISCORD_WEBHOOK?: string;
   TURN_URLS?: string;
+  /** Imagens de perfil: a moderação apaga os arquivos denunciados (ver profile-moderation.ts). */
+  PROFILE_IMAGES?: R2Bucket;
 }
 
 export const GITHUB_REPO = 'FelipoArts/cubicase';
@@ -349,7 +352,7 @@ export async function handleAdminRequest(
 
   // A página em si não tem dado nenhum: o token é pedido nela e só vai nas chamadas à API.
   if (p === '/admin' && req.method === 'GET') {
-    return respond(ADMIN_HTML, 200, { 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'" });
+    return respond(ADMIN_HTML, 200, { 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'" });
   }
 
   if (!(await adminAuthorized(req, env))) {
@@ -363,6 +366,16 @@ export async function handleAdminRequest(
   if (req.method === 'GET' && p === '/api/v1/admin/health') {
     const state = url.searchParams.get('refresh') === '1' ? await healthCron(env, probes) : await loadHealth(env);
     return respond({ state, now: new Date().toISOString() });
+  }
+  // Denúncias de perfil (imagem, nome ou bio) — ver profile-moderation.ts
+  if (req.method === 'GET' && p === '/api/v1/admin/profile-reports') {
+    return respond({ items: await listProfileReports(env) });
+  }
+  const resolve = /^\/api\/v1\/admin\/profile-reports\/([0-9a-fA-F-]{36})\/resolve$/.exec(p);
+  if (req.method === 'POST' && resolve) {
+    const body: any = await req.json().catch(() => null);
+    const r = await resolveProfileReport(env, resolve[1].toLowerCase(), body?.action);
+    return r.ok ? respond({ success: true }) : respond({ success: false, message: r.message }, r.status);
   }
   if (req.method === 'GET' && p === '/api/v1/admin/feedback') {
     return respond({ items: await listFeedback(env) });

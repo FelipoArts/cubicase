@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ServerInfo } from '@/lib/server';
-import type { UserProfile } from '@/lib/profileCatalog';
+import type { PlusStreakView, UserProfile } from '@/lib/profileCatalog';
 
 // Estado do ciclo de vida do servidor Minecraft. 'sleeping' só se aplica a
 // KnownServer.minecraftStatus (wake-on-demand armado, ver PlayersPanel/
@@ -149,6 +149,10 @@ interface AppSettings {
   // null sem conta ou enquanto não foi criado. Não persistido: o Worker é a fonte.
   profile: UserProfile | null;
 
+  // Sequência de assinatura do Plus da conta logada (nível do badge, ou a janela de 7 dias para não perdê-lo).
+  // Vem do Worker junto do perfil. Não persistido.
+  plusStreak: PlusStreakView | null;
+
   // shortCode de um convite recebido via deep link (cubicase://join/<shortCode>,
   // ver src/lib/joinDeepLink.ts) que a GuestView ainda não processou — runtime
   // apenas, nunca persistido. GuestView zera pra null assim que consome.
@@ -199,6 +203,7 @@ interface AppSettings {
   setLastCrashInfo: (info: CrashInfo | null) => void;
   setUser: (user: AuthUser | null) => void;
   setProfile: (profile: UserProfile | null) => void;
+  setPlusStreak: (streak: PlusStreakView | null) => void;
   setPendingJoinShortCode: (shortCode: string | null) => void;
   setLocalServers: (servers: ServerInfo[]) => void;
   setGuestConnectedShortCode: (shortCode: string | null) => void;
@@ -281,6 +286,7 @@ export const useAppStore = create<AppSettings>()(
       lastCrashInfo: null,
       user: null,
       profile: null,
+      plusStreak: null,
       pendingJoinShortCode: null,
       knownServers: [],
       localServers: [],
@@ -321,6 +327,7 @@ export const useAppStore = create<AppSettings>()(
       setLastCrashInfo: (info) => set({ lastCrashInfo: info }),
       setUser: (user) => set({ user }),
       setProfile: (profile) => set({ profile }),
+      setPlusStreak: (plusStreak) => set({ plusStreak }),
       setPendingJoinShortCode: (shortCode) => set({ pendingJoinShortCode: shortCode }),
       setLocalServers: (servers) => set({ localServers: servers }),
       setGuestConnectedShortCode: (shortCode) => set({ guestConnectedShortCode: shortCode }),

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { ConfirmActionModal } from "@/app/components/host/ConfirmActionModal";
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Send, Unlink } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { getLocale, useT } from "@/i18n";
@@ -129,6 +131,7 @@ function LinkRow({ shortCode, link, onChanged, onError }: { shortCode: string; l
   const config = edited && edited.base === link.config ? edited.value : link.config;
   const [saving, setSaving] = useState(false);
   const [testState, setTestState] = useState<"idle" | "sending" | "sent">("idle");
+  const [confirmingUnlink, setConfirmingUnlink] = useState(false);
 
   const brokenKinds = KINDS.filter((k) => config.broken[k] && config[k]);
   const health: "removed" | "broken" | "lost" | "ok" =
@@ -178,7 +181,6 @@ function LinkRow({ shortCode, link, onChanged, onError }: { shortCode: string; l
   };
 
   const unlink = async () => {
-    if (!window.confirm(t("discord.unlinkConfirm"))) return;
     try {
       await unlinkDiscord(shortCode, link.guildId);
       await onChanged();
@@ -206,7 +208,7 @@ function LinkRow({ shortCode, link, onChanged, onError }: { shortCode: string; l
           "text-[11px] font-bold px-2 py-0.5 rounded-full border shrink-0",
           health === "ok" ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400" : "border-amber-500/40 text-amber-700 dark:text-amber-300",
         )}>{healthLabel}</span>
-        <MiniButton tone="danger" onClick={unlink}><Unlink className="w-3.5 h-3.5" />{t("discord.unlink")}</MiniButton>
+        <MiniButton tone="danger" onClick={() => setConfirmingUnlink(true)}><Unlink className="w-3.5 h-3.5" />{t("discord.unlink")}</MiniButton>
       </div>
 
       {health === "removed" && (
@@ -289,6 +291,19 @@ function LinkRow({ shortCode, link, onChanged, onError }: { shortCode: string; l
             </>
           )}
         </div>
+      )}
+
+      {/* Confirmação dentro do app, levada para o body para ficar acima de qualquer painel. */}
+      {typeof document !== "undefined" && createPortal(
+        <ConfirmActionModal
+          isOpen={confirmingUnlink}
+          title={t("discord.unlinkTitle")}
+          message={t("discord.unlinkConfirm")}
+          confirmLabel={t("discord.unlink")}
+          onClose={() => setConfirmingUnlink(false)}
+          onConfirm={async () => { await unlink(); setConfirmingUnlink(false); }}
+        />,
+        document.body,
       )}
     </li>
   );

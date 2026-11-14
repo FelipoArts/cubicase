@@ -24,3 +24,6 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles enable row level security;
+
+-- Frase "sobre você" (até 160 caracteres no app; o banco aceita até 200). Pública como o resto do perfil.
+alter table public.profiles add column if not exists bio text check (bio is null or char_length(bio) <= 200);

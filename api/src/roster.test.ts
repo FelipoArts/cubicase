@@ -40,7 +40,7 @@ afterEach(() => vi.unstubAllGlobals());
 const member = (id: string, role: "host" | "guest", uid: string | null, self = false): RoomMember => ({ id, role, uid, self });
 
 describe("buildRoster", () => {
-  it("junta perfil e Plus, em duas consultas no total, com o host primeiro", async () => {
+  it("junta perfil, Plus e nível, em três consultas no total (perfis, assinaturas, sequências), com o host primeiro", async () => {
     const urls = fakeSupabase();
     const r = await buildRoster(env, [
       member("g1", "guest", B),
@@ -49,11 +49,12 @@ describe("buildRoster", () => {
       member("g3", "guest", C),
     ]);
     expect(r.map((m) => m.id)).toEqual(["host", "g1", "g2", "g3"]);
-    expect(r[0]).toEqual({ id: "host", role: "host", self: false, profile: { displayName: "Ana", avatarId: "star", nameColor: "rose" }, plus: true });
+    // Plus sem registro de sequência (assinatura anterior ao badge): nível inicial.
+    expect(r[0]).toEqual({ id: "host", role: "host", self: false, profile: { displayName: "Ana", avatarId: "star", nameColor: "rose", bio: null, avatarHash: null, bannerHash: null }, plus: true, tier: "wood" });
     expect(r[1]).toMatchObject({ id: "g1", profile: { displayName: "Beto" }, plus: false }); // assinatura cancelada
     expect(r[2]).toMatchObject({ id: "g2", self: true, profile: null, plus: false }); // sem conta
     expect(r[3]).toMatchObject({ id: "g3", profile: null, plus: false }); // Plus mas sem perfil: não aparece
-    expect(urls).toHaveLength(2);
+    expect(urls).toHaveLength(3);
   });
 
   it("não vaza o uid e consulta cada conta uma vez só", async () => {
@@ -74,12 +75,67 @@ describe("buildRoster", () => {
     const urls = fakeSupabase();
     const r = await buildRoster({}, [member("host", "host", A)]);
     expect(urls).toHaveLength(0);
-    expect(r).toEqual([{ id: "host", role: "host", self: false, profile: null, plus: false }]);
+    expect(r).toEqual([{ id: "host", role: "host", self: false, profile: null, plus: false, tier: null }]);
   });
 
   it("Supabase fora do ar: a lista sai sem perfis em vez de falhar", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("erro", { status: 500 })));
     const r = await buildRoster(env, [member("host", "host", A), member("g1", "guest", B)]);
     expect(r.map((m) => m.profile)).toEqual([null, null]);
+  });
+});
+
+describe("buildRoster: nível do badge de tempo de assinatura", () => {
+  const DAY = 24 * 3600 * 1000;
+  const NOW = Date.UTC(2026, 5, 1);
+
+  /** Supabase simulado com perfis, assinaturas e a tabela plus_streaks. */
+  function withStreaks(streaks: Record<string, { counted_ms: number; segment_start: number; last_active_end: number }>) {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/rest/v1/profiles")) {
+        return Response.json([A, B].map((id, i) => ({ user_id: id, display_name: `Pessoa${i}`, avatar_id: "cube", name_color: null })));
+      }
+      if (url.includes("/rest/v1/subscriptions")) return Response.json([{ user_id: A, status: "active" }, { user_id: B, status: "active" }]);
+      if (url.includes("/rest/v1/plus_streaks")) {
+        return Response.json(Object.entries(streaks).map(([id, s]) => ({
+          user_id: id,
+          streak_started: new Date(s.segment_start).toISOString(),
+          counted_ms: s.counted_ms,
+          segment_start: new Date(s.segment_start).toISOString(),
+          last_active_end: new Date(s.last_active_end).toISOString(),
+        })));
+      }
+      return new Response("[]", { status: 404 });
+    }));
+  }
+
+  it("calcula o nível pelo tempo contínuo até agora", async () => {
+    withStreaks({
+      [A]: { counted_ms: 0, segment_start: NOW - 200 * DAY, last_active_end: NOW + 165 * DAY }, // 200 dias → Ouro
+      [B]: { counted_ms: 0, segment_start: NOW - 5 * DAY, last_active_end: NOW + 25 * DAY },    // 5 dias → Madeira
+    });
+    const r = await buildRoster(env, [member("host", "host", A), member("g1", "guest", B)], NOW);
+    expect(r.map((m) => m.tier)).toEqual(["gold", "wood"]);
+  });
+
+  it("quem não é Plus não tem nível, mesmo com sequência guardada", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/rest/v1/profiles")) return Response.json([{ user_id: A, display_name: "Ana", avatar_id: "cube", name_color: null }]);
+      if (url.includes("/rest/v1/subscriptions")) return Response.json([{ user_id: A, status: "canceled" }]);
+      if (url.includes("/rest/v1/plus_streaks")) {
+        return Response.json([{ user_id: A, streak_started: new Date(NOW - 400 * DAY).toISOString(), counted_ms: 0, segment_start: new Date(NOW - 400 * DAY).toISOString(), last_active_end: new Date(NOW - 10 * DAY).toISOString() }]);
+      }
+      return new Response("[]", { status: 404 });
+    }));
+    const r = await buildRoster(env, [member("host", "host", A)], NOW);
+    expect(r[0]).toMatchObject({ plus: false, tier: null });
+  });
+
+  it("o nível nunca vai além de Madeira se a sequência não está ativa de verdade", async () => {
+    withStreaks({ [A]: { counted_ms: 0, segment_start: NOW - 400 * DAY, last_active_end: NOW - 2 * DAY } }); // venceu há 2 dias
+    const r = await buildRoster(env, [member("host", "host", A)], NOW);
+    expect(r[0]).toMatchObject({ plus: true, tier: "wood" });
   });
 });

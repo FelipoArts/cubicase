@@ -13,7 +13,7 @@ import { useConnectionHelp } from "@/lib/connectionHelp";
 import type { KnownServer } from "@/app/store";
 import { PLAYABLE_SERVER_TYPES, useGuestController, type GuestViewProps } from "@/app/components/guest/useGuestController";
 import { GuestModals } from "@/app/components/guest/GuestModals";
-import { MembersCard } from "@/app/components/MembersCard";
+import { ServerMembersCard } from "@/app/components/ServerMembersCard";
 import { useT } from "@/i18n";
 import { GlobalActions } from "./GlobalActions";
 import { ResizeHandle, usePanel } from "./panels";
@@ -296,7 +296,8 @@ export function GuestWorkspace(props: GuestViewProps) {
               </div>
 
               {/* Perfil de quem está no servidor, enquanto este computador está conectado a ele. */}
-              <MembersCard active={connected && g.isOnline} />
+              {/* Quem adicionou este servidor (contas), com quem está conectado em destaque. */}
+              <ServerMembersCard shortCode={s.shortCode} />
 
               <div className="bg-theme-card border-theme-card shadow-theme-card rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
                 <div>

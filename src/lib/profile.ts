@@ -6,41 +6,14 @@
 // continua funcionando igual, só sem essas personalizações.
 // ============================================================
 
-import { fetch } from "@tauri-apps/plugin-http";
-import { supabase } from "@/lib/supabaseClient";
 import { useAppStore } from "@/app/store";
-import { getLocale, t } from "@/i18n";
-import type { UserProfile } from "@/lib/profileCatalog";
-import { API_BASE } from "@/lib/apiBase";
-
-interface ApiEnvelope<T> {
-  success: boolean;
-  message?: string;
-  data?: T;
-}
-
-async function authedFetch<T>(method: "GET" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error(t("err.notAuthenticated"));
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-      "Accept-Language": getLocale(),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => null)) as ApiEnvelope<T> | null;
-  if (!res.ok || !json?.success) {
-    throw new Error(json?.message || t("err.operationFailed", { status: res.status }));
-  }
-  return json.data as T;
-}
+import type { PlusStreakView, UserProfile } from "@/lib/profileCatalog";
+import { authedFetch } from "@/lib/authedApi";
 
 export interface MyProfileResult {
   profile: UserProfile | null;
+  /** Nível do badge de tempo de assinatura do Plus (ou o prazo para não perdê-lo). */
+  plusStreak: PlusStreakView;
   /** Nome vindo do Google/Discord, quando serve de ponto de partida (nunca o e-mail). */
   suggestedName: string | null;
 }
@@ -49,7 +22,10 @@ export function getMyProfile(): Promise<MyProfileResult> {
   return authedFetch<MyProfileResult>("GET", "/api/v1/profile/me");
 }
 
-export async function saveMyProfile(profile: UserProfile): Promise<UserProfile> {
+/** O que a pessoa edita no perfil (as imagens têm o próprio caminho de envio: ver profileImages.ts). */
+export type ProfileEdit = Pick<UserProfile, "displayName" | "avatarId" | "nameColor" | "bio">;
+
+export async function saveMyProfile(profile: ProfileEdit): Promise<UserProfile> {
   const data = await authedFetch<{ profile: UserProfile }>("PUT", "/api/v1/profile/me", profile);
   useAppStore.getState().setProfile(data.profile);
   return data.profile;
@@ -62,12 +38,12 @@ export async function deleteMyProfile(): Promise<void> {
 
 /** Carrega o perfil da conta logada para a store (ou limpa, sem conta). Falha de rede não derruba nada. */
 export async function syncProfile(): Promise<void> {
-  const { user, setProfile } = useAppStore.getState();
-  if (!user) { setProfile(null); return; }
+  const { user, setProfile, setPlusStreak } = useAppStore.getState();
+  if (!user) { setProfile(null); setPlusStreak(null); return; }
   try {
-    const { profile } = await getMyProfile();
+    const { profile, plusStreak } = await getMyProfile();
     // A conta pode ter trocado enquanto a resposta vinha.
-    if (useAppStore.getState().user?.id === user.id) setProfile(profile);
+    if (useAppStore.getState().user?.id === user.id) { setProfile(profile); setPlusStreak(plusStreak ?? null); }
   } catch {
     /* sem rede ou Worker fora: o perfil só não aparece agora */
   }

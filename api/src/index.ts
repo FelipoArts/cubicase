@@ -2,7 +2,10 @@ import { resolveSupabaseUserId, userHasActiveSubscription, supabaseService, SUPA
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { handlePanelPushRoute } from './panel-push';
 import { handleProfileRoute } from './profile';
+import { handleProfileImageRoute, purgeImage, serveProfileImage } from './profile-images';
 import { buildRoster } from './roster';
+import { handleMembersRoute, recordHost, deleteServerMembers } from './members';
+import { recordActive as recordStreakActive, recordEnded as recordStreakEnded } from './plus-streak';
 import { localizeResponse } from './i18n';
 import {
   verifyDiscordSignature, handleInteraction, discordConfigured, discordInstallUrl, createLinkCode, formatLinkCode,
@@ -43,6 +46,8 @@ const REQUEST_ID_CACHE_TTL = 300;
 
 interface Env extends LinkEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
+  /** Imagens de perfil (foto e banner, só Plus) — ver profile-images.ts. */
+  PROFILE_IMAGES: R2Bucket;
   SERVER_TTL_SECONDS: string;
   HEARTBEAT_TIMEOUT_SECONDS: string;
   HEARTBEAT_EXPIRE_SECONDS: string;
@@ -650,6 +655,7 @@ async function handleDeleteServer(shortCode: string, req: Request, env: Env, cor
   }
   await terminateActiveSessionsForShortCode(env, shortCode);
   await env.CUBEFORGE_REGISTRY.delete(`session:${shortCode}`);
+  await deleteServerMembers(env, shortCode); // a lista de membros some junto com o servidor
   return json(ok(ResponseCodes.SERVER_DELETED, 'Servidor removido.'), 200, cors);
 }
 
@@ -1152,6 +1158,8 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
       await env.CUBEFORGE_REGISTRY.put(linkPlusKey(shortCode), '1', { expirationTtl: LINK_PLUS_FLAG_TTL_SECONDS });
     }
   }
+  // O dono abriu o servidor com a conta logada: passa a ser o anfitrião na lista de membros (best-effort).
+  if (mode === 'host' && userId) await recordHost(env, shortCode, userId);
   const slotKey = sessionSlotKey(shortCode, mode, body.installationId);
   const existingSessionId = await env.CUBEFORGE_REGISTRY.get(slotKey);
   if (existingSessionId) await revokeConnectionSession(env, existingSessionId, shortCode);
@@ -1797,6 +1805,13 @@ async function handleStripeWebhook(req: Request, env: Env, cors: Record<string, 
         current_period_end: periodEndUnix ? new Date(periodEndUnix * 1000).toISOString() : null,
         cancel_at_period_end: !!sub.cancel_at_period_end,
       });
+      // Badge de tempo de assinatura (ver plus-tier.ts): só um pagamento confirmado estende a sequência, e o fim
+      // da assinatura encurta o que sobrava do período pago. Nunca falha o webhook (grava best-effort).
+      if (event.type === 'customer.subscription.deleted') {
+        await recordStreakEnded(env, userId);
+      } else if ((sub.status === 'active' || sub.status === 'trialing') && periodEndUnix) {
+        await recordStreakActive(env, userId, periodEndUnix * 1000);
+      }
     } else {
       console.error('Webhook de assinatura sem metadata.supabase_user_id:', event.id, event.type);
     }
@@ -2300,11 +2315,27 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
         if (pushResult) return panelJson(pushResult, cors);
       }
 
+      // Membros do servidor (quem adicionou o servidor, com o online em destaque) — ver members.ts
+      if (p === '/api/v1/memberships' || /^\/api\/v1\/servers\/[A-Za-z0-9]+\/members(\/me|\/[a-f0-9]{12}\/report)?$/.test(p)) {
+        const membersResult = await handleMembersRoute(req, { env }, m, p);
+        if (membersResult) return panelJson(membersResult, cors);
+      }
+
+      // Imagens de perfil (foto e banner, só Plus): enviar/remover e servir pelo hash — ver profile-images.ts
+      const imageResult = await handleProfileImageRoute(req, env, m, p);
+      if (imageResult) return panelJson(imageResult, cors);
+      const mImage = p.match(/^\/api\/v1\/profile-image\/([a-f0-9]{32})$/);
+      if (m === 'GET' && mImage) return await serveProfileImage(req, env, mImage[1], ctx);
+
       // Perfil do jogador (nome, avatar e cor) — ver profile.ts
       if (p.startsWith('/api/v1/profile/')) {
         const profileResult = await handleProfileRoute(
           req,
-          { env, rateLimit: (bucket, key, limit) => checkRateLimit(env, bucket, key, limit) },
+          {
+            env,
+            rateLimit: (bucket, key, limit) => checkRateLimit(env, bucket, key, limit),
+            purgeImages: async (hashes) => { await Promise.all(hashes.map((h) => purgeImage(env, h))); },
+          },
           m, p,
         );
         if (profileResult) return panelJson(profileResult, cors);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { Download, FolderOpen, HelpCircle, Monitor, PackageOpen, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,9 +9,13 @@ import { useT, t as tn } from "@/i18n";
 import type { HostController } from "@/app/components/host/useHostController";
 import { ServerAvatar } from "@/app/components/ServerAvatar";
 import { ProfileAvatar } from "@/app/components/ProfileAvatar";
+import { PlusBadge } from "@/app/components/PlusBadge";
+import { AnchoredPopover } from "@/app/components/AnchoredPopover";
+import { ProfileCard } from "@/app/components/ProfileCard";
+import { openPlus } from "@/lib/plusUi";
 import type { SettingsCategory } from "@/app/components/AppSettingsPanel";
 import { useAppStore } from "@/app/store";
-import { colorOf } from "@/lib/profileCatalog";
+import { colorOf, ownProfileView } from "@/lib/profileCatalog";
 import { ResizeHandle, type usePanel } from "./panels";
 import { goToHostTab } from "./hostNav";
 
@@ -34,6 +38,12 @@ const ROW = "w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-
 export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel }: Props) {
   const { t } = useT();
   const profile = useAppStore((s) => s.profile);
+  const plusStreak = useAppStore((s) => s.plusStreak);
+  // As imagens enviadas só valem enquanto o Plus está ativo (sem ele ficam guardadas e voltam ao reassinar).
+  const ownView = profile ? ownProfileView(profile, plusStreak?.phase === "active") : null;
+  // O mini perfil abre colado ao botão do perfil; guardar o elemento permite reabrir no mesmo lugar e alternar no clique.
+  const [cardAnchor, setCardAnchor] = useState<HTMLElement | null>(null);
+  const closeCard = useCallback(() => setCardAnchor(null), []);
   const compact = panel.collapsed;
   // Mesma logo da tela anterior (versão para fundo claro/escuro). Só depois de montar, para não divergir do HTML estático.
   const { resolvedTheme } = useTheme();
@@ -150,14 +160,26 @@ export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel 
         {profile && (
           <button
             type="button"
-            onClick={() => onOpenSettings("conta")}
+            onClick={(e) => { const el = e.currentTarget; setCardAnchor((cur) => (cur === el ? null : el)); }}
             title={t("profile.sidebar.open")}
             aria-label={t("profile.sidebar.open")}
-            className={cn(ROW, "border-transparent text-theme-primary hover:bg-theme-muted")}
+            aria-haspopup="dialog"
+            aria-expanded={!!cardAnchor}
+            className={cn(ROW, "text-theme-primary hover:bg-theme-muted hover:border-indigo-400/60 focus-visible:border-indigo-400/60 focus-visible:outline-none transition-colors", cardAnchor ? "border-indigo-400/60 bg-theme-muted" : "border-transparent")}
           >
-            <ProfileAvatar avatarId={profile.avatarId} colorId={profile.nameColor} size="sm" />
+            <ProfileAvatar avatarId={profile.avatarId} colorId={profile.nameColor} imageHash={ownView?.avatarHash} size="sm" />
             <span className={cn("truncate", HIDE)} style={{ color: colorOf(profile.nameColor).hex }}>{profile.displayName}</span>
+            {plusStreak?.phase === "active" && <PlusBadge tier={plusStreak.tier} compact className={cn("ml-auto", HIDE)} />}
           </button>
+        )}
+        {profile && cardAnchor && (
+          <AnchoredPopover anchor={cardAnchor} onClose={closeCard} label={t("profile.sidebar.open")}>
+            <ProfileCard
+ data={{ profile: ownView ?? profile, plus: plusStreak?.phase === "active", tier: plusStreak?.phase === "active" ? plusStreak.tier : null, self: true, streak: plusStreak }}
+              onEdit={() => { closeCard(); onOpenSettings("conta"); }}
+              onDiscoverPlus={() => { closeCard(); openPlus(); }}
+            />
+          </AnchoredPopover>
         )}
         <button type="button" onClick={c.onOpenSubscribe} title={t("host.plus.subscribe")} className={cn(ROW, "border-transparent text-indigo-600 hover:bg-theme-accent")}>
           <Sparkles className="w-4 h-4 shrink-0" /><span className={cn("truncate", HIDE)}>Cubicase Plus</span>

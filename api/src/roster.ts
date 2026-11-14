@@ -7,8 +7,10 @@
 // ============================================================
 
 import { supabaseService, type SupabaseEnv } from './supabase';
-import { toPublic, type PublicProfile } from './profile';
+import { toPublic, withoutImages, type PublicProfile } from './profile';
 import type { RoomMember } from './durable-objects/link-room';
+import { getStreaks } from './plus-streak';
+import { viewOf, type PlusTierId } from './plus-tier';
 
 export interface RosterMember {
   /** "host" ou o guestId atribuído pela sala. */
@@ -20,6 +22,8 @@ export interface RosterMember {
   profile: PublicProfile | null;
   /** Cubicase Plus ativo agora. Só aparece para quem tem perfil público. */
   plus: boolean;
+  /** Nível do badge de tempo de assinatura; só para quem tem `plus` (ver plus-tier.ts). */
+  tier: PlusTierId | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,8 +44,8 @@ async function lookup(env: SupabaseEnv, uids: string[]): Promise<{ profiles: Map
   const list = `in.(${ids.join(',')})`;
 
   const [profileRows, subRows] = await Promise.all([
-    rows<{ user_id: string; display_name: string; avatar_id: string; name_color: string | null }>(
-      await supabaseService(env, `/rest/v1/profiles?user_id=${list}&select=user_id,display_name,avatar_id,name_color`),
+    rows<{ user_id: string; display_name: string; avatar_id: string; name_color: string | null; bio: string | null; avatar_hash: string | null; banner_hash: string | null }>(
+      await supabaseService(env, `/rest/v1/profiles?user_id=${list}&select=user_id,display_name,avatar_id,name_color,bio,avatar_hash,banner_hash`),
     ),
     rows<{ user_id: string; status: string }>(
       await supabaseService(env, `/rest/v1/subscriptions?user_id=${list}&select=user_id,status`),
@@ -53,12 +57,37 @@ async function lookup(env: SupabaseEnv, uids: string[]): Promise<{ profiles: Map
   return { profiles, plus };
 }
 
+/** O que se mostra de uma conta para os outros: o perfil público, se assina o Plus e o nível do badge. */
+export interface PublicAccount {
+  /** null: a conta nunca criou perfil. */
+  profile: PublicProfile | null;
+  /** Cubicase Plus ativo agora. Só conta para quem tem perfil público. */
+  plus: boolean;
+  tier: PlusTierId | null;
+}
+
+/** Perfis, Plus e nível de várias contas de uma vez (três consultas ao todo, não uma por pessoa). */
+export async function resolveAccounts(env: SupabaseEnv, uids: string[], nowMs = Date.now()): Promise<Map<string, PublicAccount>> {
+  const [{ profiles, plus }, streaks] = await Promise.all([lookup(env, uids), getStreaks(env, uids)]);
+  const out = new Map<string, PublicAccount>();
+  for (const uid of new Set(uids)) {
+    const profile = profiles.get(uid) ?? null;
+    const isPlus = !!(profile && plus.has(uid));
+    // Sem registro de sequência (assinatura anterior ao badge, ou o webhook ainda não chegou): nível inicial.
+    const view = isPlus ? viewOf(streaks.get(uid) ?? null, nowMs) : null;
+    const tier: PlusTierId | null = isPlus ? (view?.phase === 'active' ? view.tier : 'wood') : null;
+    // Foto e banner enviados só aparecem para os outros enquanto a conta assina o Plus.
+    out.set(uid, { profile: profile && !isPlus ? withoutImages(profile) : profile, plus: isPlus, tier });
+  }
+  return out;
+}
+
 /** Junta os membros da sala com os perfis públicos. Host primeiro, depois os convidados na ordem da sala. */
-export async function buildRoster(env: SupabaseEnv, members: RoomMember[]): Promise<RosterMember[]> {
-  const { profiles, plus } = await lookup(env, members.flatMap((m) => (m.uid ? [m.uid] : [])));
+export async function buildRoster(env: SupabaseEnv, members: RoomMember[], nowMs = Date.now()): Promise<RosterMember[]> {
+  const accounts = await resolveAccounts(env, members.flatMap((m) => (m.uid ? [m.uid] : [])), nowMs);
   const out: RosterMember[] = members.map((m) => {
-    const profile = m.uid ? profiles.get(m.uid) ?? null : null;
-    return { id: m.id, role: m.role, self: m.self, profile, plus: !!(profile && m.uid && plus.has(m.uid)) };
+    const a = m.uid ? accounts.get(m.uid) : undefined;
+    return { id: m.id, role: m.role, self: m.self, profile: a?.profile ?? null, plus: a?.plus ?? false, tier: a?.tier ?? null };
   });
   return out.sort((a, b) => (a.role === b.role ? 0 : a.role === 'host' ? -1 : 1));
 }

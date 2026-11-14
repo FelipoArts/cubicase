@@ -13,13 +13,17 @@
 // PanelResult simples e o roteador embrulha.
 // ============================================================
 
-import { resolveSupabaseUser, supabaseService, type SupabaseEnv } from './supabase';
+import { resolveSupabaseUser, supabaseService, userHasActiveSubscription, type SupabaseEnv } from './supabase';
 import type { PanelResult } from './panel-members';
+import { getStreaks } from './plus-streak';
+import { viewOf } from './plus-tier';
 
 export interface ProfileDeps {
   env: SupabaseEnv;
   /** Rate limit por chave (KV do index.ts) — true se ainda dentro do limite. */
   rateLimit: (bucket: string, key: string, limit: number) => Promise<boolean>;
+  /** Apaga do R2 as imagens (hashes) que ficaram sem dono, ao apagar o perfil. Opcional (testes). */
+  purgeImages?: (hashes: string[]) => Promise<void>;
 }
 
 // ------------------------------------------------------------
@@ -83,6 +87,51 @@ export function validateDisplayName(raw: unknown): DisplayNameResult {
   return { ok: true, name };
 }
 
+// ------------------------------------------------------------
+// Validação da bio ("sobre você")
+// ------------------------------------------------------------
+
+export const BIO_MAX = 160;
+/** Quantas linhas a bio pode ter (quebras de linha são permitidas, mas poucas). */
+export const BIO_MAX_LINES = 3;
+
+/** Arruma a bio: espaços repetidos viram um, cada linha é aparada e linhas em branco somem. */
+export function normalizeBio(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/[^\S\n]+/g, ' ').trim())
+    .filter((l) => l !== '')
+    .join('\n');
+}
+
+export type BioResult =
+  | { ok: true; bio: string | null }
+  | { ok: false; reason: 'length' | 'lines' | 'chars' | 'blocked' | 'links' };
+
+// Endereço de internet na bio (spam e golpe): link completo, "www." ou algo que termina em domínio comum.
+const LINK = /(https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|net|org|gg|io|br|me|xyz|co|tv|ly)\b|discord\.gg|\bt\.me\b)/i;
+
+/**
+ * Normaliza e valida a bio: até 3 linhas (sem linhas em branco), sem espaços repetidos, até 160 caracteres, sem links e sem as
+ * palavras da mesma lista dos nomes. Vazia (ou só espaços) vira `null`, que é "sem bio".
+ */
+export function validateBio(raw: unknown): BioResult {
+  if (raw === null || raw === undefined) return { ok: true, bio: null };
+  if (typeof raw !== 'string') return { ok: false, reason: 'chars' };
+  const bio = normalizeBio(raw);
+  if (bio === '') return { ok: true, bio: null };
+  if (bio.split('\n').length > BIO_MAX_LINES) return { ok: false, reason: 'lines' };
+  if ([...bio].length > BIO_MAX) return { ok: false, reason: 'length' };
+  // Letras, números, pontuação, símbolos e emojis; nada de caracteres de controle ou invisíveis.
+  if (/[\p{Cc}\p{Cf}\p{Cs}\p{Co}]/u.test(bio.replace(/[\n‍️]/g, ''))) return { ok: false, reason: 'chars' };
+  if (LINK.test(bio)) return { ok: false, reason: 'links' };
+  const words = fold(bio).split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.some((w) => BLOCKED_WORDS.has(w))) return { ok: false, reason: 'blocked' };
+  return { ok: true, bio };
+}
+
 export function isAvatarId(v: unknown): v is (typeof AVATAR_IDS)[number] {
   return typeof v === 'string' && (AVATAR_IDS as readonly string[]).includes(v);
 }
@@ -100,12 +149,26 @@ interface ProfileRow {
   display_name: string;
   avatar_id: string;
   name_color: string | null;
+  bio?: string | null;
+  avatar_hash?: string | null;
+  banner_hash?: string | null;
 }
 
 export interface PublicProfile {
   displayName: string;
   avatarId: string;
   nameColor: string | null;
+  /** A frase "sobre você" (até 160 caracteres), ou null. */
+  bio: string | null;
+  /** Foto de perfil enviada (hash do conteúdo, ver profile-images.ts). Só chega a outras pessoas se a conta tem Plus. */
+  avatarHash: string | null;
+  /** Imagem de banner enviada. Mesma regra da foto. */
+  bannerHash: string | null;
+}
+
+/** O perfil sem as imagens enviadas: é o que os outros veem de quem não assina (ou deixou de assinar) o Plus. */
+export function withoutImages(p: PublicProfile): PublicProfile {
+  return { ...p, avatarHash: null, bannerHash: null };
 }
 
 const res = (status: number, code: string, message: string, data?: unknown): PanelResult => ({ status, code, message, data });
@@ -121,14 +184,22 @@ const NAME_ERRORS: Record<'length' | 'chars' | 'blocked' | 'reserved', string> =
   reserved: 'Esse nome é reservado. Escolha outro.',
 };
 
+const BIO_ERRORS: Record<'length' | 'lines' | 'chars' | 'blocked' | 'links', string> = {
+  length: `A bio pode ter até ${BIO_MAX} caracteres.`,
+  lines: `A bio pode ter até ${BIO_MAX_LINES} linhas.`,
+  chars: 'A bio tem caracteres que não são permitidos.',
+  blocked: 'Essa bio tem palavras que não podem ser usadas. Reescreva.',
+  links: 'Links não são permitidos na bio.',
+};
+
 export function toPublic(row: ProfileRow): PublicProfile {
-  return { displayName: row.display_name, avatarId: row.avatar_id, nameColor: row.name_color };
+  return { displayName: row.display_name, avatarId: row.avatar_id, nameColor: row.name_color, bio: row.bio ?? null, avatarHash: row.avatar_hash ?? null, bannerHash: row.banner_hash ?? null };
 }
 
 async function getRow(env: SupabaseEnv, userId: string): Promise<ProfileRow | null> {
   const resp = await supabaseService(
     env,
-    `/rest/v1/profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,display_name,avatar_id,name_color`,
+    `/rest/v1/profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,display_name,avatar_id,name_color,bio,avatar_hash,banner_hash`,
   );
   if (!resp.ok) return null;
   const list: unknown = await resp.json().catch(() => []);
@@ -156,12 +227,27 @@ export async function handleProfileRoute(req: Request, deps: ProfileDeps, method
 
     if (method === 'GET') {
       const row = await getRow(env, user.id);
-      return OK('Perfil.', { profile: row ? toPublic(row) : null, suggestedName: suggestName(user.displayName) });
+      // O estado da própria sequência do Plus (nível, ou o prazo para não perdê-lo): só o dono vê.
+      const streak = (await getStreaks(env, [user.id])).get(user.id) ?? null;
+      let plusStreak = viewOf(streak, Date.now());
+      // Assina o Plus mas ainda não há registro de sequência (assinatura anterior ao badge, ou o webhook ainda não
+      // chegou): mostra o nível inicial, como a lista de membros já faz, em vez de esconder o badge.
+      if (plusStreak.phase === 'none' && (await userHasActiveSubscription(env, user.id))) {
+        plusStreak = { phase: 'active', tier: 'wood', days: 0, graceEndsAt: null };
+      }
+      return OK('Perfil.', {
+        profile: row ? toPublic(row) : null,
+        suggestedName: suggestName(user.displayName),
+        plusStreak,
+      });
     }
 
     if (method === 'DELETE') {
+      const old = await getRow(env, user.id); // para apagar também as imagens enviadas
       const resp = await supabaseService(env, `/rest/v1/profiles?user_id=eq.${encodeURIComponent(user.id)}`, { method: 'DELETE' });
       if (!resp.ok) return res(502, 'INTERNAL_ERROR', 'Não foi possível apagar o perfil.');
+      const hashes = [old?.avatar_hash, old?.banner_hash].filter((h): h is string => !!h);
+      if (hashes.length) await deps.purgeImages?.(hashes);
       return OK('Perfil apagado.');
     }
 
@@ -175,6 +261,9 @@ export async function handleProfileRoute(req: Request, deps: ProfileDeps, method
     if (!isAvatarId(body.avatarId)) return res(400, 'BAD_REQUEST', 'Avatar inválido.', { field: 'avatarId' });
     const nameColor = body.nameColor ?? null;
     if (nameColor !== null && !isColorId(nameColor)) return res(400, 'BAD_REQUEST', 'Cor inválida.', { field: 'nameColor' });
+    // A bio é opcional: se o corpo nem a mencionar, a que já existe fica como está.
+    const bio = body.bio === undefined ? undefined : validateBio(body.bio);
+    if (bio && !bio.ok) return res(400, 'BAD_REQUEST', BIO_ERRORS[bio.reason], { field: 'bio', reason: bio.reason });
 
     const resp = await supabaseService(env, '/rest/v1/profiles?on_conflict=user_id', {
       method: 'POST',
@@ -184,13 +273,14 @@ export async function handleProfileRoute(req: Request, deps: ProfileDeps, method
         display_name: name.name,
         avatar_id: body.avatarId,
         name_color: nameColor,
+        ...(bio ? { bio: bio.bio } : {}),
         updated_at: new Date().toISOString(),
       }),
     });
     if (!resp.ok) return res(502, 'INTERNAL_ERROR', 'Não foi possível salvar o perfil.');
     const saved: unknown = await resp.json().catch(() => null);
     const row = Array.isArray(saved) ? (saved[0] as ProfileRow | undefined) : undefined;
-    return OK('Perfil salvo.', { profile: row ? toPublic(row) : { displayName: name.name, avatarId: body.avatarId, nameColor } });
+    return OK('Perfil salvo.', { profile: row ? toPublic(row) : { displayName: name.name, avatarId: body.avatarId, nameColor, bio: bio?.ok ? bio.bio : null, avatarHash: null, bannerHash: null } });
   }
 
   // GET /api/v1/profile/{userId} — perfil público (só nome, avatar e cor; nunca o e-mail)
@@ -202,7 +292,12 @@ export async function handleProfileRoute(req: Request, deps: ProfileDeps, method
     if (!(await deps.rateLimit('profile-public', ip, PUBLIC_RATE_LIMIT))) return TOO_MANY;
     const row = await getRow(env, mPublic[1].toLowerCase());
     if (!row) return res(404, 'NOT_FOUND', 'Perfil não encontrado.');
-    return OK('Perfil.', { profile: toPublic(row) });
+    const pub = toPublic(row);
+    // Foto e banner enviados só aparecem para os outros enquanto a conta assina o Plus.
+    const visible = pub.avatarHash || pub.bannerHash
+      ? ((await userHasActiveSubscription(env, mPublic[1].toLowerCase())) ? pub : withoutImages(pub))
+      : pub;
+    return OK('Perfil.', { profile: visible });
   }
 
   return null;

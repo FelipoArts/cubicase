@@ -176,3 +176,32 @@ body {
   .shadow-theme-2xl { box-shadow: 0 25px 50px -12px var(--shadow-color-2xl); }
   .shadow-theme-shadow { box-shadow: 0 4px 6px -1px var(--shadow-color), 0 2px 4px -2px var(--shadow-color); }
 }
+
+/* ============================================================
+   Cubos do selo do Plus (TierCube): brilho e partículas dos níveis mais altos.
+   O brilho respira devagar e as faíscas surgem e somem em tempos diferentes.
+   Quem prefere menos movimento (prefers-reduced-motion) recebe tudo parado.
+   ============================================================ */
+@keyframes cube-glow-pulse {
+  0%, 100% { opacity: var(--cube-glow, 0.4); transform: scale(0.96); }
+  50% { opacity: calc(var(--cube-glow, 0.4) * 1.35); transform: scale(1.06); }
+}
+@keyframes cube-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.15) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(35deg); }
+}
+.cube-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cube-glow-pulse 3.2s ease-in-out infinite;
+}
+.cube-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: cube-twinkle 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cube-glow { animation: none; opacity: var(--cube-glow, 0.4); }
+  .cube-spark { animation: none; opacity: 0.8; transform: scale(0.7); }
+}

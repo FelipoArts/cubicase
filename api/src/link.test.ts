@@ -617,3 +617,27 @@ describe("GET /api/v1/link/roster/{sc}", () => {
     expect((await roster(shortCode, host.credentials.signalToken)).status).toBe(401);
   });
 });
+
+describe("contas online na sala (/online)", () => {
+  const e = { LINK_TOKEN_SECRET: SECRET };
+  const HOST_UID = "aaaaaaaa-e89b-42d3-a456-426614174001";
+  const GUEST_UID = "bbbbbbbb-e89b-42d3-a456-426614174002";
+  const online = async (sc: string) => {
+    const stub = env.LINK_ROOM.get(env.LINK_ROOM.idFromName(sc));
+    return (await (await stub.fetch("https://link-room.internal/online")).json()) as { uids: string[]; anonymous: number };
+  };
+
+  it("lista só as contas conectadas, sem repetir e sem quem entrou sem conta", async () => {
+    const { shortCode } = await createServer();
+    expect(await online(shortCode)).toEqual({ uids: [], anonymous: 0 });
+    const hostTok = await signLinkToken(e, { sc: shortCode, role: "host", pid: "sess-host-0001", uid: HOST_UID });
+    const guestTok = await signLinkToken(e, { sc: shortCode, role: "guest", pid: "sess-guest-001", uid: GUEST_UID });
+    const guestTok2 = await signLinkToken(e, { sc: shortCode, role: "guest", pid: "sess-guest-002", uid: GUEST_UID }); // mesma conta, 2 aparelhos
+    const anonTok = await signLinkToken(e, { sc: shortCode, role: "guest", pid: "sess-anon-0001" });
+    const conns = [hostTok, guestTok, guestTok2, anonTok].map(async (t) => asConn(await connect(shortCode, t)));
+    await Promise.all(conns);
+    const now = await online(shortCode);
+    expect(now.uids.sort()).toEqual([HOST_UID, GUEST_UID].sort());
+    expect(now.anonymous).toBe(1); // só o convidado sem conta
+  });
+});
