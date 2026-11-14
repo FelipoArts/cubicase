@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { invalidateServerIcon } from '@/lib/serverIcon';
 import { openPlus } from '@/lib/plusUi';
 import { syncServerIcon } from '@/lib/serverIconSync';
+import { ServerLookEditor } from '@/app/components/host/ServerLookEditor';
 import { useAppStore } from '@/app/store';
 import { getSubscriptionStatus, isSubscriptionActive } from '@/lib/subscription';
 import {
@@ -707,6 +708,8 @@ export function ServerSettingsForm({ serverDir, serverName, isImported, existing
                     </p>
                   )}
                 </div>
+                {/* Aparência para os amigos (cor, etiquetas, recado e banner Plus) */}
+                <ServerLookEditor shortCode={shortCode} plusActive={subscriptionActive} />
                 {/* MOTD */}
                 <div>
                   <label className="block text-sm font-medium text-theme-primary mb-1">{t("config.motd")}</label>

@@ -108,12 +108,21 @@ function reportsHtml(r){
   }).join(''):'<p class="muted">Nenhuma denúncia aberta.</p>')
 }
 
+function bannerReportsHtml(r){
+  var items=r.items||[];
+  return sect('Denúncias de banner de servidor ('+items.length+')',items.length?items.map(function(x){
+    var img=x.bannerHash?'<img class="pimg" src="/api/v1/servers/'+esc(x.serverShortCode)+'/banner?v='+esc(x.bannerHash)+'" alt="Banner" width="288" height="96">':'<span class="muted">Sem banner agora</span>';
+    var btns=x.current?'<button data-brep="'+esc(x.id)+'" data-act="remove_banner">Remover banner</button> ':'';
+    return '<div class="fb"><strong>'+esc(x.serverName||x.serverShortCode)+'</strong> <span class="tag">'+esc(REASONS[x.reason]||x.reason)+'</span>'+(x.openForServer>1?' <span class="tag" style="color:var(--bad)">'+x.openForServer+' denúncias</span>':'')+(x.current?'':' <span class="tag">banner já trocado ou removido</span>')+'<div class="muted">servidor '+esc(x.serverShortCode)+' · '+esc(when(x.createdAt))+'</div>'+(x.note?'<pre>'+esc(x.note)+'</pre>':'')+'<div style="margin:8px 0">'+img+'</div>'+btns+'<button data-brep="'+esc(x.id)+'" data-act="dismiss">Arquivar (sem ação)</button></div>'
+  }).join(''):'<p class="muted">Nenhuma denúncia aberta.</p>')
+}
+
 var busy=false;
 function load(force){
   if(busy||!token)return;busy=true;$('refresh').disabled=true;var q=force?'?refresh=1':'';
   var app=$('app');if(!app.innerHTML)app.innerHTML='<p class="muted">Carregando…</p>';
-  Promise.all([api('/api/v1/admin/health'+q),api('/api/v1/admin/overview'+q),api('/api/v1/admin/feedback'),api('/api/v1/admin/profile-reports')]).then(function(r){
-    app.innerHTML=healthHtml(r[0])+reportsHtml(r[3])+overviewHtml(r[1])+feedbackHtml(r[2]);$('stamp').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR')
+  Promise.all([api('/api/v1/admin/health'+q),api('/api/v1/admin/overview'+q),api('/api/v1/admin/feedback'),api('/api/v1/admin/profile-reports'),api('/api/v1/admin/banner-reports')]).then(function(r){
+    app.innerHTML=healthHtml(r[0])+reportsHtml(r[3])+bannerReportsHtml(r[4])+overviewHtml(r[1])+feedbackHtml(r[2]);$('stamp').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR')
   }).catch(function(e){if(token)app.innerHTML='<p class="err">'+esc(e.message)+'</p>'}).then(function(){busy=false;$('refresh').disabled=false})
 }
 $('loginForm').addEventListener('submit',function(e){e.preventDefault();var t=$('tok').value.trim();if(!t)return;token=t;$('loginErr').textContent='';
@@ -125,6 +134,10 @@ $('app').addEventListener('click',function(e){
   if(rep){var act=e.target.getAttribute('data-act'),labels={clear_images:'Remover as imagens deste perfil?',clear_bio:'Remover a bio deste perfil?',rename:'Trocar o nome deste perfil por um genérico?',dismiss:'Arquivar a denúncia sem ação?'};
     if(!confirm(labels[act]||'Confirmar?'))return;
     api('/api/v1/admin/profile-reports/'+rep+'/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:act})}).then(function(){load(false)}).catch(function(err){alert(err.message)});return}
+  var brep=e.target&&e.target.getAttribute&&e.target.getAttribute('data-brep');
+  if(brep){var bact=e.target.getAttribute('data-act');
+    if(!confirm(bact==='remove_banner'?'Remover o banner deste servidor?':'Arquivar a denúncia sem ação?'))return;
+    api('/api/v1/admin/banner-reports/'+brep+'/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:bact})}).then(function(){load(false)}).catch(function(err){alert(err.message)});return}
   var id=e.target&&e.target.getAttribute&&e.target.getAttribute('data-del');if(!id||!confirm('Apagar este relato do painel?'))return;api('/api/v1/admin/feedback/'+id,{method:'DELETE'}).then(function(){load(false)})});
 setInterval(function(){if(!document.hidden)load(false)},60000);
 show();if(token)load(false);

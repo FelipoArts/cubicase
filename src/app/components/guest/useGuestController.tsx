@@ -1,6 +1,7 @@
 "use client";
 
 import { noteServerIconHash } from "@/lib/guestServerIcon";
+import { noteServerLook } from "@/lib/serverLook";
 import { POLL_INTERVAL_MS, REFRESH_ON_RETURN_MS, shouldPoll } from "@/lib/guestPolling";
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -445,6 +446,8 @@ export function useGuestController({
           console.log(`[GuestView] Servidor ${server.shortCode} (${server.name}): rede=${status}, minecraft=${minecraftStatus}`);
           // Ícone do servidor (a central manda só o hash; a imagem é baixada quando muda).
           noteServerIconHash(server.shortCode, envelope?.data?.server?.iconHash);
+          // Cor, etiquetas, recado e banner que o host escolheu para o servidor.
+          noteServerLook(server.shortCode, envelope?.data?.server?.look);
           updateKnownServerStatus(
             server.shortCode,
             status,

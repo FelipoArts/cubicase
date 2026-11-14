@@ -30,9 +30,10 @@ import plus from "./plus";
 import discord from "./discord";
 import backupUi from "./backupUi";
 import profile from "./profile";
+import serverLook from "./serverLook";
 
 // Registre aqui cada novo módulo de mensagens.
-export const MODULES = { common, settings, app, shell, hostBasics, libDiagnostics, libErrors, crash, modSyncUi, modpackUi, serverConfig, createServer, modBrowser, manage, players, hostView, hostInstall, guest, serverLib, serverLog, meta, help, pack, connectionHelp, upgrade, worlds, perf, newui, plus, discord, backupUi, profile } as const;
+export const MODULES = { common, settings, app, shell, hostBasics, libDiagnostics, libErrors, crash, modSyncUi, modpackUi, serverConfig, createServer, modBrowser, manage, players, hostView, hostInstall, guest, serverLib, serverLog, meta, help, pack, connectionHelp, upgrade, worlds, perf, newui, plus, discord, backupUi, profile, serverLook } as const;
 
 type Modules = (typeof MODULES)[keyof typeof MODULES];
 type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (k: infer I) => void ? I : never;

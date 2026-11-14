@@ -14,6 +14,7 @@ import { connect } from 'cloudflare:sockets';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, supabaseService, type SupabaseEnv } from './supabase';
 import { ADMIN_HTML } from './admin-page';
 import { listProfileReports, resolveProfileReport } from './profile-moderation';
+import { listBannerReports, resolveBannerReport, type BannerReportsEnv } from './server-look-reports';
 
 export interface AdminEnv extends SupabaseEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
@@ -375,6 +376,16 @@ export async function handleAdminRequest(
   if (req.method === 'POST' && resolve) {
     const body: any = await req.json().catch(() => null);
     const r = await resolveProfileReport(env, resolve[1].toLowerCase(), body?.action);
+    return r.ok ? respond({ success: true }) : respond({ success: false, message: r.message }, r.status);
+  }
+  // Denúncias de banner de servidor — ver server-look-reports.ts
+  if (req.method === 'GET' && p === '/api/v1/admin/banner-reports') {
+    return respond({ items: await listBannerReports(env as BannerReportsEnv) });
+  }
+  const resolveBanner = /^\/api\/v1\/admin\/banner-reports\/([0-9a-fA-F-]{36})\/resolve$/.exec(p);
+  if (req.method === 'POST' && resolveBanner) {
+    const body: any = await req.json().catch(() => null);
+    const r = await resolveBannerReport(env as BannerReportsEnv, resolveBanner[1].toLowerCase(), body?.action);
     return r.ok ? respond({ success: true }) : respond({ success: false, message: r.message }, r.status);
   }
   if (req.method === 'GET' && p === '/api/v1/admin/feedback') {

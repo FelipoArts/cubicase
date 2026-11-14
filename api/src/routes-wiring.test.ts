@@ -49,4 +49,21 @@ describe("roteador principal", () => {
     const r = await call("GET", "/api/v1/admin/profile-reports");
     expect([401, 404]).toContain(r.status);
   });
+
+  it("aparência do servidor: cor/etiquetas e banner chegam às rotas do dono (sem segredo, 401)", async () => {
+    // A rota do dono responde 401 "Segredo do dono ausente"; cair no 404 do roteador seria rota sem ligação.
+    for (const [method, path] of [["PUT", "/api/v1/servers/ABC123/look"], ["PUT", "/api/v1/servers/ABC123/banner"], ["DELETE", "/api/v1/servers/ABC123/banner"]] as const) {
+      expect((await call(method, path, { body: method === "PUT" ? "{}" : undefined })).status).toBe(401);
+    }
+    // denunciar o banner chega ao módulo (sem chave do Supabase na bateria: 503; em produção: 401 sem login)
+    expect(reached((await call("POST", "/api/v1/servers/ABC123/banner/report", { body: JSON.stringify({ reason: "image" }) })).status)).toBe(true);
+    const banner = await call("GET", "/api/v1/servers/ABC123/banner");
+    expect(banner.status).toBe(404);
+    expect(await banner.text()).toBe("Not found"); // a resposta da rota de banner, não a do "endpoint não encontrado"
+  });
+
+  it("denúncias de banner do painel não devolvem dados sem o token do dono", async () => {
+    const r = await call("GET", "/api/v1/admin/banner-reports");
+    expect([401, 404]).toContain(r.status);
+  });
 });

@@ -76,7 +76,6 @@ export class LinkRoom {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/close') return this.handleClose();
     if (request.method === 'GET' && url.pathname === '/presence') return this.handlePresence();
-    if (request.method === 'GET' && url.pathname.startsWith('/roster/')) return this.handleRoster(request, url);
     if (request.method === 'GET' && url.pathname === '/online') return this.handleOnline();
     if (request.method === 'POST' && url.pathname === '/revoke') return this.handleRevoke(request);
     if (request.headers.get('Upgrade') === 'websocket') return this.handleUpgrade(request, url);
@@ -112,28 +111,6 @@ export class LinkRoom {
       else if (att.role === 'guest') anonymous++; // o anfitrião sem conta não conta como convidado conectado
     }
     return Response.json({ uids: [...uids], anonymous });
-  }
-
-  /**
-   * Quem está na sala agora (host e convidados conectados), para a lista de membros. Só responde a quem é da sala:
-   * o token de link do pedido é verificado como na conexão (assinatura, sala e revogação), então um terceiro, ou uma
-   * sessão revogada, não vê quem está conectado. Devolve o `uid` de cada um para o Worker resolver os perfis públicos.
-   */
-  private async handleRoster(request: Request, url: URL): Promise<Response> {
-    const shortCode = url.pathname.match(/^\/roster\/([A-Za-z0-9]+)$/)?.[1]?.toUpperCase();
-    if (!shortCode) return new Response('sala ausente na URL', { status: 400 });
-    const auth = request.headers.get('Authorization');
-    const claims = await verifyLinkToken(this.env, auth?.startsWith('Bearer ') ? auth.slice(7) : null);
-    if (!claims || claims.sc !== shortCode) return new Response('token inválido', { status: 401 });
-    if (await this.ctx.storage.get(REVOKED_PREFIX + claims.pid)) return new Response('sessão revogada', { status: 401 });
-
-    const members: RoomMember[] = [];
-    for (const ws of [...this.ctx.getWebSockets('host'), ...this.ctx.getWebSockets('guest')]) {
-      const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att) continue;
-      members.push({ id: att.id, role: att.role, uid: att.uid ?? null, self: att.pid === claims.pid });
-    }
-    return Response.json({ members });
   }
 
   /** Chamado pelo Worker quando o servidor é apagado ou o código regenerado: derruba todo mundo. */

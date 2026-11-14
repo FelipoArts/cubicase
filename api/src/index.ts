@@ -2,8 +2,11 @@ import { resolveSupabaseUserId, userHasActiveSubscription, supabaseService, SUPA
 import { handlePanelAccessRoute, handlePanelWsTicket, type PanelResult } from './panel-members';
 import { handlePanelPushRoute } from './panel-push';
 import { handleProfileRoute } from './profile';
-import { handleProfileImageRoute, purgeImage, serveProfileImage } from './profile-images';
-import { buildRoster } from './roster';
+import { IMAGE_SPECS, handleProfileImageRoute, purgeImage, serveProfileImage } from './profile-images';
+import { isSweepTime, sweepStaleImages } from './profile-images-sweep';
+import { applyLookEdit, publicLook, putBanner, removeBanner, serveBanner, type ServerLook } from './server-look';
+import { handleBannerReport } from './server-look-reports';
+import { sweepStaleServerBanners } from './server-banner-sweep';
 import { handleMembersRoute, recordHost, deleteServerMembers } from './members';
 import { recordActive as recordStreakActive, recordEnded as recordStreakEnded } from './plus-streak';
 import { localizeResponse } from './i18n';
@@ -117,7 +120,7 @@ type ServerStatus = 'offline' | 'starting' | 'online' | 'stopping' | 'crashed' |
 type SessionStatus = 'creating' | 'starting_provider' | 'waiting_provider' | 'online' | 'degraded' | 'stopping' | 'stopped' | 'failed' | 'cancelled';
 type TerminationReason = 'user_stopped' | 'application_closed' | 'provider_error' | 'api_error' | 'crash' | 'timeout' | 'lease_expired';
 
-interface ServerEntity { shortCode: string; uuid: string; name: string; version: string; serverType: string; description: string; owner: string; createdAt: string; updatedAt: string; forgeVersion?: string | null; modLoaderVersion?: string | null; slug?: string | null; connectName?: string | null; /** Hash curto do ícone (server-icon.png) enviado pelo host; null/ausente = sem ícone. */ iconHash?: string | null; }
+interface ServerEntity { shortCode: string; uuid: string; name: string; version: string; serverType: string; description: string; owner: string; createdAt: string; updatedAt: string; forgeVersion?: string | null; modLoaderVersion?: string | null; slug?: string | null; connectName?: string | null; /** Hash curto do ícone (server-icon.png) enviado pelo host; null/ausente = sem ícone. */ iconHash?: string | null; /** Cor, etiquetas, recado e banner (ver server-look.ts). Os convidados recebem só `publicLook`. */ look?: ServerLook; }
 
 interface SessionEntity { /** Quem está online (só guardado quando o servidor está ligado a um Discord, para os avisos de entrada e saída). */ playerNames?: string[]; shortCode: string; provider: string; hostIp: string; port: number; /** IP do host na rede do Radmin VPN (26.x.x.x), se estiver conectado a uma. */ radminIp?: string | null; status: ServerStatus; currentPlayers: number; maxPlayers: number; lastHeartbeat: string; createdAt: string; expiresAt: string; }
 
@@ -558,7 +561,8 @@ async function handleDiscoverServer(shortCode: string, env: Env, cors: Record<st
   if (mc) currentPlayers = mc.currentPlayers;
 
   return json(ok(ResponseCodes.SUCCESS, 'Servidor encontrado.', {
-    server: sv,
+    // A aparência sai pela visão pública (sem a conta dona do banner, e sem o banner se o Plus dela acabou).
+    server: { ...sv, look: await publicLook(env, sv.look) },
     session: {
       // Mantido por compatibilidade: builds antigas só conheciam este campo,
       // e ele sempre foi o status da malha, nunca o do Minecraft.
@@ -649,6 +653,7 @@ async function handleDeleteServer(shortCode: string, req: Request, env: Env, cor
     await env.CUBEFORGE_REGISTRY.delete(`shortCode:${sv.uuid}`);
     await env.CUBEFORGE_REGISTRY.delete(`owner:${shortCode}`);
     if (sv.iconHash) await env.CUBEFORGE_REGISTRY.delete(`icon:${shortCode}`);
+    if (sv.look?.bannerHash) await removeBanner(env, sv);
     await unlinkAllGuilds(env, shortCode);
     if (sv.slug) { await env.CUBEFORGE_REGISTRY.delete(`slug:${sv.slug}`); await env.CUBEFORGE_REGISTRY.delete(`slugowner:${sv.slug}`); }
     if (sv.connectName) { await env.CUBEFORGE_REGISTRY.delete(`connect:${sv.connectName}`); await env.CUBEFORGE_REGISTRY.delete(`connectowner:${sv.connectName}`); }
@@ -1026,6 +1031,75 @@ async function handleGetServerIcon(shortCode: string, url: URL, env: Env, cors: 
       'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
     },
   });
+}
+
+
+// ============================================================
+// APARÊNCIA DO SERVIDOR (cor, etiquetas, recado e banner) — ver server-look.ts
+// ============================================================
+// PUT   /servers/{sc}/look    dono: cor, etiquetas e recado (grátis)
+// PUT   /servers/{sc}/banner  dono + conta com Plus: banner WebP 960x320
+// DELETE/GET /servers/{sc}/banner
+// A aparência vai para os convidados dentro do próprio status do servidor (data.server.look).
+
+async function loadServerEntity(env: Env, shortCode: string): Promise<ServerEntity | null> {
+  const sj = await env.CUBEFORGE_REGISTRY.get(`server:${shortCode}`);
+  return sj ? (JSON.parse(sj) as ServerEntity) : null;
+}
+
+async function saveServerLook(env: Env, sv: ServerEntity, look: ServerLook): Promise<ServerEntity> {
+  const updated: ServerEntity = { ...sv, look, updatedAt: new Date().toISOString() };
+  await env.CUBEFORGE_REGISTRY.put(`server:${sv.shortCode}`, JSON.stringify(updated));
+  return updated;
+}
+
+async function handlePutServerLook(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  let body: unknown; try { body = await req.json(); } catch { return json(fail(ResponseCodes.BAD_REQUEST, 'JSON inválido.'), 400, cors); }
+  const sv = await loadServerEntity(env, shortCode);
+  if (!sv) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const edit = applyLookEdit(sv.look, body);
+  if (!edit.ok) return json(fail(ResponseCodes.VALIDATION_ERROR, edit.message), 400, cors);
+  const updated = await saveServerLook(env, sv, edit.look);
+  return json(ok(ResponseCodes.SERVER_UPDATED, 'Aparência atualizada.', { look: await publicLook(env, updated.look) }), 200, cors);
+}
+
+async function handlePutServerBanner(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  const uid = await resolveSupabaseUserId(req);
+  if (!uid) return json(fail(ResponseCodes.FORBIDDEN, 'Entre na sua conta para enviar o banner.'), 401, cors);
+  const declared = Number(req.headers.get('Content-Length') ?? '0');
+  if (declared > IMAGE_SPECS.banner.maxBytes) return json(fail(ResponseCodes.VALIDATION_ERROR, 'A imagem passou do tamanho máximo.'), 413, cors);
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  const sv = await loadServerEntity(env, shortCode);
+  if (!sv) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  const r = await putBanner(env, sv, uid, bytes);
+  if (!r.ok) {
+    const code = r.status === 403 ? ResponseCodes.SUBSCRIPTION_REQUIRED : r.status === 429 ? ResponseCodes.RATE_LIMITED : ResponseCodes.VALIDATION_ERROR;
+    return json(fail(code, r.message), r.status, cors);
+  }
+  const updated = await saveServerLook(env, sv, r.look);
+  return json(ok(ResponseCodes.SERVER_UPDATED, r.message, { look: await publicLook(env, updated.look) }), 200, cors);
+}
+
+async function handleDeleteServerBanner(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const denied = await requireOwner(req, env, shortCode, cors);
+  if (denied) return denied;
+  const sv = await loadServerEntity(env, shortCode);
+  if (!sv) return json(fail(ResponseCodes.SERVER_NOT_FOUND, 'Servidor não encontrado.'), 404, cors);
+  if (sv.look?.bannerHash) {
+    const updated = await saveServerLook(env, sv, await removeBanner(env, sv));
+    return json(ok(ResponseCodes.SERVER_UPDATED, 'Banner removido.', { look: await publicLook(env, updated.look) }), 200, cors);
+  }
+  return json(ok(ResponseCodes.SERVER_UPDATED, 'Banner removido.', { look: await publicLook(env, sv.look) }), 200, cors);
+}
+
+async function handleGetServerBanner(shortCode: string, url: URL, env: Env, cors: Record<string, string>): Promise<Response> {
+  const sv = await loadServerEntity(env, shortCode);
+  if (!sv) return new Response('Not found', { status: 404, headers: cors });
+  return serveBanner(env, sv, url, cors);
 }
 
 // ============================================================
@@ -2078,23 +2152,6 @@ function panelJson(r: PanelResult, cors: Record<string, string>): Response {
   return json(r.status < 400 ? ok(r.code, r.message, r.data) : fail(r.code, r.message, r.data), r.status, cors);
 }
 
-/**
- * GET /api/v1/link/roster/{sc} — quem está no servidor agora, com perfil público e selo Plus. Autenticado pelo
- * token de link (host ou convidado DAQUELA sala): a própria sala confere. Sem escrita em KV, para o app poder
- * consultar de tempos em tempos.
- */
-async function handleLinkRoster(shortCode: string, req: Request, env: Env, cors: Record<string, string>): Promise<Response> {
-  const room = env.LINK_ROOM.get(env.LINK_ROOM.idFromName(shortCode));
-  const resp = await room.fetch(`https://link-room.internal/roster/${shortCode}`, {
-    headers: { Authorization: req.headers.get('Authorization') ?? '' },
-  });
-  if (resp.status === 401) return json(fail(ResponseCodes.BAD_REQUEST, 'Sessão inválida ou expirada.'), 401, cors);
-  if (!resp.ok) return json(fail(ResponseCodes.INTERNAL_ERROR, 'Não foi possível ler a lista de membros.'), 502, cors);
-  const raw: any = await resp.json().catch(() => null);
-  if (!raw || !Array.isArray(raw.members)) return json(fail(ResponseCodes.INTERNAL_ERROR, 'Resposta inválida da sala.'), 502, cors);
-  return json(ok(ResponseCodes.SUCCESS, 'Membros.', { members: await buildRoster(env, raw.members) }), 200, cors);
-}
-
 /** GET /panel/ws/{deviceId}?role=agent|panel — encaminha o upgrade de WebSocket para o Durable Object do dispositivo. */
 async function handlePanelWebSocket(deviceId: string, req: Request, env: Env): Promise<Response> {
   const id = env.HOST_CHANNEL.idFromName(deviceId);
@@ -2112,9 +2169,14 @@ export default {
     return localizeResponse(req, await handleRequest(req, env, ctx));
   },
   // Rotina agendada (wrangler.toml > triggers): percebe o host que sumiu sem avisar e atualiza o Discord.
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(watchDiscordContact(env));
     ctx.waitUntil(healthCron(env).catch((err) => console.error('[admin] checagem de saúde falhou:', err)));
+    // Uma vez por dia: apaga fotos e banners de quem está há mais de 90 dias sem Plus (ver profile-images-sweep.ts).
+    if (isSweepTime(event.scheduledTime)) {
+      ctx.waitUntil(sweepStaleImages(env).catch((err) => console.error('[imagens] limpeza falhou:', err)));
+      ctx.waitUntil(sweepStaleServerBanners(env).catch((err) => console.error('[banners] limpeza falhou:', err)));
+    }
   },
 };
 
@@ -2191,6 +2253,26 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
       }
       if (m === 'DELETE' && m1i) return await handleDeleteServerIcon(m1i[1].toUpperCase(), req, env, cors);
       if (m === 'GET' && m1i) return await handleGetServerIcon(m1i[1].toUpperCase(), url, env, cors);
+
+      // PUT /servers/{sc}/look e PUT/DELETE/GET /servers/{sc}/banner — aparência do servidor (ver server-look.ts)
+      const m1l = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/look$/);
+      if (m === 'PUT' && m1l) {
+        if (!(await checkRateLimit(env, 'look', clientIp(req), ICON_RATE_LIMIT * 3))) return rateLimitedResponse(cors);
+        return await handlePutServerLook(m1l[1].toUpperCase(), req, env, cors);
+      }
+      // POST /servers/{sc}/banner/report — denunciar o banner (só quem é membro do servidor; ver server-look-reports.ts)
+      const m1br = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/banner\/report$/);
+      if (m === 'POST' && m1br) {
+        if (!(await checkRateLimit(env, 'banner-report', clientIp(req), ICON_RATE_LIMIT * 2))) return rateLimitedResponse(cors);
+        return panelJson(await handleBannerReport(req, env, m1br[1].toUpperCase()), cors);
+      }
+      const m1b = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/banner$/);
+      if (m === 'PUT' && m1b) {
+        if (!(await checkRateLimit(env, 'banner', clientIp(req), ICON_RATE_LIMIT))) return rateLimitedResponse(cors);
+        return await handlePutServerBanner(m1b[1].toUpperCase(), req, env, cors);
+      }
+      if (m === 'DELETE' && m1b) return await handleDeleteServerBanner(m1b[1].toUpperCase(), req, env, cors);
+      if (m === 'GET' && m1b) return await handleGetServerBanner(m1b[1].toUpperCase(), url, env, cors);
 
       // PUT/DELETE /api/v1/servers/{sc}/slug — link de convite personalizado (Cubicase Plus)
       const m1s = p.match(/^\/api\/v1\/servers\/([A-Za-z0-9]+)\/slug$/);
@@ -2351,9 +2433,6 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
         if (result) return panelJson(result, cors);
       }
 
-      // GET /api/v1/link/roster/{sc} — lista de membros do servidor (a sala confere o token de link)
-      const mRoster = p.match(/^\/api\/v1\/link\/roster\/([A-Za-z0-9]+)$/);
-      if (m === 'GET' && mRoster) return await handleLinkRoster(mRoster[1].toUpperCase(), req, env, cors);
 
       // GET /api/v1/link/ws/{sc} — sala de sinalização do transporte P2P (o token é verificado dentro da sala)
       const mLink = p.match(/^\/api\/v1\/link\/ws\/([A-Za-z0-9]+)$/);

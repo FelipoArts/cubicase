@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowLeft, Check, Clock, Copy, Gamepad2, Globe, LifeBuoy, Loader2, PanelLeftClose, PanelLeftOpen, Pin, Play, Plus, RefreshCw,
+  AlertTriangle, ArrowLeft, Check, Clock, Copy, Flag, Gamepad2, Globe, LifeBuoy, Loader2, PanelLeftClose, PanelLeftOpen, Pin, Play, Plus, RefreshCw,
   Search, Server, Trash2, Users, WifiOff, X, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/app/store";
 import { useServerIcon } from "@/lib/serverIcon";
+import { lookColorHex, lookTagKey, peekServerLook, reportServerBanner, serverBannerUrl, useServerLookVersion } from "@/lib/serverLook";
+import { ReportProfileModal } from "@/app/components/ReportProfileModal";
 import { useGuestServerIcon } from "@/lib/guestServerIcon";
 import { useConnectionHelp } from "@/lib/connectionHelp";
 import type { KnownServer } from "@/app/store";
@@ -63,7 +65,10 @@ export function GuestWorkspace(props: GuestViewProps) {
   const [showDetail, setShowDetail] = useState(false); // só em telas estreitas: lista OU detalhes
   const [query, setQuery] = useState("");
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [reportingBanner, setReportingBanner] = useState<{ shortCode: string; name: string } | null>(null);
+  const signedIn = useAppStore((st) => st.user !== null);
 
+  useServerLookVersion(); // a cor e o banner escolhidos pelo host chegam junto do status e redesenham a lista
   const list = g.knownServers;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -159,11 +164,16 @@ export function GuestWorkspace(props: GuestViewProps) {
             const isPinned = pinned.has(s.shortCode);
             const active = server?.shortCode === s.shortCode;
             const asking = confirmRemove === s.shortCode;
+            const accent = lookColorHex(peekServerLook(s.shortCode)?.color);
             return (
               <li key={s.shortCode}>
                 {pinnedCount > 0 && idx === 0 && <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-secondary">{t("nui.guest.pinned")}</p>}
                 {pinnedCount > 0 && idx === pinnedCount && <p className="px-2.5 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-secondary">{t("nui.guest.all")}</p>}
-                <div className={cn("group/row relative flex items-center rounded-xl border", active ? "bg-theme-accent border-theme-accent" : "border-transparent hover:bg-theme-muted")}>
+                <div
+                  className={cn("group/row relative flex items-center rounded-xl border overflow-hidden", active ? "bg-theme-accent border-theme-accent" : "border-transparent hover:bg-theme-muted")}
+                  style={accent ? { backgroundImage: `linear-gradient(90deg, ${accent}${active ? "33" : "1a"}, transparent 70%)`, ...(active ? { borderColor: `${accent}88` } : {}) } : undefined}
+                >
+                  {accent && <span aria-hidden className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full" style={{ backgroundColor: accent }} />}
                   <button type="button" onClick={() => select(s.shortCode)} className="min-w-0 flex-1 flex items-center gap-3 pl-2.5 py-2.5 text-left cursor-pointer">
                     <Icon s={s} size="sm" />
                     <span className="min-w-0 flex-1">
@@ -244,9 +254,30 @@ export function GuestWorkspace(props: GuestViewProps) {
           const stale = g.isServerStale(s, g.now);
           const st = rowStatus(s);
           const address = g.addressFor(s);
+          const look = peekServerLook(s.shortCode);
+          const accent = lookColorHex(look?.color);
           return (
             <div className="max-w-3xl mx-auto px-6 pt-14 pb-6 space-y-5">
               <button type="button" onClick={() => setShowDetail(false)} className="md:hidden inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" />{t("nui.guest.back")}</button>
+
+              {look?.bannerHash ? (
+                <div className="group/banner relative h-36 rounded-2xl overflow-hidden border border-theme-card" style={accent ? { borderColor: `${accent}66` } : undefined}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={serverBannerUrl(s.shortCode, look.bannerHash)} alt="" className="block w-full h-full object-cover" />
+                  {accent && <div aria-hidden className="absolute inset-x-0 bottom-0 h-1" style={{ background: `linear-gradient(90deg, ${accent}, transparent)` }} />}
+                  {signedIn && !s.isOwnServer && (
+                    <button
+                      type="button"
+                      onClick={() => setReportingBanner({ shortCode: s.shortCode, name: s.name })}
+                      title={t("report.banner.open")}
+                      aria-label={t("report.banner.open")}
+                      className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white opacity-0 transition-opacity hover:bg-black/75 focus-visible:opacity-100 group-hover/banner:opacity-100 cursor-pointer"
+                    ><Flag className="w-3 h-3" />{t("report.open")}</button>
+                  )}
+                </div>
+              ) : accent ? (
+                <div aria-hidden className="h-1.5 rounded-full" style={{ background: `linear-gradient(90deg, ${accent}, ${accent}00)` }} />
+              ) : null}
 
               <div className="flex flex-wrap items-center gap-4">
                 <Icon s={s} size="lg" />
@@ -260,6 +291,19 @@ export function GuestWorkspace(props: GuestViewProps) {
                   </div>
                   <p className="text-sm text-theme-secondary mt-0.5">{g.serverKindLabel(s.serverType)} {s.version}</p>
                   {s.description && <p className="text-xs text-theme-secondary mt-1 italic line-clamp-2">{s.description}</p>}
+                  {look && look.tags.length > 0 && (
+                    <ul className="mt-2 flex flex-wrap gap-1.5">
+                      {look.tags.map((id) => {
+                        const key = lookTagKey(id);
+                        return key ? (
+                          <li key={id} className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold text-theme-primary" style={accent ? { borderColor: `${accent}88`, backgroundColor: `${accent}1f` } : undefined}>{t(key)}</li>
+                        ) : null;
+                      })}
+                    </ul>
+                  )}
+                  {look?.note && (
+                    <p className="mt-2.5 border-l-2 pl-3 text-xs leading-relaxed text-theme-primary whitespace-pre-line break-words" style={{ borderColor: accent ?? "currentColor" }}>{look.note}</p>
+                  )}
                 </div>
               </div>
 
@@ -312,6 +356,16 @@ export function GuestWorkspace(props: GuestViewProps) {
           );
         })()}
       </section>
+
+      <ReportProfileModal
+        kind="banner"
+        isOpen={reportingBanner !== null}
+        name={reportingBanner?.name ?? ""}
+        onClose={() => setReportingBanner(null)}
+        onSubmit={async (reason, note) => {
+          if (reportingBanner) await reportServerBanner(reportingBanner.shortCode, reason === "image" ? "image" : "other", note);
+        }}
+      />
 
       <GuestModals c={g} />
     </div>

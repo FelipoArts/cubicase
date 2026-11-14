@@ -8,23 +8,8 @@
 
 import { supabaseService, type SupabaseEnv } from './supabase';
 import { toPublic, withoutImages, type PublicProfile } from './profile';
-import type { RoomMember } from './durable-objects/link-room';
 import { getStreaks } from './plus-streak';
 import { viewOf, type PlusTierId } from './plus-tier';
-
-export interface RosterMember {
-  /** "host" ou o guestId atribuído pela sala. */
-  id: string;
-  role: 'host' | 'guest';
-  /** É quem pediu a lista. */
-  self: boolean;
-  /** null: sem conta ou sem perfil criado. */
-  profile: PublicProfile | null;
-  /** Cubicase Plus ativo agora. Só aparece para quem tem perfil público. */
-  plus: boolean;
-  /** Nível do badge de tempo de assinatura; só para quem tem `plus` (ver plus-tier.ts). */
-  tier: PlusTierId | null;
-}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -80,14 +65,4 @@ export async function resolveAccounts(env: SupabaseEnv, uids: string[], nowMs = 
     out.set(uid, { profile: profile && !isPlus ? withoutImages(profile) : profile, plus: isPlus, tier });
   }
   return out;
-}
-
-/** Junta os membros da sala com os perfis públicos. Host primeiro, depois os convidados na ordem da sala. */
-export async function buildRoster(env: SupabaseEnv, members: RoomMember[], nowMs = Date.now()): Promise<RosterMember[]> {
-  const accounts = await resolveAccounts(env, members.flatMap((m) => (m.uid ? [m.uid] : [])), nowMs);
-  const out: RosterMember[] = members.map((m) => {
-    const a = m.uid ? accounts.get(m.uid) : undefined;
-    return { id: m.id, role: m.role, self: m.self, profile: a?.profile ?? null, plus: a?.plus ?? false, tier: a?.tier ?? null };
-  });
-  return out.sort((a, b) => (a.role === b.role ? 0 : a.role === 'host' ? -1 : 1));
 }

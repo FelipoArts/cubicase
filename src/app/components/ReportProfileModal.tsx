@@ -16,24 +16,29 @@ const REASONS: { id: ReportReason; labelKey: TKey }[] = [
   { id: "other", labelKey: "report.reason.other" },
 ];
 
+const BANNER_REASONS = REASONS.filter((r) => r.id !== "name_or_bio");
+
 const NOTE_MAX = 300;
 
 interface Props {
   isOpen: boolean;
-  /** Nome de quem está sendo denunciado (só para o texto). */
+  /** Nome de quem (ou do servidor) está sendo denunciado, só para o texto. */
   name: string;
+  /** O que está sendo denunciado: um perfil (padrão) ou o banner de um servidor. */
+  kind?: "profile" | "banner";
   onClose: () => void;
   onSubmit: (reason: ReportReason, note: string) => Promise<void>;
 }
 
 /** Janela de denúncia de um perfil: o motivo, um detalhe opcional e o envio. Fica por cima de tudo (levada ao body). */
-export function ReportProfileModal({ isOpen, name, onClose, onSubmit }: Props) {
+export function ReportProfileModal({ isOpen, name, kind = "profile", onClose, onSubmit }: Props) {
   const { t } = useT();
   const [reason, setReason] = useState<ReportReason>("image");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
+  const reasons = kind === "banner" ? BANNER_REASONS : REASONS;
   useLockBodyScroll(isOpen);
   // Cada abertura começa do zero
   useEffect(() => { if (isOpen) { setReason("image"); setNote(""); setStatus("idle"); setError(null); } }, [isOpen]);
@@ -54,7 +59,7 @@ export function ReportProfileModal({ isOpen, name, onClose, onSubmit }: Props) {
   return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t("report.title")}>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t(kind === "banner" ? "report.banner.title" : "report.title")}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => status !== "sending" && onClose()} className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -65,7 +70,7 @@ export function ReportProfileModal({ isOpen, name, onClose, onSubmit }: Props) {
           >
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-rose-50 dark:bg-rose-900/30 rounded-lg flex items-center justify-center"><Flag className="text-rose-500 w-5 h-5" /></div>
-              <h3 className="text-xl font-bold text-theme-primary">{t("report.title")}</h3>
+              <h3 className="text-xl font-bold text-theme-primary">{t(kind === "banner" ? "report.banner.title" : "report.title")}</h3>
             </div>
 
             {status === "sent" ? (
@@ -75,9 +80,9 @@ export function ReportProfileModal({ isOpen, name, onClose, onSubmit }: Props) {
               </div>
             ) : (
               <>
-                <p className="text-sm text-theme-secondary leading-relaxed">{t("report.intro", { name })}</p>
+                <p className="text-sm text-theme-secondary leading-relaxed">{t(kind === "banner" ? "report.banner.intro" : "report.intro", { name })}</p>
                 <div className="space-y-2" role="radiogroup" aria-label={t("report.reason.label")}>
-                  {REASONS.map((r) => (
+                  {reasons.map((r) => (
                     <button
                       key={r.id}
                       type="button"

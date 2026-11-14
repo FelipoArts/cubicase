@@ -138,10 +138,34 @@ export const EN_MESSAGES: Record<string, string> = {
   'Motivo muito longo (máximo 100 caracteres).': 'Reason too long (100 characters max).',
   'Você não tem permissão para ver os jogadores.': "You don't have permission to see the players.",
 
-  // ---- Lista de membros do servidor (GET /api/v1/link/roster) ----
   'Sessão inválida ou expirada.': 'Invalid or expired session.',
-  'Não foi possível ler a lista de membros.': "Couldn't read the member list.",
-  'Resposta inválida da sala.': 'Invalid response from the room.',
+
+  // ---- Aparência do servidor (server-look.ts) ----
+  'Aparência atualizada.': 'Look updated.',
+  'Banner atualizado.': 'Banner updated.',
+  'Banner removido.': 'Banner removed.',
+  'Cor inválida.': 'Invalid color.',
+  'Escolha até 3 etiquetas da lista.': 'Pick up to 3 tags from the list.',
+  'O recado é longo demais.': 'The note is too long.',
+  'O recado tem linhas demais.': 'The note has too many lines.',
+  'O recado tem caracteres que não são permitidos.': 'The note has characters that are not allowed.',
+  'Esse recado tem palavras que não podem ser usadas. Reescreva.': 'This note has words that cannot be used. Please rewrite it.',
+  'Links não são permitidos no recado.': 'Links are not allowed in the note.',
+  'O recado pode ter até 140 caracteres e 2 linhas.': 'The note can have up to 140 characters and 2 lines.',
+  'Imagens não configuradas neste servidor.': 'Images are not configured on this server.',
+  'O banner do servidor é um recurso do Cubicase Plus.': 'The server banner is a Cubicase Plus feature.',
+  'Aguarde alguns segundos para enviar outro banner.': 'Wait a few seconds before uploading another banner.',
+  'Entre na sua conta para enviar o banner.': 'Sign in to your account to upload the banner.',
+  'A imagem passou do tamanho máximo.': 'The image is over the maximum size.',
+  'Nenhuma imagem enviada.': 'No image was sent.',
+  'Formato não aceito. Envie uma imagem WebP.': 'Format not accepted. Send a WebP image.',
+  'Imagens animadas não são aceitas.': 'Animated images are not accepted.',
+  'Este servidor não tem banner.': 'This server has no banner.',
+  'Denúncias não configuradas neste servidor.': 'Reports are not configured on this server.',
+  'Só quem é membro do servidor pode denunciar.': 'Only members of the server can report.',
+  'Denúncia enviada.': 'Report sent.',
+  'Muitas denúncias hoje. Tente novamente amanhã.': 'Too many reports today. Try again tomorrow.',
+  'Não foi possível enviar a denúncia.': "Couldn't send the report.",
 
   // ---- Painel web: membros e convites (panel-members.ts) ----
   'Sessão inválida ou expirada. Faça login novamente.': 'Invalid or expired session. Please sign in again.',

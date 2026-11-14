@@ -3,7 +3,7 @@
 // ============================================================
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildRoster } from "./roster";
+import { resolveAccounts } from "./roster";
 import type { RoomMember } from "./durable-objects/link-room";
 
 const A = "aaaaaaaa-e89b-42d3-a456-426614174001"; // perfil + Plus
@@ -39,7 +39,18 @@ afterEach(() => vi.unstubAllGlobals());
 
 const member = (id: string, role: "host" | "guest", uid: string | null, self = false): RoomMember => ({ id, role, uid, self });
 
-describe("buildRoster", () => {
+
+/** Junta os membros com as contas resolvidas (a mesma montagem que a lista de membros do app faz). */
+async function buildRoster(e: { SUPABASE_SERVICE_ROLE_KEY?: string }, members: RoomMember[], nowMs = Date.now()) {
+  const accounts = await resolveAccounts(e, members.flatMap((m) => (m.uid ? [m.uid] : [])), nowMs);
+  const out = members.map((m) => {
+    const a = m.uid ? accounts.get(m.uid) : undefined;
+    return { id: m.id, role: m.role, self: m.self, profile: a?.profile ?? null, plus: a?.plus ?? false, tier: a?.tier ?? null };
+  });
+  return out.sort((a, b) => (a.role === b.role ? 0 : a.role === "host" ? -1 : 1));
+}
+
+describe("contas na lista", () => {
   it("junta perfil, Plus e nível, em três consultas no total (perfis, assinaturas, sequências), com o host primeiro", async () => {
     const urls = fakeSupabase();
     const r = await buildRoster(env, [
@@ -85,7 +96,7 @@ describe("buildRoster", () => {
   });
 });
 
-describe("buildRoster: nível do badge de tempo de assinatura", () => {
+describe("contas na lista: nível do badge de tempo de assinatura", () => {
   const DAY = 24 * 3600 * 1000;
   const NOW = Date.UTC(2026, 5, 1);
 
