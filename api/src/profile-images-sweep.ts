@@ -6,7 +6,7 @@
 // reassinar, a pessoa envia de novo. Na dúvida (consulta falhou, dado estranho), NUNCA apaga.
 // ============================================================
 
-import { supabaseService } from './supabase';
+import { chunk, supabaseService } from './supabase';
 import { purgeImage, type ImagesEnv } from './profile-images';
 
 export const IMAGE_GRACE_DAYS = 90;
@@ -53,10 +53,17 @@ export async function staleAccounts(env: ImagesEnv, accounts: AccountToCheck[], 
   const stale = new Set<string>();
   const valid = accounts.filter((a) => UUID.test(a.uid));
   if (valid.length === 0) return stale;
-  const list = [...new Set(valid.map((a) => a.uid))].join(',');
-  const subs = await getJson<{ user_id: string; status: string; current_period_end: string | null }>(env, `/rest/v1/subscriptions?user_id=in.(${list})&select=user_id,status,current_period_end`);
-  const streaks = await getJson<{ user_id: string; last_active_end: string | null }>(env, `/rest/v1/plus_streaks?user_id=in.(${list})&select=user_id,last_active_end`);
-  if (!subs || !streaks) return null;
+  const uids = [...new Set(valid.map((a) => a.uid))];
+  const subs: { user_id: string; status: string; current_period_end: string | null }[] = [];
+  const streaks: { user_id: string; last_active_end: string | null }[] = [];
+  for (const part of chunk(uids)) {
+    const list = part.join(',');
+    const s = await getJson<{ user_id: string; status: string; current_period_end: string | null }>(env, `/rest/v1/subscriptions?user_id=in.(${list})&select=user_id,status,current_period_end`);
+    const k = await getJson<{ user_id: string; last_active_end: string | null }>(env, `/rest/v1/plus_streaks?user_id=in.(${list})&select=user_id,last_active_end`);
+    if (!s || !k) return null; // qualquer bloco que falhe: não dá para saber, então ninguém é apagado
+    subs.push(...s);
+    streaks.push(...k);
+  }
   const subOf = new Map(subs.map((s) => [s.user_id, s]));
   const streakOf = new Map(streaks.map((s) => [s.user_id, s]));
   const limit = nowMs - IMAGE_GRACE_DAYS * DAY_MS;

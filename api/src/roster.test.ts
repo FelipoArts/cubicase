@@ -150,3 +150,17 @@ describe("contas na lista: nível do badge de tempo de assinatura", () => {
     expect(r[0]).toMatchObject({ plus: true, tier: "wood" });
   });
 });
+
+describe("muitas contas de uma vez", () => {
+  it("divide a consulta em blocos: nenhuma URL leva mais de 100 contas (senão passaria do limite e tudo falharia)", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { urls.push(String(input)); return Response.json([]); }));
+    const many = Array.from({ length: 250 }, (_, i) => `${String(i).padStart(8, "0")}-e89b-42d3-a456-426614174000`);
+    await buildRoster(env, many.map((u, i) => member(`g${i}`, "guest", u)));
+    expect(urls.length).toBeGreaterThanOrEqual(9); // 3 blocos × (perfis, assinaturas, sequências)
+    for (const u of urls) {
+      expect((u.match(/e89b-42d3/g) ?? []).length).toBeLessThanOrEqual(100);
+      expect(u.length).toBeLessThan(8000);
+    }
+  });
+});

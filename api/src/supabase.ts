@@ -46,6 +46,16 @@ export async function resolveSupabaseUserId(req: Request): Promise<string | null
   return (await resolveSupabaseUser(req))?.id ?? null;
 }
 
+/**
+ * Divide uma lista em blocos. Listas de contas entram na URL (`user_id=in.(...)`), e cada UUID pesa ~37 caracteres:
+ * com centenas de contas a URL passaria do limite do Cloudflare/Supabase (~16 KB) e a consulta inteira falharia.
+ */
+export function chunk<T>(list: T[], size = 100): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
 /** Chamada REST/RPC ao Supabase com a service role (bypassa RLS) — só pra uso do Worker/DO, nunca exposta ao cliente. */
 export function supabaseService(env: SupabaseEnv, path: string, init: RequestInit = {}): Promise<Response> {
   const key = env.SUPABASE_SERVICE_ROLE_KEY ?? '';

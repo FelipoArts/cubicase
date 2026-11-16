@@ -164,7 +164,10 @@ export function GuestWorkspace(props: GuestViewProps) {
             const isPinned = pinned.has(s.shortCode);
             const active = server?.shortCode === s.shortCode;
             const asking = confirmRemove === s.shortCode;
-            const accent = lookColorHex(peekServerLook(s.shortCode)?.color);
+            const rowLook = peekServerLook(s.shortCode);
+            const accent = lookColorHex(rowLook?.color);
+            const rowBanner = rowLook?.bannerHash ? serverBannerUrl(s.shortCode, rowLook.bannerHash) : null;
+            const rowFade = "linear-gradient(to right, transparent, black 65%)";
             return (
               <li key={s.shortCode}>
                 {pinnedCount > 0 && idx === 0 && <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-secondary">{t("nui.guest.pinned")}</p>}
@@ -173,8 +176,11 @@ export function GuestWorkspace(props: GuestViewProps) {
                   className={cn("group/row relative flex items-center rounded-xl border overflow-hidden", active ? "bg-theme-accent border-theme-accent" : "border-transparent hover:bg-theme-muted")}
                   style={accent ? { backgroundImage: `linear-gradient(90deg, ${accent}${active ? "33" : "1a"}, transparent 70%)`, ...(active ? { borderColor: `${accent}88` } : {}) } : undefined}
                 >
+                  {rowBanner && (
+                    <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-3/5 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${rowBanner})`, maskImage: rowFade, WebkitMaskImage: rowFade }} />
+                  )}
                   {accent && <span aria-hidden className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full" style={{ backgroundColor: accent }} />}
-                  <button type="button" onClick={() => select(s.shortCode)} className="min-w-0 flex-1 flex items-center gap-3 pl-2.5 py-2.5 text-left cursor-pointer">
+                  <button type="button" onClick={() => select(s.shortCode)} className="relative min-w-0 flex-1 flex items-center gap-3 pl-2.5 py-2.5 text-left cursor-pointer">
                     <Icon s={s} size="sm" />
                     <span className="min-w-0 flex-1">
                       {asking ? (
@@ -190,7 +196,7 @@ export function GuestWorkspace(props: GuestViewProps) {
                       )}
                     </span>
                   </button>
-                  <div className="flex items-center gap-0.5 pr-1.5 shrink-0">
+                  <div className="relative flex items-center gap-0.5 pr-1.5 shrink-0">
                     {asking ? (
                       <>
                         <button type="button" onClick={() => remove(s.shortCode)} title={t("nui.guest.removeConfirm")} aria-label={t("nui.guest.removeConfirm")} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-500/10 cursor-pointer"><Check className="w-4 h-4" /></button>
@@ -256,26 +262,29 @@ export function GuestWorkspace(props: GuestViewProps) {
           const address = g.addressFor(s);
           const look = peekServerLook(s.shortCode);
           const accent = lookColorHex(look?.color);
+          const bannerUrl = look?.bannerHash ? serverBannerUrl(s.shortCode, look.bannerHash) : null;
+          const fade = "linear-gradient(to bottom, black 25%, transparent 100%)";
           return (
-            <div className="max-w-3xl mx-auto px-6 pt-14 pb-6 space-y-5">
+            <>
+            {/* O banner do servidor vira o fundo do topo da tela: escurecido e se desfazendo para a cor do app. */}
+            {bannerUrl && (
+              <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[26rem] overflow-hidden">
+                <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${bannerUrl})`, maskImage: fade, WebkitMaskImage: fade }} />
+              </div>
+            )}
+            {bannerUrl && signedIn && !s.isOwnServer && (
+              <button
+                type="button"
+                onClick={() => setReportingBanner({ shortCode: s.shortCode, name: s.name })}
+                title={t("report.banner.open")}
+                aria-label={t("report.banner.open")}
+                className="absolute right-4 top-14 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-semibold text-white opacity-70 transition-opacity hover:bg-black/70 hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+              ><Flag className="w-3 h-3" />{t("report.open")}</button>
+            )}
+            <div className="relative max-w-3xl mx-auto px-6 pt-14 pb-6 space-y-5">
               <button type="button" onClick={() => setShowDetail(false)} className="md:hidden inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" />{t("nui.guest.back")}</button>
 
-              {look?.bannerHash ? (
-                <div className="group/banner relative h-36 rounded-2xl overflow-hidden border border-theme-card" style={accent ? { borderColor: `${accent}66` } : undefined}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={serverBannerUrl(s.shortCode, look.bannerHash)} alt="" className="block w-full h-full object-cover" />
-                  {accent && <div aria-hidden className="absolute inset-x-0 bottom-0 h-1" style={{ background: `linear-gradient(90deg, ${accent}, transparent)` }} />}
-                  {signedIn && !s.isOwnServer && (
-                    <button
-                      type="button"
-                      onClick={() => setReportingBanner({ shortCode: s.shortCode, name: s.name })}
-                      title={t("report.banner.open")}
-                      aria-label={t("report.banner.open")}
-                      className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white opacity-0 transition-opacity hover:bg-black/75 focus-visible:opacity-100 group-hover/banner:opacity-100 cursor-pointer"
-                    ><Flag className="w-3 h-3" />{t("report.open")}</button>
-                  )}
-                </div>
-              ) : accent ? (
+              {!look?.bannerHash && accent ? (
                 <div aria-hidden className="h-1.5 rounded-full" style={{ background: `linear-gradient(90deg, ${accent}, ${accent}00)` }} />
               ) : null}
 
@@ -353,6 +362,7 @@ export function GuestWorkspace(props: GuestViewProps) {
                 </MiniButton>
               </div>
             </div>
+            </>
           );
         })()}
       </section>

@@ -5,7 +5,7 @@
 // Falha de rede nunca derruba o webhook do Stripe: quem chama segue em frente e o próximo evento corrige.
 // ============================================================
 
-import { supabaseService, type SupabaseEnv } from './supabase';
+import { chunk, supabaseService, type SupabaseEnv } from './supabase';
 import { applyActive, applyEnded, type StreakState } from './plus-tier';
 
 interface StreakRow {
@@ -34,14 +34,16 @@ export async function getStreaks(env: SupabaseEnv, userIds: string[]): Promise<M
   const ids = [...new Set(userIds)].filter((u) => UUID.test(u));
   if (ids.length === 0 || !env.SUPABASE_SERVICE_ROLE_KEY) return out;
   try {
-    const resp = await supabaseService(
-      env,
-      `/rest/v1/plus_streaks?user_id=in.(${ids.join(',')})&select=user_id,streak_started,counted_ms,segment_start,last_active_end`,
-    );
-    if (!resp.ok) return out;
-    const list: unknown = await resp.json().catch(() => []);
-    if (!Array.isArray(list)) return out;
-    for (const r of list as StreakRow[]) {
+    const parts = await Promise.all(chunk(ids).map(async (part) => {
+      const resp = await supabaseService(
+        env,
+        `/rest/v1/plus_streaks?user_id=in.(${part.join(',')})&select=user_id,streak_started,counted_ms,segment_start,last_active_end`,
+      );
+      if (!resp.ok) return [];
+      const list: unknown = await resp.json().catch(() => []);
+      return Array.isArray(list) ? (list as StreakRow[]) : [];
+    }));
+    for (const r of parts.flat()) {
       const s = toState(r);
       if (s) out.set(r.user_id, s);
     }

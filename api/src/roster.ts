@@ -6,7 +6,7 @@
 // aparece sem perfil ("Convidado" no app). O `uid` NUNCA sai deste módulo: o cliente só recebe os campos públicos.
 // ============================================================
 
-import { supabaseService, type SupabaseEnv } from './supabase';
+import { chunk, supabaseService, type SupabaseEnv } from './supabase';
 import { toPublic, withoutImages, type PublicProfile } from './profile';
 import { getStreaks } from './plus-streak';
 import { viewOf, type PlusTierId } from './plus-tier';
@@ -26,16 +26,20 @@ async function lookup(env: SupabaseEnv, uids: string[]): Promise<{ profiles: Map
   // Os uids vêm de claims assinadas pelo Worker, mas só entram na URL se forem UUID de verdade.
   const ids = [...new Set(uids)].filter((u) => UUID.test(u));
   if (ids.length === 0 || !env.SUPABASE_SERVICE_ROLE_KEY) return { profiles, plus };
-  const list = `in.(${ids.join(',')})`;
-
-  const [profileRows, subRows] = await Promise.all([
-    rows<{ user_id: string; display_name: string; avatar_id: string; name_color: string | null; bio: string | null; avatar_hash: string | null; banner_hash: string | null }>(
-      await supabaseService(env, `/rest/v1/profiles?user_id=${list}&select=user_id,display_name,avatar_id,name_color,bio,avatar_hash,banner_hash`),
-    ),
-    rows<{ user_id: string; status: string }>(
-      await supabaseService(env, `/rest/v1/subscriptions?user_id=${list}&select=user_id,status`),
-    ),
-  ]);
+  // Em blocos: com centenas de contas a URL passaria do limite e a consulta inteira falharia (ver chunk).
+  const parts = await Promise.all(chunk(ids).map(async (part) => {
+    const list = `in.(${part.join(',')})`;
+    return Promise.all([
+      rows<{ user_id: string; display_name: string; avatar_id: string; name_color: string | null; bio: string | null; avatar_hash: string | null; banner_hash: string | null }>(
+        await supabaseService(env, `/rest/v1/profiles?user_id=${list}&select=user_id,display_name,avatar_id,name_color,bio,avatar_hash,banner_hash`),
+      ),
+      rows<{ user_id: string; status: string }>(
+        await supabaseService(env, `/rest/v1/subscriptions?user_id=${list}&select=user_id,status`),
+      ),
+    ]);
+  }));
+  const profileRows = parts.flatMap((p) => p[0]);
+  const subRows = parts.flatMap((p) => p[1]);
   for (const r of profileRows) profiles.set(r.user_id, toPublic(r));
   // Mesmos status que userHasActiveSubscription considera como Plus ativo.
   for (const r of subRows) if (r.status === 'active' || r.status === 'trialing') plus.add(r.user_id);

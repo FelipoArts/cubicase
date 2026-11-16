@@ -111,6 +111,14 @@ export async function ownerHasPlus(env: ImagesEnv, uid: string, check?: PlusChec
   return plus;
 }
 
+/** Guarda "tem Plus" no cache da borda (usado logo após um envio de banner, que confere o Plus de verdade). */
+async function primePlusCache(uid: string): Promise<void> {
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  try {
+    await cache?.put(new Request(`https://plus-check.internal/${encodeURIComponent(uid)}`), new Response('1', { headers: { 'Cache-Control': `public, max-age=${PLUS_CACHE_SECONDS}` } }));
+  } catch { /* melhor esforço */ }
+}
+
 /** A aparência que os convidados veem: sem o dono do banner, e sem o banner se o Plus dele acabou. */
 export async function publicLook(env: ImagesEnv, look: ServerLook | undefined, check?: PlusCheck): Promise<PublicLook | null> {
   if (!look) return null;
@@ -140,6 +148,8 @@ export async function putBanner(env: ImagesEnv, server: { uuid: string; look?: S
   const checked = await checkImage('banner', bytes);
   if (!checked.ok) return { ok: false, status: checked.status, message: checked.message };
   await env.PROFILE_IMAGES.put(bannerKey(server.uuid), bytes, { httpMetadata: { contentType: 'image/webp' } });
+  // Quem acabou de assinar pode ter um "sem Plus" antigo no cache: sem isso o banner recém-enviado ficaria escondido por até 10 min.
+  if (!check) await primePlusCache(uid);
   return { ok: true, message: 'Banner atualizado.', look: { ...look, bannerHash: checked.hash, bannerOwner: uid, bannerAt: nowMs } };
 }
 

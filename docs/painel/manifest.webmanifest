@@ -7,7 +7,7 @@
   "start_url": "/painel/",
   "scope": "/painel/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#0a0a0c",
   "theme_color": "#0a0a0c",
   "icons": [
