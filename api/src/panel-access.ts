@@ -100,9 +100,22 @@ function allowlistMatches(allowlist: string[], tokens: string[]): boolean {
   });
 }
 
-/** Ações de moderação por jogador (Modo Espectador Web). Cada uma vira um comando de console equivalente. */
-export const PLAYER_ACTIONS = ['kick', 'ban', 'pardon'] as const;
+/**
+ * Ações por jogador (Modo Espectador Web e listas de acesso). Cada uma vira um comando de console equivalente:
+ * kick/ban/pardon, `whitelist add|remove`, `op` e `deop`.
+ */
+export const PLAYER_ACTIONS = ['kick', 'ban', 'pardon', 'whitelist_add', 'whitelist_remove', 'op', 'deop'] as const;
 export type PlayerAction = (typeof PLAYER_ACTIONS)[number];
+
+/** As palavras do comando de console equivalente: é com elas que a política de comandos da conta decide se a ação passa. */
+export function actionCommandTokens(action: PlayerAction, player: string): string[] {
+  const p = player.toLowerCase();
+  switch (action) {
+    case 'whitelist_add': return ['whitelist', 'add', p];
+    case 'whitelist_remove': return ['whitelist', 'remove', p];
+    default: return [action, p];
+  }
+}
 export const MAX_REASON_LENGTH = 100;
 
 // Mesmo critério do agent (src-tauri/src/players.rs): 1–16 de [A-Za-z0-9_], "." inicial opcional (Bedrock/Floodgate).
@@ -121,15 +134,33 @@ export type PanelMessageDecision =
         | { type: 'restart_server'; serverId: string }
         | { type: 'player_action'; action: PlayerAction; player: string; reason?: string; requestId: string }
         | { type: 'players_refresh' }
+        | { type: 'access_lists_get'; serverId: string }
         | { type: 'backup'; serverId: string };
     }
   | { ok: false; reason: string };
 
+/**
+ * Comandos que rodam OUTROS comandos (`execute run op Steve`, `function`, `schedule`, `return run`): numa lista de comandos
+ * liberados eles furariam a lista inteira. Só passam para quem tem "Todos os comandos".
+ */
+export const BYPASS_COMMANDS: readonly string[] = ['execute', 'function', 'schedule', 'return'];
+
+/** "minecraft:execute" é o mesmo comando que "execute": tira o prefixo de namespace antes de comparar. */
+export function isBypassCommand(firstToken: string | undefined): boolean {
+  if (!firstToken) return false;
+  return BYPASS_COMMANDS.includes(firstToken.replace(/^[a-z0-9_.-]+:/, ''));
+}
+
 /** Motivo da negação pela política de comandos, ou null se liberado. Compartilhado por "command" e "player_action". */
 function commandPolicyDenial(perms: PanelPermissions, tokens: string[]): string | null {
   if (perms.commands.mode === 'none') return 'Você não tem permissão para rodar comandos.';
-  if (perms.commands.mode === 'allowlist' && !allowlistMatches(perms.commands.allowlist, tokens)) {
-    return `O comando "${tokens[0]}" não está na sua lista de comandos permitidos.`;
+  if (perms.commands.mode === 'allowlist') {
+    if (isBypassCommand(tokens[0])) {
+      return `O comando "${tokens[0]}" pode rodar outros comandos e só é liberado com a opção "Todos os comandos".`;
+    }
+    if (!allowlistMatches(perms.commands.allowlist, tokens)) {
+      return `O comando "${tokens[0]}" não está na sua lista de comandos permitidos.`;
+    }
   }
   return null;
 }
@@ -176,15 +207,22 @@ export function authorizePanelMessage(perms: PanelPermissions, msg: unknown): Pa
         return { ok: false, reason: 'Mensagem inválida.' };
       }
       let reason: string | undefined;
-      if (action !== 'pardon' && m.reason !== undefined && m.reason !== null) {
+      if ((action === 'kick' || action === 'ban') && m.reason !== undefined && m.reason !== null) {
         if (typeof m.reason !== 'string' || CONTROL_CHARS.test(m.reason)) return { ok: false, reason: 'Motivo inválido.' };
         const collapsed = m.reason.trim().replace(/\s+/g, ' ');
         if (collapsed.length > MAX_REASON_LENGTH) return { ok: false, reason: 'Motivo muito longo (máximo 100 caracteres).' };
         if (collapsed) reason = collapsed;
       }
-      const denial = commandPolicyDenial(perms, [action, m.player.toLowerCase()]);
+      const denial = commandPolicyDenial(perms, actionCommandTokens(action, m.player));
       if (denial) return { ok: false, reason: denial };
       return { ok: true, forward: { type: 'player_action', action, player: m.player, ...(reason ? { reason } : {}), requestId: m.requestId } };
+    }
+    case 'access_lists_get': {
+      // Quem pode ver o console pode ver quem está na whitelist, nos operadores e nos banidos (mesmo critério da lista de online).
+      if (!perms.viewConsole) return { ok: false, reason: 'Você não tem permissão para ver as listas de jogadores.' };
+      const serverId = validServerId(m.serverId);
+      if (!serverId) return { ok: false, reason: 'Servidor inválido.' };
+      return { ok: true, forward: { type: 'access_lists_get', serverId } };
     }
     case 'players_refresh':
       // Mostra quem está online — mesmo critério de quem vê o console (a lista

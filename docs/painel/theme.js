@@ -99,10 +99,13 @@
     return toHex(hslToRgb(hsl));
   }
 
-  /** Cor do texto sobre um botão da cor de destaque: a que tiver mais contraste (branco ou quase preto). */
+  /**
+   * Cor do texto sobre um botão da cor de destaque. Branco enquanto o contraste for de pelo menos 3:1 (o mínimo para
+   * texto grande e em negrito, que é o caso dos botões; é o que mantém o vermelho do Cubicase com letra branca); abaixo
+   * disso (cores claras, como âmbar ou limão) entra o quase preto.
+   */
   function onAccent(hex) {
-    var rgb = toRgb(hex);
-    return contrast(rgb, [255, 255, 255]) >= contrast(rgb, [17, 17, 20]) ? "#ffffff" : "#111114";
+    return contrast(toRgb(hex), [255, 255, 255]) >= 3 ? "#ffffff" : "#111114";
   }
 
   function shade(hex, amount) {

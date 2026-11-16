@@ -950,6 +950,34 @@
   <p>The panel's first screen lists your account's computers, with a green dot and <span class="ui">Online now</span> for the ones running Cubicase, or <span class="ui">Offline · seen 3 days ago</span> for the others. Online ones come first. Each of your computers has <span class="ui">Rename</span> and <span class="ui">Remove</span>. Removing takes the computer off your account and cuts the access of anyone it was shared with; the app pairs again on its own the next time it opens with your account and Plus.</p>
   <p>If the same computer shows up several times, a notice at the top offers <span class="ui">Clean up duplicates</span>: among the ones with the same name the most recently seen stays, and the ones that never connected or have been idle for over a day go. Computers that are online, shared with someone or less than a day old are not removed. From now on the app recognizes its own computer and does not create a new one every time you sign out and back in.</p>
 
+  <h3>Sharing access with other people</h3>
+  <p>On the computers screen, your computer's <span class="ui">Share</span> button (or the button of the same name inside the panel) opens the invite window. Pick how to invite:</p>
+  <ul>
+    <li><strong>By e-mail:</strong> the person must already have a Cubicase account. The invite shows up under <span class="ui">Invites for you</span> when they open the panel with that e-mail. The panel leaves a ready-made message for you to copy or share, because the e-mail notice may not arrive.</li>
+    <li><strong>By link:</strong> single-use, valid for 1, 7 or 30 days. Copy it or use your phone's share menu.</li>
+  </ul>
+  <p>Then pick the <strong>template</strong> (Viewer, Operator, Moderator or Administrator) and adjust. A plain-language summary shows what the person will and won't be able to do. Whoever accepts does not need Cubicase Plus; only you, the computer's owner, do.</p>
+  <h3>Choosing the allowed commands</h3>
+  <p>Under <span class="ui">Console commands</span>, the <span class="ui">Only the ones I choose</span> option opens a search field. Type the command and the list suggests the game's commands (with a description), most used first; <code>whitelist a</code> suggests the subcommands. Tap the suggestion or press Enter to add it. Each item can be removed with the ×.</p>
+  <ul>
+    <li><strong>Typos:</strong> if the command is not one we know, the panel asks "Are you sure?" and suggests the fix (for example "gamemode" for "gamemdoe"). Mods and plugins have their own commands, so you can add it anyway; the item is marked in yellow.</li>
+    <li><strong>Dangerous commands:</strong> <code>op</code>, <code>reload</code>, <code>stop</code> and others ask for confirmation and are marked in red.</li>
+    <li><strong>Commands that run other commands</strong> (<code>execute</code>, <code>function</code>, <code>schedule</code>, <code>return</code>) cannot go in a list, because they would bypass the whole list (<code>execute run op Someone</code>). They only work with the <span class="ui">All, including the dangerous ones</span> option.</li>
+    <li>The game's command list comes from the open-source minecraft-data project and covers versions 1.13 up to the latest.</li>
+  </ul>
+  <p>Each person with access sees a <span class="ui">Shared access</span> badge in the panel; tapping it shows what they can do. To change an existing access, use <span class="ui">Edit permissions</span> in the share window: it is the same selector.</p>
+
+  <h3>Whitelist, operators and banned players</h3>
+  <p>The <span class="ui">Players</span> tab has four parts: <span class="ui">Online</span>, <span class="ui">Whitelist</span>, <span class="ui">OPs</span> and <span class="ui">Banned</span>, each with its head count. In the last three you see who is on the list, <strong>add</strong> by player name and <strong>remove</strong> (Remove, Remove OP or Pardon). Banning accepts an optional reason. If the list's server is not the one running, the selector at the top switches servers.</p>
+  <ul>
+    <li>The lists come from the server's files on the host's computer and only show names.</li>
+    <li>To <strong>change</strong> them the server must be running: the panel sends the command to the server (<code>whitelist add</code>, <code>op</code>, <code>ban</code>…). With it off you can view but not change.</li>
+    <li>The server may refuse a name that does not exist. That is why the panel re-reads the list right after and warns when the change did not show up.</li>
+    <li>Who can do what follows the console permissions. A moderator with <code>whitelist</code> in the command list manages the whitelist, but does not see the OP or ban buttons unless those commands are allowed. Making someone OP asks for a separate confirmation, because operators have full control.</li>
+    <li>If the whitelist is off on the server, a notice reminds you that anyone with the code can join.</li>
+    <li>It needs Cubicase updated on the computer: with an old version the panel says the app did not answer.</li>
+  </ul>
+
   <h3>On your phone</h3>
   <p>On a phone the panel fills the screen and shows one section at a time, with tabs at the bottom: <span class="ui">Server</span>, <span class="ui">Players</span>, <span class="ui">Console</span> and <span class="ui">More</span>. <span class="ui">More</span> holds installing the panel as an app, notifications, sharing access and <span class="ui">Appearance</span>. The console has shortcuts for the most used commands (such as <code>say</code>, <code>time set day</code> and <code>weather clear</code>), only the ones your account can use. To open it like an app, use <span class="ui">Install app</span> (on iPhone: Share, then Add to Home Screen).</p>
 

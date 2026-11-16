@@ -19,6 +19,7 @@ import {
   OWNER_PERMISSIONS,
   type PanelPermissions,
 } from './panel-access';
+import { sendInviteEmail, inviteMailConfigured, type InviteMailEnv } from './panel-invite-mail';
 import {
   resolveSupabaseUser,
   supabaseService,
@@ -27,7 +28,7 @@ import {
   type SupabaseUser,
 } from './supabase';
 
-export interface PanelEnv extends SupabaseEnv {
+export interface PanelEnv extends SupabaseEnv, InviteMailEnv {
   HOST_CHANNEL: DurableObjectNamespace;
 }
 
@@ -506,7 +507,20 @@ async function createInvite(req: Request, deps: PanelDeps, user: SupabaseUser, d
       }),
     }));
     if (!created[0]) return res(500, 'INTERNAL_ERROR', 'Não foi possível criar o convite.');
-    return OK('Convite enviado. A pessoa verá o convite ao abrir o painel.', { id: created[0].id, kind: 'email' });
+    // O convite já está criado e a pessoa o vê ao abrir o painel; o e-mail é só o aviso (e só sai com remetente próprio configurado).
+    const ownerInfo = await userInfo(env, [user.id]);
+    const emailed = await sendInviteEmail(env, {
+      to: email,
+      owner: labelOf(ownerInfo.get(user.id)),
+      device: owner.device.device_name,
+      days: Math.round(EMAIL_INVITE_TTL_HOURS / 24),
+    });
+    const message = emailed
+      ? 'Convite criado e e-mail enviado. A pessoa também o verá ao abrir o painel.'
+      : inviteMailConfigured(env)
+        ? 'Convite criado, mas o e-mail não saiu. Avise a pessoa para abrir o painel e entrar com este e-mail.'
+        : 'Convite criado. Avise a pessoa para abrir o painel e entrar com este e-mail: o convite aparece lá.';
+    return OK(message, { id: created[0].id, kind: 'email', emailed });
   }
 
   const singleUse = body.singleUse !== false;

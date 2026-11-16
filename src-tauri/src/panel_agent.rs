@@ -624,6 +624,22 @@ async fn handle_incoming_message(app: &AppHandle, raw: &str, tx: &tokio::sync::m
             let request_id = value.get("requestId").and_then(|v| v.as_str()).and_then(players::sanitize_request_id);
             run_remote_backup(app, tx, server_id, request_id).await;
         }
+        "access_lists_get" => {
+            // Whitelist, operadores e banidos do servidor pedido, lidos dos arquivos (só nomes). O Worker já conferiu que
+            // quem pediu pode ver o console; o servidor é procurado entre os desta máquina, nunca por caminho vindo de fora.
+            let Some(server_id) = value.get("serverId").and_then(|v| v.as_str()) else { return; };
+            let Some(dir) = find_server_dir(app, server_id) else {
+                let _ = tx.send(serde_json::json!({ "type": "error", "message": "Servidor não encontrado neste computador." }).to_string());
+                return;
+            };
+            let mut msg = crate::access_lists_snapshot(&dir);
+            if let Some(obj) = msg.as_object_mut() {
+                obj.insert("type".into(), serde_json::json!("access_lists"));
+                obj.insert("serverId".into(), serde_json::json!(server_id));
+                obj.insert("ts".into(), serde_json::json!(now_iso()));
+            }
+            let _ = tx.send(msg.to_string());
+        }
         "players_refresh" => {
             request_player_list_refresh(app, LIST_REFRESH_MANUAL_MIN_MS).await;
             // A resposta do `list` chega pelo log; dá um instante pra ela ser

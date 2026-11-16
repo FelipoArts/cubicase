@@ -4093,6 +4093,41 @@ fn read_json_list<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<Vec<
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
+/// Retrato das listas de acesso de um servidor para o painel web: só nomes (nenhum UUID sai do computador), em ordem
+/// alfabética, no máximo `ACCESS_LISTS_MAX` de cada lista. Arquivo ausente ou ilegível vira lista vazia.
+pub(crate) const ACCESS_LISTS_MAX: usize = 500;
+
+pub(crate) fn access_lists_snapshot(server_dir: &std::path::Path) -> serde_json::Value {
+    let dir = server_dir.to_path_buf();
+    let whitelist: Vec<WhitelistEntry> = read_json_list(&dir.join("whitelist.json")).unwrap_or_default();
+    let ops: Vec<OpEntry> = read_json_list(&dir.join("ops.json")).unwrap_or_default();
+    let banned: Vec<BannedPlayerEntry> = read_json_list(&dir.join("banned-players.json")).unwrap_or_default();
+
+    let mut whitelist_names: Vec<String> = whitelist.into_iter().map(|e| e.name).collect();
+    whitelist_names.sort_by_key(|n| n.to_lowercase());
+    let mut ops = ops;
+    ops.sort_by_key(|e| e.name.to_lowercase());
+    let mut banned = banned;
+    banned.sort_by_key(|e| e.name.to_lowercase());
+
+    // `white-list=true` em server.properties: sem isso a lista existe mas não barra ninguém.
+    let whitelist_enabled = std::fs::read_to_string(dir.join("server.properties")).ok().and_then(|c| {
+        c.lines()
+            .filter_map(|l| l.trim().split_once('='))
+            .find(|(k, _)| k.trim() == "white-list")
+            .map(|(_, v)| v.trim().eq_ignore_ascii_case("true"))
+    });
+
+    let truncated = whitelist_names.len() > ACCESS_LISTS_MAX || ops.len() > ACCESS_LISTS_MAX || banned.len() > ACCESS_LISTS_MAX;
+    serde_json::json!({
+        "whitelist": whitelist_names.iter().take(ACCESS_LISTS_MAX).map(|n| serde_json::json!({ "name": n })).collect::<Vec<_>>(),
+        "ops": ops.iter().take(ACCESS_LISTS_MAX).map(|e| serde_json::json!({ "name": e.name, "level": e.level })).collect::<Vec<_>>(),
+        "banned": banned.iter().take(ACCESS_LISTS_MAX).map(|e| serde_json::json!({ "name": e.name, "reason": e.reason, "created": e.created })).collect::<Vec<_>>(),
+        "whitelistEnabled": whitelist_enabled,
+        "truncated": truncated,
+    })
+}
+
 fn write_json_list<T: Serialize>(path: &PathBuf, items: &[T]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
     atomic_write(path, json.as_bytes())

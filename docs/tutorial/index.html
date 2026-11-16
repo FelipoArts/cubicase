@@ -950,6 +950,34 @@
   <p>A primeira tela do painel lista os computadores da sua conta, com um ponto verde e <span class="ui">Online agora</span> para os que estão com o Cubicase aberto, ou <span class="ui">Offline · visto há 3 dias</span> para os outros. Os online aparecem primeiro. Em cada computador seu há <span class="ui">Renomear</span> e <span class="ui">Remover</span>. Remover tira o computador da conta e derruba o acesso de quem tinha compartilhamento nele; o app se pareia de novo sozinho na próxima vez que for aberto com a conta e o Plus.</p>
   <p>Se o mesmo computador aparecer várias vezes, um aviso no topo oferece <span class="ui">Limpar repetidos</span>: entre os de mesmo nome fica o visto por último, e saem os que nunca conectaram ou estão parados há mais de um dia. Quem está online, tem acesso compartilhado ou foi criado há menos de um dia não é removido. Daqui para frente o app reconhece o próprio computador e não cria um novo a cada vez que você sai da conta e entra de novo.</p>
 
+  <h3>Compartilhar o acesso com outras pessoas</h3>
+  <p>Na tela de computadores, o botão <span class="ui">Compartilhar</span> do seu computador (ou o botão de mesmo nome dentro do painel) abre a janela de convite. Escolha como convidar:</p>
+  <ul>
+    <li><strong>Por e-mail:</strong> a pessoa precisa já ter conta no Cubicase. O convite aparece em <span class="ui">Convites para você</span> quando ela abre o painel com aquele e-mail. O painel deixa uma mensagem pronta para você copiar ou compartilhar, porque o aviso por e-mail pode não chegar.</li>
+    <li><strong>Por link:</strong> de uso único e com validade de 1, 7 ou 30 dias. Copie ou use o menu de compartilhar do celular.</li>
+  </ul>
+  <p>Depois escolha o <strong>modelo</strong> (Visualizador, Operador, Moderador ou Administrador) e ajuste. Um resumo em linguagem simples mostra o que a pessoa poderá e não poderá fazer. Quem aceita não precisa ter o Cubicase Plus; só você, dono do computador, precisa.</p>
+  <h3>Escolher os comandos liberados</h3>
+  <p>Em <span class="ui">Comandos no console</span>, a opção <span class="ui">Só os que eu escolher</span> abre um campo de busca. Digite o comando e a lista sugere os do jogo (com explicação), os mais usados primeiro; <code>whitelist a</code> sugere os subcomandos. Toque na sugestão ou aperte Enter para adicionar. Dá para remover cada item no ×.</p>
+  <ul>
+    <li><strong>Erro de digitação:</strong> se o comando não é um que a gente conhece, o painel pergunta “Tem certeza?” e sugere a correção (por exemplo “gamemode” para “gamemdoe”). Mods e plugins têm comandos próprios, então você pode adicionar mesmo assim; o item fica marcado em amarelo.</li>
+    <li><strong>Comandos perigosos:</strong> <code>op</code>, <code>reload</code>, <code>stop</code> e outros pedem confirmação e ficam marcados em vermelho.</li>
+    <li><strong>Comandos que rodam outros comandos</strong> (<code>execute</code>, <code>function</code>, <code>schedule</code>, <code>return</code>) não entram numa lista, porque furariam a lista inteira (<code>execute run op Fulano</code>). Eles só valem com a opção <span class="ui">Todos, inclusive os perigosos</span>.</li>
+    <li>A lista de comandos do jogo vem do projeto de código aberto minecraft-data e cobre as versões 1.13 até as mais recentes.</li>
+  </ul>
+  <p>Cada pessoa com acesso mostra uma etiqueta <span class="ui">Acesso compartilhado</span> no painel; tocar nela mostra o que ela pode fazer. Para mudar um acesso que já existe, use <span class="ui">Editar permissões</span> na janela de compartilhar: é o mesmo seletor.</p>
+
+  <h3>Whitelist, operadores e banidos</h3>
+  <p>A aba <span class="ui">Jogadores</span> tem quatro partes: <span class="ui">Online</span>, <span class="ui">Whitelist</span>, <span class="ui">OPs</span> e <span class="ui">Banidos</span>, cada uma com a quantidade de pessoas. Nas três últimas você vê quem está na lista, <strong>adiciona</strong> pelo nome do jogador e <strong>remove</strong> (Remover, Tirar OP ou Perdoar). Banir aceita um motivo opcional. Se o servidor da lista não for o que está rodando, o seletor no topo troca de servidor.</p>
+  <ul>
+    <li>As listas vêm dos arquivos do servidor, no computador do host, e só mostram nomes.</li>
+    <li>Para <strong>alterar</strong>, o servidor precisa estar ligado: o painel manda o comando ao servidor (<code>whitelist add</code>, <code>op</code>, <code>ban</code>…). Com ele desligado dá para ver, mas não mudar.</li>
+    <li>O servidor pode recusar um nome que não existe. Por isso o painel relê a lista logo depois e avisa quando a mudança não apareceu.</li>
+    <li>Quem pode fazer o quê segue as permissões do console. Um moderador com <code>whitelist</code> na lista de comandos mexe na whitelist, mas não vê os botões de OP nem de banir, a menos que tenha esses comandos liberados. Dar OP pede uma confirmação à parte, porque operador tem controle total.</li>
+    <li>Se a whitelist estiver desligada no servidor, um aviso lembra que qualquer pessoa com o código entra.</li>
+    <li>Pede o Cubicase atualizado no computador: com uma versão antiga, o painel avisa que o app não respondeu.</li>
+  </ul>
+
   <h3>No celular</h3>
   <p>No celular o painel ocupa a tela toda e mostra uma seção por vez, com abas embaixo: <span class="ui">Servidor</span>, <span class="ui">Jogadores</span>, <span class="ui">Console</span> e <span class="ui">Mais</span>. Em <span class="ui">Mais</span> ficam instalar o painel como app, notificações, compartilhar acesso e <span class="ui">Aparência</span>. No console há atalhos para os comandos mais usados (como <code>say</code>, <code>time set day</code> e <code>weather clear</code>), só com os que a sua conta pode usar. Para abrir como um app, use <span class="ui">Instalar app</span> (no iPhone: Compartilhar e depois Adicionar à Tela de Início).</p>
 

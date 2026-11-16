@@ -104,9 +104,12 @@ interface Env extends LinkEnv {
   // Opcional (precisa de domínio verificado no Resend; sem isso usa o remetente
   // de testes onboarding@resend.dev, que só entrega ao dono da conta Resend):
   //   wrangler secret put FEEDBACK_FROM_EMAIL   (ex.: Cubicase <ajuda@cubicase.net>)
+  //   wrangler secret put INVITE_FROM_EMAIL     (ex.: Cubicase <convites@cubicase.net>; domínio verificado no Resend, senão o e-mail do convite não sai)
   RESEND_API_KEY?: string;
   FEEDBACK_TO_EMAIL?: string;
   FEEDBACK_FROM_EMAIL?: string;
+  /** Remetente do e-mail de convite do painel (domínio verificado no Resend). Sem ele o e-mail do convite não é enviado. */
+  INVITE_FROM_EMAIL?: string;
   // Painel do dono (/admin), ver admin.ts. Sem ADMIN_TOKEN as rotas respondem 404.
   //   wrangler secret put ADMIN_TOKEN              (senha longa e aleatória)
   //   wrangler secret put ADMIN_DISCORD_WEBHOOK    (webhook de um canal só seu: avisos de serviço fora do ar)

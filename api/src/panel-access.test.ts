@@ -181,7 +181,7 @@ describe("player_action (Modo Espectador Web)", () => {
     expect(authorizePanelMessage(p, act({ action: "ban", player: "STEVE" })).ok).toBe(true);
   });
   it("recusa ação desconhecida (incluindo as que parecem comando perigoso)", () => {
-    for (const action of ["op", "deop", "stop", "kick ", "KICK", "", undefined, 5]) {
+    for (const action of ["stop", "whitelist", "op ", "OP", "deop_all", "kick ", "KICK", "", undefined, 5]) {
       expect(authorizePanelMessage(OWNER_PERMISSIONS, act({ action })).ok).toBe(false);
     }
   });
@@ -213,6 +213,82 @@ describe("player_action (Modo Espectador Web)", () => {
   it("não repassa campos extras mandados pelo painel", () => {
     const d = authorizePanelMessage(OWNER_PERMISSIONS, act({ command: "stop", by: "Fingindo" }));
     expect(d).toEqual({ ok: true, forward: { type: "player_action", action: "kick", player: "Steve", requestId: "r-1" } });
+  });
+});
+
+describe("listas de acesso (whitelist, operadores, banidos)", () => {
+  const mod = PERMISSION_PRESETS.moderator; // allowlist: say, kick, whitelist
+  const act = (action: string, over: object = {}) => ({ type: "player_action", action, player: "Steve", requestId: "r-1", ...over });
+
+  it("whitelist segue o comando 'whitelist': o moderador pode, quem só roda 'say' não", () => {
+    for (const action of ["whitelist_add", "whitelist_remove"]) {
+      expect(authorizePanelMessage(mod, act(action))).toEqual({ ok: true, forward: { type: "player_action", action, player: "Steve", requestId: "r-1" } });
+    }
+    const onlySay = perms({ commands: { mode: "allowlist", allowlist: ["say"] } });
+    expect(authorizePanelMessage(onlySay, act("whitelist_add")).ok).toBe(false);
+  });
+
+  it("op e deop só passam para quem pode rodar esse comando (o moderador não pode; o dono pode)", () => {
+    for (const action of ["op", "deop"]) {
+      const denied = authorizePanelMessage(mod, act(action));
+      expect(denied.ok).toBe(false);
+      if (!denied.ok) expect(denied.reason).toContain(action);
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, act(action)).ok).toBe(true);
+      expect(authorizePanelMessage(perms({ commands: { mode: "allowlist", allowlist: [action] } }), act(action)).ok).toBe(true);
+      expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, act(action)).ok).toBe(false);
+      expect(authorizePanelMessage(PERMISSION_PRESETS.operator, act(action)).ok).toBe(false);
+    }
+  });
+
+  it("uma allowlist 'whitelist add' libera adicionar mas não remover", () => {
+    const p = perms({ commands: { mode: "allowlist", allowlist: ["whitelist add"] } });
+    expect(authorizePanelMessage(p, act("whitelist_add")).ok).toBe(true);
+    expect(authorizePanelMessage(p, act("whitelist_remove")).ok).toBe(false);
+  });
+
+  it("nome de jogador inválido continua barrado e o motivo só vale para kick e ban", () => {
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act("whitelist_add", { player: "Steve\nstop" })).ok).toBe(false);
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, act("op", { player: "@a" })).ok).toBe(false);
+    const d = authorizePanelMessage(OWNER_PERMISSIONS, act("op", { reason: "x\nstop" }));
+    expect(d).toMatchObject({ ok: true });
+    if (d.ok) expect("reason" in d.forward).toBe(false);
+  });
+});
+
+describe("comandos que furam a lista (execute, function, schedule, return)", () => {
+  const cmd = (command: string) => ({ type: "command", command });
+  const listed = (...entries: string[]) => perms({ commands: { mode: "allowlist", allowlist: entries } });
+
+  it("mesmo com o comando na lista, numa lista de comandos eles são negados com um motivo claro", () => {
+    for (const c of ["execute run op Steve", "EXECUTE as @a run say oi", "function meu:pack", "schedule function a:b 1t", "return run say oi", "minecraft:execute run stop"]) {
+      const d = authorizePanelMessage(listed("execute", "function", "schedule", "return", "minecraft:execute", "say"), cmd(c));
+      expect(d.ok).toBe(false);
+      if (!d.ok) expect(d.reason).toContain("Todos os comandos");
+    }
+  });
+
+  it("com 'Todos os comandos' continuam passando, e os comandos comuns da lista seguem funcionando", () => {
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, cmd("execute run say oi")).ok).toBe(true);
+    expect(authorizePanelMessage(listed("say"), cmd("say oi")).ok).toBe(true);
+    expect(authorizePanelMessage(listed("say"), cmd("executeish")).ok).toBe(false);
+  });
+
+  it("uma ação de jogador também passa pela mesma regra (a lista só tem comandos comuns)", () => {
+    const d = authorizePanelMessage(listed("whitelist"), { type: "player_action", action: "whitelist_add", player: "Steve", requestId: "r1" });
+    expect(d.ok).toBe(true);
+  });
+});
+
+describe("access_lists_get", () => {
+  it("exige poder ver o console e um id de servidor válido", () => {
+    expect(authorizePanelMessage(PERMISSION_PRESETS.viewer, { type: "access_lists_get", serverId: "s1" })).toEqual({ ok: true, forward: { type: "access_lists_get", serverId: "s1" } });
+    expect(authorizePanelMessage(perms({ viewConsole: false }), { type: "access_lists_get", serverId: "s1" }).ok).toBe(false);
+    for (const serverId of ["", undefined, 5, "a\nb", "x".repeat(201)]) {
+      expect(authorizePanelMessage(OWNER_PERMISSIONS, { type: "access_lists_get", serverId }).ok).toBe(false);
+    }
+  });
+  it("não repassa campos extras", () => {
+    expect(authorizePanelMessage(OWNER_PERMISSIONS, { type: "access_lists_get", serverId: "s1", path: "C:/x" })).toEqual({ ok: true, forward: { type: "access_lists_get", serverId: "s1" } });
   });
 });
 

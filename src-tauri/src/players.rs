@@ -160,8 +160,13 @@ pub fn build_player_command(action: &str, player: &str, reason: Option<&str>) ->
     if !is_valid_player_name(player) {
         return Err("Nome de jogador inválido.");
     }
+    // Quem pode pedir cada uma é decidido no Worker (política de comandos da conta); aqui só se monta o comando, e só a
+    // partir de campos validados.
     let verb = match action {
         "kick" | "ban" | "pardon" => action,
+        "whitelist_add" => return Ok(format!("whitelist add {}", player)),
+        "whitelist_remove" => return Ok(format!("whitelist remove {}", player)),
+        "op" | "deop" => return Ok(format!("{} {}", action, player)),
         _ => return Err("Ação não suportada."),
     };
     if verb == "pardon" {
@@ -340,6 +345,14 @@ mod tests {
     }
 
     #[test]
+    fn comando_de_listas_de_acesso() {
+        assert_eq!(build_player_command("whitelist_add", "Steve", None).unwrap(), "whitelist add Steve");
+        assert_eq!(build_player_command("whitelist_remove", "Steve", Some("ignorado")).unwrap(), "whitelist remove Steve");
+        assert_eq!(build_player_command("op", "Steve", None).unwrap(), "op Steve");
+        assert_eq!(build_player_command("deop", ".BedrockUser", Some("ignorado")).unwrap(), "deop .BedrockUser");
+    }
+
+    #[test]
     fn comando_de_moderacao_barra_injecao() {
         assert!(build_player_command("kick", "Steve\nstop", None).is_err());
         assert!(build_player_command("kick", "@a", None).is_err());
@@ -350,8 +363,12 @@ mod tests {
         assert!(build_player_command("ban", "Steve", Some("a\u{7}b")).is_err());
         assert!(build_player_command("ban", "Steve", Some(&"x".repeat(MAX_REASON_CHARS + 1))).is_err());
         assert!(build_player_command("ban", "Steve", Some(&"x".repeat(MAX_REASON_CHARS))).is_ok());
-        assert!(build_player_command("op", "Steve", None).is_err());
         assert!(build_player_command("stop", "Steve", None).is_err());
+        assert!(build_player_command("op", "Steve\nstop", None).is_err());
+        assert!(build_player_command("whitelist_add", "Steve extra", None).is_err());
+        assert!(build_player_command("whitelist_remove", "@a", None).is_err());
+        assert!(build_player_command("whitelist", "Steve", None).is_err()); // só as formas conhecidas viram comando
+        assert!(build_player_command("op_all", "Steve", None).is_err());
     }
 
     #[test]

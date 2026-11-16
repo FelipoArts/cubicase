@@ -724,7 +724,7 @@ export class HostChannel {
         return;
       }
       await this.cacheAgentSnapshot(parsed, message);
-      await this.broadcastToPanels(parsed, { consoleOnly: parsed?.type === 'log_line' || parsed?.type === 'error' || parsed?.type === 'players' });
+      await this.broadcastToPanels(parsed, { consoleOnly: parsed?.type === 'log_line' || parsed?.type === 'error' || parsed?.type === 'players' || parsed?.type === 'access_lists' });
       if (parsed?.type === 'status' && parsed.serverRunning === false) {
         await this.maybeCompleteRestart(ws);
       }

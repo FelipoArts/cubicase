@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/assets/style.css" />
   <!-- Aparência (cor, claro/escuro): roda já aqui para a página nascer com as cores escolhidas, sem piscar. -->
   <script src="/painel/theme.js"></script>
+  <script src="/painel/commands.js"></script>
   <script src="/assets/i18n/en.js"></script>
   <script src="/assets/i18n.js"></script>
   <style>
@@ -217,6 +218,131 @@
       input[type="checkbox"] { width: 22px; height: 22px; }
     }
 
+    /* ---- Jogadores: online, whitelist, operadores e banidos ---- */
+    .players-tabs { display: flex; width: 100%; margin-bottom: 14px; }
+    .players-tabs button { flex: 1; padding: 8px 4px; font-size: 13px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .access-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .access-add .login-input { flex: 1 1 150px; min-width: 0; }
+    .access-add .btn { padding: 11px 18px; font-size: 14px; }
+    .access-filter { margin-bottom: 8px; }
+    .btn-danger-fill { background: var(--danger); color: #fff; box-shadow: none; }
+    .btn-danger-fill:hover { background: var(--danger); filter: brightness(1.08); box-shadow: none; }
+    #access-server { margin-bottom: 12px; }
+    .player-name small { display: block; font-weight: 400; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-row.is-pending { opacity: 0.55; }
+
+    /* ---- Janela de confirmação da própria página ---- */
+    .dialog-backdrop { z-index: 80; align-items: center; padding: 16px; }
+    .dialog-card { max-width: 440px; padding: 22px; }
+    .dialog-message { font-size: 15px; line-height: 1.55; margin: 0 0 16px; white-space: pre-line; overflow-wrap: anywhere; }
+    .dialog-card .login-input { margin-bottom: 16px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .dialog-actions .btn { padding: 11px 20px; font-size: 14px; }
+    .dialog-card.is-danger #dialog-ok { background: var(--danger); color: #fff; box-shadow: none; }
+    /* No celular a pergunta sobe de baixo, como as outras janelas do painel. */
+    @media (max-width: 720px) {
+      .dialog-actions { flex-direction: column-reverse; }
+      .dialog-actions .btn { width: 100%; min-height: 48px; }
+    }
+
+    /* ---- Caixas de seleção, listas suspensas e barras de rolagem: visual do painel, no lugar do padrão do navegador ---- */
+    :root { --scroll-thumb: rgba(255, 255, 255, 0.22); --chevron: #a3a3ac; }
+    html[data-panel-mode="light"] { --scroll-thumb: rgba(0, 0, 0, 0.28); --chevron: #6c6c78; }
+    * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+    @supports not (scrollbar-color: auto) {
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+    }
+    textarea::-webkit-resizer { background: transparent; }
+
+    input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin: 0;
+      border: 1.5px solid var(--border-strong); border-radius: 6px; background: var(--bg-elevated);
+      display: inline-grid; place-content: center; cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    input[type="checkbox"]::after {
+      content: ""; width: 10px; height: 6px; margin-top: -2px;
+      border-left: 2px solid var(--on-accent, #fff); border-bottom: 2px solid var(--on-accent, #fff);
+      transform: rotate(-45deg) scale(0); transition: transform 0.12s ease;
+    }
+    input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+    input[type="checkbox"]:checked::after { transform: rotate(-45deg) scale(1); }
+    input[type="checkbox"]:hover:not(:disabled) { border-color: var(--accent); }
+    input[type="checkbox"]:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    select.login-input {
+      appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 42px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a3a3ac' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 14px center; background-size: 16px;
+    }
+    html[data-panel-mode="light"] select.login-input {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236c6c78' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    }
+
+    /* Permissões do acesso compartilhado: cada opção é uma linha tocável, que acende quando marcada. */
+    .perm-grid { gap: 8px; }
+    .perm-grid label, .check-row { gap: 10px; }
+    .perm-grid label {
+      padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated);
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    .perm-grid label:hover { border-color: var(--border-strong); }
+    .perm-grid label:has(input:checked) { border-color: var(--accent-soft-strong); background: var(--accent-soft); }
+    .perm-allowlist-wrap { margin-top: 12px; }
+    .perm-allowlist { display: block; line-height: 1.5; }
+    .perm-label + .login-input { margin-bottom: 0; }
+
+    /* ---- Acesso compartilhado: permissões em linguagem simples e seletor de comandos ---- */
+    button.badge-shared { background: none; cursor: pointer; font-family: inherit; }
+    button.badge-shared:hover { border-color: var(--accent); }
+    .perm-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+    .perm-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.4; }
+    .perm-list li::before { flex: none; width: 18px; font-weight: 700; }
+    .perm-list li.yes::before { content: "✓"; color: #34d976; }
+    .perm-list li.no { color: var(--text-muted); }
+    .perm-list li.no::before { content: "✕"; color: var(--text-muted); }
+    html[data-panel-mode="light"] .perm-list li.yes::before { color: #0f8a3e; }
+    .perm-preview { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
+    .perm-preview strong { font-size: 13px; }
+    .perm-warns { margin-top: 10px; display: grid; gap: 6px; }
+    .perm-warns p { margin: 0; font-size: 12.5px; color: #f5a524; display: flex; gap: 8px; }
+    .perm-warns p::before { content: "!"; flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+    html[data-panel-mode="light"] .perm-warns p { color: #b25e00; }
+
+    .cmd-picker { margin-top: 12px; }
+    .cmd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .cmd-chips:empty { display: none; }
+    .cmd-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--bg-elevated); font-size: 13px; }
+    .cmd-chip code { font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace; }
+    .cmd-chip button { width: 26px; height: 26px; border: none; border-radius: 50%; background: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; display: grid; place-items: center; }
+    .cmd-chip button:hover { background: var(--accent-soft); color: var(--accent-text, var(--accent)); }
+    .cmd-chip.is-unknown { border-color: #f5a524; }
+    .cmd-chip.is-risky { border-color: var(--danger-soft); background: var(--danger-bg); }
+    .cmd-suggest { list-style: none; margin: 6px 0 0; padding: 4px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); max-height: 248px; overflow-y: auto; }
+    .cmd-suggest[hidden] { display: none; }
+    .cmd-suggest li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+    .cmd-suggest li.is-active, .cmd-suggest li:hover { background: var(--accent-soft); }
+    .cmd-suggest li code { font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace; font-size: 13.5px; font-weight: 600; }
+    .cmd-suggest .desc { font-size: 12.5px; color: var(--text-muted); flex: 1 1 140px; }
+    .cmd-suggest .tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-secondary); }
+    .cmd-suggest .tag.risky { color: var(--danger); border-color: var(--danger-soft); }
+    .cmd-suggest li.is-blocked { opacity: 0.6; }
+    .cmd-notice { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg-elevated); font-size: 13px; line-height: 1.45; }
+    .cmd-notice.is-warn { border-color: #f5a524; }
+    .cmd-notice.is-bad { border-color: var(--danger-soft); background: var(--danger-bg); }
+    .cmd-notice .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .cmd-quick { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .cmd-quick .label { font-size: 12px; color: var(--text-muted); margin-right: 2px; }
+    .cmd-quick .chip { padding: 5px 11px; min-height: 32px; font-size: 12.5px; }
+    @media (max-width: 720px) {
+      .cmd-chip button { width: 36px; height: 36px; }
+      .cmd-chip { padding-left: 12px; }
+      .cmd-suggest li { padding: 12px 10px; }
+      .cmd-quick .chip { min-height: 40px; }
+    }
+
     /* ---- Comandos rápidos do console ---- */
     .quick-cmds { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
     .quick-cmds::-webkit-scrollbar { display: none; }
@@ -310,6 +436,12 @@
       .player-row { flex-wrap: wrap; }
       .player-actions { width: 100%; }
       .player-actions .btn-mini { flex: 1; }
+      /* Nas listas de acesso há um só botão por linha: fica ao lado do nome, não embaixo. */
+      .player-row.access-row { flex-wrap: nowrap; }
+      .access-row .player-actions { width: auto; flex: none; }
+      .access-row .player-actions .btn-mini { flex: none; min-width: 96px; }
+      .players-tabs button { min-height: 44px; font-size: 12.5px; }
+      .access-add .btn { min-height: 48px; flex: 1 1 100%; }
 
       /* Console: ocupa a altura toda e o campo de comando fica colado embaixo. */
       #panel-view[data-tab="console"] { display: flex; flex-direction: column; }
@@ -323,6 +455,12 @@
       /* Janelas viram folhas que sobem de baixo. */
       .modal-backdrop { padding: 0; align-items: flex-end; }
       .modal-card { max-width: none; border-radius: 22px 22px 0 0; max-height: 92vh; max-height: 92dvh; overflow-y: auto; padding: 20px 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+      /* O título e o "Fechar" ficam presos no topo da folha: com a lista longa, fechar nunca exige rolar de volta. */
+      .modal-card .modal-head {
+        position: sticky; top: -20px; z-index: 3; margin: -20px -16px 14px; padding: 16px;
+        background: var(--bg-card); border-bottom: 1px solid var(--border); border-radius: 22px 22px 0 0;
+      }
+      .modal-card .modal-head .link-btn { min-width: 44px; justify-content: flex-end; }
       .panel-toast { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
 
       body.in-panel .tabbar {
@@ -360,12 +498,14 @@
   <!-- Login + escolha de dispositivo + convite: cartão centralizado, como /entrar/. -->
   <header class="download-hero" id="auth-screen">
     <div class="container panel-shell">
-      <div class="eyebrow"><span class="dot"></span>Cubicase Plus</div>
+      <div class="eyebrow"><span class="dot"></span><span id="auth-eyebrow">Cubicase Plus</span><span id="auth-eyebrow-invite" hidden>Cubicase</span></div>
       <h1>Painel</h1>
-      <p class="hero-sub" style="margin: 18px auto 0; text-align: center;">
+      <p class="hero-sub" id="auth-hero-sub" style="margin: 18px auto 0; text-align: center;">
         Acompanhe e controle seu servidor de qualquer lugar — o computador
         precisa estar ligado, conectado à internet e com o Cubicase aberto.
       </p>
+
+      <p class="hero-sub" id="auth-hero-invite" style="margin: 18px auto 0; text-align: center;" hidden>Você foi convidado para acessar um computador. Entre ou crie a sua conta para ver o convite. Você não precisa ter o Cubicase Plus.</p>
 
       <div class="download-card" style="margin-top: 34px; text-align: left;">
         <div id="login-form">
@@ -385,7 +525,8 @@
         <!-- Convite recebido por link (?convite=...): mostra o que está sendo oferecido antes de aceitar. -->
         <div id="invite-view" hidden>
           <p class="hero-sub" style="text-align: left; margin: 0 0 12px;" id="invite-title"></p>
-          <div class="notice" id="invite-perms"></div>
+          <div class="notice invite-perms" id="invite-perms"></div>
+          <p class="perm-hint" style="margin-top: 12px;">Você não precisa ter o Cubicase Plus para aceitar. O computador precisa estar ligado, com o Cubicase aberto, para você usar o painel.</p>
           <div style="display: flex; gap: 10px; margin-top: 16px;">
             <button type="button" class="btn btn-primary" id="btn-invite-accept">Aceitar convite</button>
             <button type="button" class="btn btn-ghost" id="btn-invite-decline">Agora não</button>
@@ -424,7 +565,7 @@
       <div class="left">
         <span class="status-pill is-offline" id="agent-status"><span class="blip"></span><span id="agent-status-text">Conectando…</span></span>
         <span class="device-name" id="device-name-label"></span>
-        <span class="badge-shared" id="access-badge" hidden>Acesso compartilhado</span>
+        <button type="button" class="badge-shared" id="access-badge" hidden>Acesso compartilhado</button>
       </div>
       <div class="right" data-pane="more">
         <button type="button" class="btn-mini" id="btn-appearance">Aparência</button>
@@ -452,12 +593,36 @@
 
         <div class="panel-card" id="players-card" data-pane="players">
           <div class="players-head">
-            <h2>Jogadores online</h2>
+            <h2>Jogadores</h2>
             <button type="button" class="btn-mini" id="btn-players-refresh" hidden>Atualizar</button>
           </div>
-          <div id="players-list"></div>
-          <p class="panel-empty-note" id="players-note" hidden></p>
-          <p class="console-hint" id="players-updated" hidden></p>
+          <div class="segmented players-tabs" id="players-tabs" role="tablist">
+            <button type="button" role="tab" data-ptab="online" class="is-active">Online</button>
+            <button type="button" role="tab" data-ptab="whitelist">Whitelist</button>
+            <button type="button" role="tab" data-ptab="ops">OPs</button>
+            <button type="button" role="tab" data-ptab="banned">Banidos</button>
+          </div>
+
+          <div id="players-online">
+            <div id="players-list"></div>
+            <p class="panel-empty-note" id="players-note" hidden></p>
+            <p class="console-hint" id="players-updated" hidden></p>
+          </div>
+
+          <!-- Whitelist, operadores e banidos do servidor (lidos dos arquivos do computador; só nomes). -->
+          <div id="access-pane" hidden>
+            <select id="access-server" class="login-input" aria-label="Servidor" hidden></select>
+            <p class="notice" id="access-note" hidden></p>
+            <form class="access-add" id="access-add-form" hidden>
+              <input type="text" id="access-add-name" class="login-input" placeholder="Nome do jogador" maxlength="17" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <input type="text" id="access-add-reason" class="login-input" placeholder="Motivo (opcional)" maxlength="100" autocomplete="off" hidden />
+              <button type="submit" class="btn btn-primary" id="access-add-btn">Adicionar</button>
+            </form>
+            <input type="search" id="access-filter" class="login-input access-filter" placeholder="Buscar na lista" autocomplete="off" hidden />
+            <div id="access-list"></div>
+            <p class="panel-empty-note" id="access-empty" hidden></p>
+            <p class="console-hint" id="access-updated" hidden></p>
+          </div>
         </div>
       </div>
 
@@ -617,6 +782,31 @@
     </div>
   </div>
 
+  <!-- O que esta conta pode fazer num computador compartilhado (abre pela etiqueta "Acesso compartilhado"). -->
+  <div class="modal-backdrop" id="access-modal" hidden>
+    <div class="modal-card dialog-card">
+      <div class="modal-head">
+        <h2>Seu acesso a este computador</h2>
+        <button type="button" class="link-btn" id="access-modal-close">Fechar</button>
+      </div>
+      <p class="perm-hint" id="access-modal-owner" style="margin: 0 0 12px;"></p>
+      <div class="invite-perms" id="access-modal-perms"></div>
+      <p class="perm-hint" style="margin-top: 14px;">Para mudar o que você pode fazer, peça a quem compartilhou o computador.</p>
+    </div>
+  </div>
+
+  <!-- Janela de confirmação/pergunta da própria página (no lugar do confirm/prompt do navegador). -->
+  <div class="modal-backdrop dialog-backdrop" id="dialog-modal" hidden role="dialog" aria-modal="true" aria-labelledby="dialog-message">
+    <div class="modal-card dialog-card">
+      <p id="dialog-message" class="dialog-message"></p>
+      <input type="text" id="dialog-input" class="login-input" autocomplete="off" hidden />
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="dialog-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="dialog-ok">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="panel-toast" id="panel-toast" hidden></div>
 
   <script src="/assets/site.js"></script>
@@ -698,6 +888,15 @@
       statusEl.classList.toggle("is-error", isError);
     }
 
+    /** Quem chega por um convite vê um cabeçalho de convite (sem "Plus" e "Painel"), que o convidado não precisa. */
+    function setHero(invite) {
+      el("auth-eyebrow").hidden = invite;
+      el("auth-eyebrow-invite").hidden = !invite;
+      el("auth-hero-sub").hidden = invite;
+      el("auth-hero-invite").hidden = !invite;
+      document.querySelector("#auth-screen h1").textContent = invite ? i18n.t("Convite") : i18n.t("Painel");
+    }
+
     function showStep(step) {
       currentStep = step;
       authScreen.hidden = step === "panel";
@@ -735,10 +934,10 @@
     // ---- Permissões: presets, resumo e editor ----
 
     const PRESETS = {
-      viewer: { label: i18n.t("Visualizador"), desc: i18n.t("só acompanha status e console"), perms: { viewConsole: true, start: false, stop: false, restart: false, commands: { mode: "none", allowlist: [] } } },
-      operator: { label: i18n.t("Operador"), desc: i18n.t("liga, desliga e reinicia"), perms: { viewConsole: true, start: true, stop: true, restart: true, commands: { mode: "none", allowlist: [] } } },
-      moderator: { label: i18n.t("Moderador"), desc: i18n.t("console + say, kick e whitelist"), perms: { viewConsole: true, start: false, stop: false, restart: false, commands: { mode: "allowlist", allowlist: ["say", "kick", "whitelist"] } } },
-      admin: { label: i18n.t("Administrador"), desc: i18n.t("tudo, inclusive comandos livres"), perms: { viewConsole: true, start: true, stop: true, restart: true, commands: { mode: "all", allowlist: [] } } },
+      viewer: { label: i18n.t("Visualizador"), desc: i18n.t("só acompanha o servidor e o console"), perms: { viewConsole: true, start: false, stop: false, restart: false, commands: { mode: "none", allowlist: [] } } },
+      operator: { label: i18n.t("Operador"), desc: i18n.t("liga, desliga e reinicia o servidor"), perms: { viewConsole: true, start: true, stop: true, restart: true, commands: { mode: "none", allowlist: [] } } },
+      moderator: { label: i18n.t("Moderador"), desc: i18n.t("vê o console, avisa, expulsa, bane e cuida da whitelist"), perms: { viewConsole: true, start: false, stop: false, restart: false, commands: { mode: "allowlist", allowlist: ["say", "kick", "ban", "pardon", "whitelist"] } } },
+      admin: { label: i18n.t("Administrador"), desc: i18n.t("tudo, inclusive qualquer comando"), perms: { viewConsole: true, start: true, stop: true, restart: true, commands: { mode: "all", allowlist: [] } } },
     };
 
     function summarizePermissions(p) {
@@ -764,62 +963,350 @@
     }
 
     /** Editor de permissões (preset + campos individuais + whitelist de comandos). Devolve { el, get, setPerms }. */
+    // ---- Comandos do jogo: sugestões, avisos e o que cada permissão significa ----
+    // O catálogo (commands.js) vem dos dados do projeto minecraft-data; plugins e mods têm comandos que não estão nele,
+    // então um comando desconhecido só gera um aviso ("tem certeza?"), nunca uma recusa.
+    const CATALOG = window.CUBICASE_COMMANDS ?? null;
+    const CMD = CATALOG ? CATALOG.commands : [];
+    const CMD_BY_NAME = new Map(CMD.map((c) => [c.n, c]));
+    const BYPASS = new Set(CATALOG?.bypass ?? ["execute", "function", "schedule", "return"]);
+    const QUICK_ENTRIES = ["say", "kick", "ban", "pardon", "whitelist", "list", "time", "weather"];
+    const POPULAR = ["say", "kick", "ban", "pardon", "whitelist", "list", "time", "weather", "gamemode", "teleport", "tp", "give", "difficulty", "gamerule", "msg", "tell", "save-all", "kill", "effect", "clear", "xp", "experience", "title", "seed", "tps"];
+    const MAX_ALLOWLIST = 40;
+    const MAX_ENTRY_CHARS = 60;
+
+    const bareCmd = (name) => name.replace(/^[a-z0-9_.-]+:/, "");
+    const cmdDesc = (c) => (c?.d ? c.d[i18n.lang === "en" ? 1 : 0] : "");
+    const normCmd = (raw) => raw.trim().replace(/^\/+/, "").trim().toLowerCase().replace(/\s+/g, " ").replace(/^minecraft:/, "");
+
+    function editDistance(a, b) {
+      const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+      for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      return dp[a.length][b.length];
+    }
+    /** O comando parecido (erro de digitação), ou null. Nomes curtos aceitam só 1 letra de diferença. */
+    function closestOf(word, options) {
+      let best = null, bestD = Infinity;
+      for (const o of options) {
+        const d = editDistance(word, o);
+        if (d < bestD) { best = o; bestD = d; }
+      }
+      return best !== null && bestD <= (word.length <= 4 ? 1 : 2) ? best : null;
+    }
+
+    /** A conta com estas permissões conseguiria rodar este comando? (mesma regra do Worker: palavra por palavra) */
+    function allowsCommand(p, command) {
+      if (!p || p.commands.mode === "none") return false;
+      const words = command.trim().toLowerCase().split(/\s+/);
+      if (BYPASS.has(bareCmd(words[0])) && p.commands.mode !== "all") return false;
+      if (p.commands.mode === "all") return true;
+      return p.commands.allowlist.some((entry) => {
+        const e = entry.split(" ");
+        return e.length <= words.length && e.every((w, i) => w === words[i]);
+      });
+    }
+
+    /** O que a conta pode e não pode fazer, em linguagem simples. */
+    function describePermissions(p) {
+      const yes = [], no = [];
+      (p.viewConsole ? yes : no).push(p.viewConsole ? i18n.t("Ver o console e quem está online") : i18n.t("Ver o console"));
+      (p.start ? yes : no).push(i18n.t("Ligar o servidor"));
+      (p.stop ? yes : no).push(i18n.t("Desligar o servidor"));
+      (p.restart ? yes : no).push(i18n.t("Reiniciar o servidor"));
+      if (p.commands.mode === "all") yes.push(i18n.t("Rodar qualquer comando no console"));
+      else if (p.commands.mode === "allowlist") yes.push(i18n.t("Rodar só estes comandos: {list}", { list: p.commands.allowlist.join(", ") }));
+      else no.push(i18n.t("Rodar comandos no console"));
+      if (p.commands.mode !== "none") {
+        if (allowsCommand(p, "kick x")) yes.push(i18n.t("Expulsar jogadores"));
+        if (allowsCommand(p, "ban x")) yes.push(i18n.t("Banir e perdoar jogadores"));
+        if (allowsCommand(p, "whitelist add x")) yes.push(i18n.t("Cuidar da whitelist"));
+        if (allowsCommand(p, "op x")) yes.push(i18n.t("Dar e tirar OP (controle total do servidor)"));
+      }
+      return { yes, no };
+    }
+    function renderPermList(p) {
+      if (!p) return `<p class="panel-empty-note">${escapeHtml(i18n.t("Permissões inválidas"))}</p>`;
+      const { yes, no } = describePermissions(p);
+      return `<ul class="perm-list">${yes.map((x) => `<li class="yes">${escapeHtml(x)}</li>`).join("")}${no.map((x) => `<li class="no">${escapeHtml(x)}</li>`).join("")}</ul>`;
+    }
+
     function createPermissionEditor(initial) {
       const root = document.createElement("div");
       root.innerHTML = `
-        <label class="perm-label">Modelo</label>
+        <label class="perm-label">${i18n.t("Modelo")}</label>
         <select class="login-input perm-preset">
           ${Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${escapeHtml(p.label)} — ${escapeHtml(p.desc)}</option>`).join("")}
-          <option value="custom">Personalizado</option>
+          <option value="custom">${i18n.t("Personalizado")}</option>
         </select>
         <div class="perm-grid">
-          <label><input type="checkbox" data-perm="viewConsole" /> Ver o console</label>
-          <label><input type="checkbox" data-perm="start" /> Ligar o servidor</label>
-          <label><input type="checkbox" data-perm="stop" /> Desligar o servidor</label>
-          <label><input type="checkbox" data-perm="restart" /> Reiniciar o servidor</label>
+          <label><input type="checkbox" data-perm="viewConsole" /> ${i18n.t("Ver o console")}</label>
+          <label><input type="checkbox" data-perm="start" /> ${i18n.t("Ligar o servidor")}</label>
+          <label><input type="checkbox" data-perm="stop" /> ${i18n.t("Desligar o servidor")}</label>
+          <label><input type="checkbox" data-perm="restart" /> ${i18n.t("Reiniciar o servidor")}</label>
         </div>
-        <label class="perm-label">Comandos no console</label>
+        <label class="perm-label">${i18n.t("Comandos no console")}</label>
         <select class="login-input perm-cmd-mode">
-          <option value="none">Nenhum</option>
-          <option value="allowlist">Somente os desta lista</option>
-          <option value="all">Todos</option>
+          <option value="none">${i18n.t("Nenhum")}</option>
+          <option value="allowlist">${i18n.t("Só os que eu escolher")}</option>
+          <option value="all">${i18n.t("Todos, inclusive os perigosos")}</option>
         </select>
-        <div class="perm-allowlist-wrap" hidden>
-          <textarea class="login-input perm-allowlist" rows="3" placeholder="Um por linha (ou separados por vírgula). Ex:&#10;say&#10;kick&#10;time set"></textarea>
-          <p class="perm-hint">Cada item libera o comando e o que vem depois: "time set" libera "time set day", mas não "time add 5". O comando "stop" só funciona com "Desligar" marcado.</p>
-        </div>`;
+        <div class="cmd-picker" hidden>
+          <div class="cmd-chips"></div>
+          <input type="text" class="login-input cmd-input" placeholder="${escapeHtml(i18n.t("Digite um comando (ex.: kick, whitelist add)"))}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" role="combobox" aria-expanded="false" aria-autocomplete="list" maxlength="60" />
+          <ul class="cmd-suggest" role="listbox" hidden></ul>
+          <div class="cmd-notice" role="status" hidden></div>
+          <div class="cmd-quick"></div>
+          <p class="perm-hint">${i18n.t("Cada item libera o comando e o que vem depois: “time” libera todos os subcomandos de time; “time set” libera só time set. O comando “stop” só funciona com “Desligar” marcado.")}</p>
+        </div>
+        <div class="perm-warns" role="status"></div>
+        <div class="perm-preview"><strong>${i18n.t("Esta pessoa poderá")}</strong><div class="perm-preview-body"></div></div>`;
 
       const presetSel = root.querySelector(".perm-preset");
       const modeSel = root.querySelector(".perm-cmd-mode");
-      const listWrap = root.querySelector(".perm-allowlist-wrap");
-      const listArea = root.querySelector(".perm-allowlist");
+      const picker = root.querySelector(".cmd-picker");
+      const chipsBox = root.querySelector(".cmd-chips");
+      const input = root.querySelector(".cmd-input");
+      const list = root.querySelector(".cmd-suggest");
+      const notice = root.querySelector(".cmd-notice");
+      const quick = root.querySelector(".cmd-quick");
+      const warns = root.querySelector(".perm-warns");
+      const previewBody = root.querySelector(".perm-preview-body");
       const checks = [...root.querySelectorAll("input[data-perm]")];
+      let entries = [];
+      let shown = [];
+      let active = -1;
 
-      function parseAllowlist() {
-        return [...new Set(listArea.value.split(/[\n,]/).map(normalizeEntry).filter(Boolean))];
+      const changed = () => root.dispatchEvent(new Event("input", { bubbles: true }));
+      const coveredBy = (n) => entries.find((e) => n === e || n.startsWith(e + " "));
+
+      function classify(entry) {
+        if (!CMD.length) return "ok";
+        const c = CMD_BY_NAME.get(bareCmd(entry.split(" ")[0]));
+        if (!c) return "unknown";
+        const sub = entry.split(" ")[1];
+        if (sub && c.s && !c.s.includes(sub)) return "unknown";
+        return c.r === "risky" ? "risky" : "ok";
       }
+
+      function setNotice(text, tone, actions = []) {
+        if (!text) { notice.hidden = true; notice.textContent = ""; return; }
+        notice.className = `cmd-notice${tone ? ` is-${tone}` : ""}`;
+        notice.textContent = "";
+        const p = document.createElement("p");
+        p.style.margin = "0";
+        p.textContent = text;
+        notice.appendChild(p);
+        if (actions.length) {
+          const box = document.createElement("div");
+          box.className = "actions";
+          for (const a of actions) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "btn-mini" + (a.danger ? " btn-mini-danger" : "");
+            b.textContent = a.label;
+            b.addEventListener("click", () => { a.run(); });
+            box.appendChild(b);
+          }
+          notice.appendChild(box);
+        }
+        notice.hidden = false;
+      }
+
+      function renderChips() {
+        chipsBox.innerHTML = "";
+        entries.forEach((e, i) => {
+          const kind = classify(e);
+          const chip = document.createElement("span");
+          chip.className = `cmd-chip${kind === "unknown" ? " is-unknown" : kind === "risky" ? " is-risky" : ""}`;
+          chip.title = kind === "unknown" ? i18n.t("Comando que não está na nossa lista (pode ser de um mod ou plugin)") : kind === "risky" ? i18n.t("Comando perigoso") : "";
+          const code = document.createElement("code");
+          code.textContent = e;
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.textContent = "×";
+          rm.setAttribute("aria-label", i18n.t("Remover {cmd}", { cmd: e }));
+          rm.addEventListener("click", () => { entries.splice(i, 1); renderChips(); changed(); });
+          chip.append(code, rm);
+          chipsBox.appendChild(chip);
+        });
+        // atalhos dos comandos mais comuns (só os que ainda não estão na lista)
+        quick.innerHTML = "";
+        const left = QUICK_ENTRIES.filter((q) => !coveredBy(q) && (!CMD.length || CMD_BY_NAME.has(q)));
+        if (left.length && entries.length < MAX_ALLOWLIST) {
+          const lab = document.createElement("span");
+          lab.className = "label";
+          lab.textContent = i18n.t("Mais usados:");
+          quick.appendChild(lab);
+          for (const q of left) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "chip";
+            b.textContent = `+ ${q}`;
+            b.addEventListener("click", () => tryAdd(q));
+            quick.appendChild(b);
+          }
+        }
+      }
+
+      function suggest(raw) {
+        const q = normCmd(raw);
+        if (!q || !CMD.length) return [];
+        const parts = q.split(" ");
+        const rootWord = bareCmd(parts[0]);
+        const mk = (c, entry) => ({ entry, c });
+        if (parts.length > 1 || raw.endsWith(" ")) {
+          const c = CMD_BY_NAME.get(rootWord);
+          if (!c) return [];
+          const subq = parts.slice(1).join(" ");
+          return [mk(c, c.n), ...(c.s ?? []).filter((x) => x.startsWith(subq)).map((x) => mk(c, `${c.n} ${x}`))].slice(0, 10);
+        }
+        // Começa com o que foi digitado: os comandos mais usados primeiro. Só depois (e só com 3+ letras, para não virar
+        // ruído) os que têm o texto no nome ou na descrição.
+        const rank = (c) => { const i = POPULAR.indexOf(c.n); return i === -1 ? 999 : i; };
+        const starts = CMD.filter((c) => c.n.startsWith(rootWord)).sort((x, y) => rank(x) - rank(y) || x.n.localeCompare(y.n));
+        const rest = rootWord.length < 3 ? [] : CMD.filter((c) => !c.n.startsWith(rootWord) && (c.n.includes(rootWord) || cmdDesc(c).toLowerCase().includes(rootWord))).sort((x, y) => rank(x) - rank(y) || x.n.localeCompare(y.n));
+        return [...starts, ...rest].slice(0, 8).map((c) => mk(c, c.n));
+      }
+
+      function renderSuggest() {
+        const items = suggest(input.value);
+        shown = items;
+        active = items.length ? 0 : -1;
+        list.innerHTML = "";
+        list.hidden = items.length === 0;
+        input.setAttribute("aria-expanded", String(items.length > 0));
+        items.forEach((it, i) => {
+          const li = document.createElement("li");
+          li.setAttribute("role", "option");
+          li.className = (i === active ? "is-active" : "") + (BYPASS.has(it.c.n) ? " is-blocked" : "");
+          const code = document.createElement("code");
+          code.textContent = `/${it.entry}`;
+          const desc = document.createElement("span");
+          desc.className = "desc";
+          desc.textContent = it.entry === it.c.n ? cmdDesc(it.c) : "";
+          li.append(code, desc);
+          const tags = [];
+          if (BYPASS.has(it.c.n)) tags.push([i18n.t("só com “Todos”"), "risky"]);
+          else if (it.c.r === "risky") tags.push([i18n.t("cuidado"), "risky"]);
+          if (it.c.o) tags.push([it.c.o, ""]);
+          for (const [text, cls] of tags) { const t = document.createElement("span"); t.className = `tag ${cls}`; t.textContent = text; li.appendChild(t); }
+          li.addEventListener("mousedown", (e) => { e.preventDefault(); tryAdd(it.entry); });
+          list.appendChild(li);
+        });
+      }
+      function moveActive(delta) {
+        if (!shown.length) return;
+        active = (active + delta + shown.length) % shown.length;
+        [...list.children].forEach((li, i) => li.classList.toggle("is-active", i === active));
+        list.children[active]?.scrollIntoView({ block: "nearest" });
+      }
+      function closeSuggest() { list.hidden = true; input.setAttribute("aria-expanded", "false"); }
+
+      function commit(n) {
+        if (entries.length >= MAX_ALLOWLIST) { setNotice(i18n.t("A lista chegou ao limite de {max} comandos.", { max: MAX_ALLOWLIST }), "warn"); return; }
+        entries = entries.filter((e) => !e.startsWith(n + " ")); // o mais geral cobre os mais específicos
+        entries.push(n);
+        input.value = "";
+        setNotice(null);
+        closeSuggest();
+        renderChips();
+        changed();
+      }
+
+      function tryAdd(raw) {
+        const n = normCmd(raw);
+        if (!n) return;
+        if ([...n].length > MAX_ENTRY_CHARS) { setNotice(i18n.t("Esse comando é longo demais."), "bad"); return; }
+        if (/[^\x20-\x7e]/.test(n)) { setNotice(i18n.t("Use só letras, números e símbolos simples no comando."), "bad"); return; }
+        const rootName = bareCmd(n.split(" ")[0]);
+        if (BYPASS.has(rootName)) {
+          setNotice(i18n.t("“{cmd}” pode rodar qualquer outro comando, então só vale com a opção “Todos, inclusive os perigosos”. Por segurança ele não entra numa lista.", { cmd: rootName }), "bad");
+          return;
+        }
+        const cov = coveredBy(n);
+        if (cov) { setNotice(i18n.t("Já está liberado por “{cmd}”.", { cmd: cov }), "warn"); input.value = ""; closeSuggest(); return; }
+        if (CMD.length) {
+          const parts = n.split(" ");
+          const c = CMD_BY_NAME.get(rootName);
+          if (!c) {
+            const guess = closestOf(rootName, CMD.map((x) => x.n));
+            const actions = [];
+            if (guess) actions.push({ label: i18n.t("Usar “{cmd}”", { cmd: [guess, ...parts.slice(1)].join(" ") }), run: () => tryAdd([guess, ...parts.slice(1)].join(" ")) });
+            actions.push({ label: i18n.t("Adicionar mesmo assim"), run: () => commit(n) }, { label: i18n.t("Corrigir"), run: () => { setNotice(null); input.focus(); } });
+            setNotice(i18n.t("“{cmd}” não é um comando do Minecraft que a gente conhece. Pode ser de um mod ou plugin do seu servidor, ou um erro de digitação. Tem certeza?", { cmd: rootName }), "warn", actions);
+            return;
+          }
+          if (parts[1] && c.s && !c.s.includes(parts[1])) {
+            const guess = closestOf(parts[1], c.s);
+            const actions = [];
+            if (guess) actions.push({ label: i18n.t("Usar “{cmd}”", { cmd: `${c.n} ${guess}` }), run: () => tryAdd(`${c.n} ${guess}`) });
+            actions.push({ label: i18n.t("Adicionar mesmo assim"), run: () => commit(n) }, { label: i18n.t("Corrigir"), run: () => { setNotice(null); input.focus(); } });
+            setNotice(i18n.t("“{sub}” não é um subcomando de “{cmd}” que a gente conheça. Tem certeza?", { sub: parts[1], cmd: c.n }), "warn", actions);
+            return;
+          }
+          if (c.r === "risky") {
+            setNotice(i18n.t("“{cmd}” é um comando perigoso. {desc} Tem certeza de que quer liberar?", { cmd: c.n, desc: cmdDesc(c) }), "bad", [
+              { label: i18n.t("Liberar mesmo assim"), danger: true, run: () => commit(n) },
+              { label: i18n.t("Cancelar"), run: () => setNotice(null) },
+            ]);
+            return;
+          }
+        }
+        commit(n);
+      }
+
+      input.addEventListener("input", () => { setNotice(null); renderSuggest(); });
+      input.addEventListener("focus", renderSuggest);
+      input.addEventListener("blur", () => setTimeout(closeSuggest, 150));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") { e.preventDefault(); if (list.hidden) renderSuggest(); else moveActive(1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); moveActive(-1); }
+        else if (e.key === "Enter" || e.key === ",") {
+          e.preventDefault();
+          if (e.key === "Enter" && !list.hidden && active >= 0 && !input.value.trim().includes(" ")) tryAdd(shown[active].entry);
+          else tryAdd(input.value);
+        } else if (e.key === "Escape" && !list.hidden) { e.stopPropagation(); closeSuggest(); }
+        else if (e.key === "Backspace" && !input.value && entries.length) { entries.pop(); renderChips(); changed(); }
+      });
+
       function get() {
-        const perms = { commands: { mode: modeSel.value, allowlist: modeSel.value === "allowlist" ? parseAllowlist() : [] } };
+        const perms = { commands: { mode: modeSel.value, allowlist: modeSel.value === "allowlist" ? [...entries] : [] } };
         for (const c of checks) perms[c.dataset.perm] = c.checked;
         return perms;
+      }
+      function renderSummary() {
+        const p = get();
+        previewBody.innerHTML = renderPermList(p);
+        const notes = [];
+        if (p.start && !p.stop) notes.push(i18n.t("Sem “Desligar”, a pessoa não consegue trocar de servidor nem fazer backup."));
+        if (p.commands.mode === "allowlist" && entries.length === 0) notes.push(i18n.t("A lista está vazia: adicione ao menos um comando, ou escolha “Nenhum” ou “Todos”."));
+        if (p.commands.mode === "allowlist" && entries.includes("stop") && !p.stop) notes.push(i18n.t("“stop” só funciona com “Desligar” marcado."));
+        if (!p.viewConsole && p.commands.mode !== "none") notes.push(i18n.t("Sem ver o console, a pessoa não vê o resultado dos comandos."));
+        warns.innerHTML = notes.map((n) => `<p>${escapeHtml(n)}</p>`).join("");
       }
       function setPerms(p) {
         for (const c of checks) c.checked = !!p[c.dataset.perm];
         modeSel.value = p.commands.mode;
-        listArea.value = p.commands.allowlist.join("\n");
-        listWrap.hidden = p.commands.mode !== "allowlist";
+        entries = [...p.commands.allowlist];
+        picker.hidden = p.commands.mode !== "allowlist";
+        setNotice(null);
+        renderChips();
         syncPreset();
       }
       function syncPreset() {
         const current = get();
         const match = Object.entries(PRESETS).find(([, pr]) => samePerms(pr.perms, current));
         presetSel.value = match ? match[0] : "custom";
+        renderSummary();
       }
       presetSel.addEventListener("change", () => {
         if (presetSel.value !== "custom") setPerms(PRESETS[presetSel.value].perms);
       });
-      modeSel.addEventListener("change", () => { listWrap.hidden = modeSel.value !== "allowlist"; syncPreset(); });
-      root.addEventListener("input", (e) => { if (e.target !== presetSel) syncPreset(); });
+      modeSel.addEventListener("change", () => { picker.hidden = modeSel.value !== "allowlist"; setNotice(null); syncPreset(); });
+      root.addEventListener("input", (e) => { if (e.target !== presetSel && e.target !== input) syncPreset(); });
 
       setPerms(initial ?? PRESETS.viewer.perms);
       return { el: root, get, setPerms };
@@ -887,7 +1374,8 @@
         return;
       }
       el("invite-title").innerHTML = i18n.t("{owner} quer compartilhar o computador {device} com você.", { owner: `<strong>${escapeHtml(info.ownerLabel)}</strong>`, device: `<strong>${escapeHtml(info.deviceName)}</strong>` });
-      el("invite-perms").textContent = i18n.t("Você poderá: {perms}", { perms: summarizePermissions(info.permissions) });
+      el("invite-perms").innerHTML = `<strong>${escapeHtml(i18n.t("O que você poderá fazer"))}</strong>${renderPermList(info.permissions)}`;
+      setHero(true);
       showStep("invite");
       el("btn-invite-accept").onclick = async () => {
         el("btn-invite-accept").disabled = true;
@@ -895,6 +1383,12 @@
         try { res = await api("/invites/accept", { method: "POST", body: { token } }); } catch { el("btn-invite-accept").disabled = false; return; }
         el("btn-invite-accept").disabled = false;
         clearInvite();
+        if (res.ok && res.data?.deviceId) {
+          // Aceitou: já abre o computador (quem aceita quer usar), em vez de deixar a pessoa procurar na lista.
+          openDevice({ id: res.data.deviceId, deviceName: res.data.deviceName ?? "", isOwner: false, ownerLabel: info.ownerLabel });
+          showToast(i18n.t("Convite aceito! \"{name}\" também fica na sua lista.", { name: res.data.deviceName ?? i18n.t("O computador") }));
+          return;
+        }
         await loadDevices(res.ok ? i18n.t("Convite aceito! \"{name}\" já aparece na sua lista.", { name: res.data?.deviceName ?? i18n.t("O computador") }) : (res.message || i18n.t("Não foi possível aceitar o convite.")), !res.ok);
       };
       el("btn-invite-decline").onclick = async () => { clearInvite(); await loadDevices(); };
@@ -909,6 +1403,7 @@
     // ---- Passo 2: escolher dispositivo ----
 
     async function loadDevices(notice, noticeIsError = false) {
+      setHero(false);
       showStep("devices");
       const noticeEl = el("device-notice");
       noticeEl.hidden = !notice;
@@ -998,6 +1493,11 @@
           row.querySelector('[data-act="accept"]').addEventListener("click", async (e) => {
             e.target.disabled = true;
             const res = await api("/invites/accept", { method: "POST", body: { inviteId: inv.id } }).catch(() => null);
+            if (res?.ok && res.data?.deviceId) {
+              openDevice({ id: res.data.deviceId, deviceName: res.data.deviceName ?? inv.deviceName, isOwner: false, ownerLabel: inv.invitedBy });
+              showToast(i18n.t("Convite aceito! \"{name}\" também fica na sua lista.", { name: res.data.deviceName ?? inv.deviceName }));
+              return;
+            }
             await loadDevices(res?.ok ? i18n.t("Convite aceito!") : (res?.message || i18n.t("Não foi possível aceitar o convite.")), !res?.ok);
           });
           row.querySelector('[data-act="decline"]').addEventListener("click", async (e) => {
@@ -1030,20 +1530,26 @@
           const added = d.createdAt ? `<div class="meta">${escapeHtml(i18n.t("Adicionado em {date}", { date: new Date(d.createdAt).toLocaleDateString(i18n.locale()) }))}</div>` : "";
           row.innerHTML = `${deviceHead(d, st, added)}
             <div class="dev-actions">
+              <button type="button" class="btn-mini" data-act="share">Compartilhar</button>
               <button type="button" class="btn-mini" data-act="rename">Renomear</button>
               <button type="button" class="btn-mini btn-mini-danger" data-act="remove">Remover</button>
             </div></div><div class="chev">›</div>`;
           row.addEventListener("click", () => openDevice({ id: d.id, deviceName: d.deviceName, isOwner: true }));
+          row.querySelector('[data-act="share"]').addEventListener("click", (e) => {
+            e.stopPropagation();
+            pendingOpenShare = true; // abre o computador e já mostra a janela de compartilhar
+            openDevice({ id: d.id, deviceName: d.deviceName, isOwner: true });
+          });
           row.querySelector('[data-act="rename"]').addEventListener("click", async (e) => {
             e.stopPropagation();
-            const name = prompt(i18n.t("Novo nome para este computador"), d.deviceName);
+            const name = await askText(i18n.t("Novo nome para este computador"), d.deviceName, { confirmLabel: i18n.t("Salvar"), maxLength: 40 });
             if (name === null || !name.trim() || name.trim() === d.deviceName) return;
             const res = await api(`/devices/${d.id}`, { method: "PATCH", body: { deviceName: name } }).catch(() => null);
             await loadDevices(res?.ok ? i18n.t("Computador renomeado.") : (res?.message || i18n.t("Não foi possível renomear.")), !res?.ok);
           });
           row.querySelector('[data-act="remove"]').addEventListener("click", async (e) => {
             e.stopPropagation();
-            if (!confirm(i18n.t("Remover \"{name}\" da sua conta? O Cubicase desse computador perde o painel web até parear de novo (acontece sozinho ao abrir o app, logado com o Plus), e quem tinha acesso compartilhado a ele também perde.", { name: d.deviceName }))) return;
+            if (!(await askConfirm(i18n.t("Remover \"{name}\" da sua conta? O Cubicase desse computador perde o painel web até parear de novo (acontece sozinho ao abrir o app, logado com o Plus), e quem tinha acesso compartilhado a ele também perde.", { name: d.deviceName }), { confirmLabel: i18n.t("Remover"), danger: true }))) return;
             const res = await api(`/devices/${d.id}`, { method: "DELETE" }).catch(() => null);
             await loadDevices(res?.ok ? i18n.t("Computador removido.") : (res?.message || i18n.t("Não foi possível remover.")), !res?.ok);
           });
@@ -1059,11 +1565,11 @@
           const row = document.createElement("div");
           row.className = "device-item dev" + (st.on ? "" : " is-off");
           row.innerHTML = `${deviceHead(d, st, `<div class="meta">${escapeHtml(i18n.t("De {owner}", { owner: d.ownerLabel }))}</div><div class="perms">${escapeHtml(summarizePermissions(d.permissions))}</div>`)}
-            <div class="dev-actions"><button type="button" class="btn-mini" data-act="leave">Sair</button></div></div><div class="chev">›</div>`;
-          row.addEventListener("click", () => openDevice({ id: d.id, deviceName: d.deviceName, isOwner: false }));
+            <div class="dev-actions"><button type="button" class="btn-mini" data-act="leave">Sair deste computador</button></div></div><div class="chev">›</div>`;
+          row.addEventListener("click", () => openDevice({ id: d.id, deviceName: d.deviceName, isOwner: false, ownerLabel: d.ownerLabel }));
           row.querySelector('[data-act="leave"]').addEventListener("click", async (e) => {
             e.stopPropagation();
-            if (!confirm(i18n.t("Deixar de ter acesso a \"{name}\"? Para voltar, será preciso um novo convite.", { name: d.deviceName }))) return;
+            if (!(await askConfirm(i18n.t("Deixar de ter acesso a \"{name}\"? Para voltar, será preciso um novo convite.", { name: d.deviceName }), { confirmLabel: i18n.t("Sair deste computador"), danger: true }))) return;
             const { data: { session } } = await supabase.auth.getSession();
             const res = await api(`/devices/${d.id}/members/${session.user.id}`, { method: "DELETE" }).catch(() => null);
             await loadDevices(res?.ok ? i18n.t("Você saiu deste computador.") : (res?.message || i18n.t("Não foi possível sair.")), !res?.ok);
@@ -1128,6 +1634,8 @@
       socket = null;
     }
 
+    let pendingOpenShare = false;
+
     function openDevice(device) {
       manuallyClosed = false;
       reconnectAttempt = 0;
@@ -1161,6 +1669,7 @@
       clearPlayerActions();
       clearTimeout(playersRefreshTimer);
       el("btn-players-refresh").disabled = false;
+      resetAccessLists();
       applyAccess();
     }
 
@@ -1210,7 +1719,7 @@
     /** true se a mensagem foi entregue ao socket (não garante que o computador a executou). */
     function sendToAgent(payload) {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
-        alert(i18n.t("Sem conexão com o computador agora. Tente de novo em alguns instantes."));
+        showToast(i18n.t("Sem conexão com o computador agora. Tente de novo em alguns instantes."), true);
         return false;
       }
       socket.send(JSON.stringify(payload));
@@ -1234,31 +1743,31 @@
       }
     }
 
-    el("server-list").addEventListener("click", (e) => {
+    el("server-list").addEventListener("click", async (e) => {
       const btn = e.target.closest("button[data-action]");
       if (!btn || btn.disabled) return;
       const { action, serverId } = btn.dataset;
 
       if (action === "stop") {
-        if (!confirm(i18n.t("Isso vai parar o servidor agora (comando de stop). Continuar?"))) return;
+        if (!(await askConfirm(i18n.t("Isso vai parar o servidor agora (comando de stop). Continuar?"), { confirmLabel: i18n.t("Parar"), danger: true }))) return;
         sendToAgent({ type: "stop_server" });
       } else if (action === "restart") {
-        if (!confirm(i18n.t("Isso vai reiniciar o servidor — jogadores conectados serão desconectados. Continuar?"))) return;
+        if (!(await askConfirm(i18n.t("Isso vai reiniciar o servidor — jogadores conectados serão desconectados. Continuar?"), { confirmLabel: i18n.t("Reiniciar"), danger: true }))) return;
         sendToAgent({ type: "restart_server", serverId });
       } else if (action === "start") {
         const stopFirst = btn.dataset.stopFirst === "true";
-        if (stopFirst && !confirm(i18n.t("Outro servidor está rodando agora. Isso vai pará-lo para iniciar este. Continuar?"))) return;
+        if (stopFirst && !(await askConfirm(i18n.t("Outro servidor está rodando agora. Isso vai pará-lo para iniciar este. Continuar?"), { confirmLabel: i18n.t("Continuar"), danger: true }))) return;
         requestStartServer(serverId, { stopFirst });
       }
     });
 
-    el("console-command-form").addEventListener("submit", (e) => {
+    el("console-command-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const input = el("console-command-input");
       const raw = input.value.trim();
       if (!raw) return;
       if (raw.replace(/^\//, "").toLowerCase() === "stop") {
-        if (!confirm(i18n.t("Isso vai parar o servidor (comando \"stop\"). Continuar?"))) return;
+        if (!(await askConfirm(i18n.t("Isso vai parar o servidor (comando \"stop\"). Continuar?"), { confirmLabel: i18n.t("Parar"), danger: true }))) return;
       }
       sendToAgent({ type: "command", command: raw });
       input.value = "";
@@ -1430,7 +1939,7 @@
       return img;
     }
 
-    function renderPlayers() {
+    function renderOnlinePlayers() {
       const box = el("players-list");
       const note = el("players-note");
       const updated = el("players-updated");
@@ -1498,6 +2007,12 @@
       }
     }
 
+    /** Redesenha tudo o que depende do estado dos jogadores: a lista de online e as listas de acesso. */
+    function renderPlayers() {
+      renderOnlinePlayers();
+      renderAccess();
+    }
+
     function newRequestId() {
       const raw = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.random()}`).replace(/[^A-Za-z0-9]/g, "");
       return raw.slice(0, 24) || String(Date.now());
@@ -1542,20 +2057,26 @@
       if (msg.action === "kick") showToast(i18n.t("Pedido de expulsão de {player} enviado ao servidor.", { player }));
       else if (msg.action === "ban") showToast(i18n.t("Pedido de banimento de {player} enviado. Para desfazer, use o comando \"pardon {player}\" no console.", { player }));
       else if (msg.action === "pardon") showToast(i18n.t("Pedido para perdoar {player} enviado ao servidor.", { player }));
+      else if (msg.action === "whitelist_add") showToast(i18n.t("Pedido para adicionar {player} à whitelist enviado.", { player }));
+      else if (msg.action === "whitelist_remove") showToast(i18n.t("Pedido para tirar {player} da whitelist enviado.", { player }));
+      else if (msg.action === "op") showToast(i18n.t("Pedido para dar OP a {player} enviado.", { player }));
+      else if (msg.action === "deop") showToast(i18n.t("Pedido para tirar o OP de {player} enviado.", { player }));
       else showToast(i18n.t(msg.message || "Comando enviado ao servidor."));
+      // Ação de lista: o servidor pode recusar (nome que não existe, por exemplo), então relê as listas e confere.
+      if (ACCESS_ACTIONS.has(msg.action)) scheduleAccessRefresh();
     }
 
-    el("players-list").addEventListener("click", (e) => {
+    el("players-list").addEventListener("click", async (e) => {
       const btn = e.target.closest("button[data-action]");
       if (!btn || btn.disabled) return;
       const { action, player } = btn.dataset;
       if ([...pendingPlayerActions.values()].some((p) => p.player === player)) return;
 
       if (action === "kick") {
-        if (!confirm(i18n.t("Expulsar {player} do servidor?", { player }))) return;
+        if (!(await askConfirm(i18n.t("Expulsar {player} do servidor?", { player }), { confirmLabel: i18n.t("Expulsar"), danger: true }))) return;
         startPlayerAction("kick", player);
       } else if (action === "ban") {
-        const answer = prompt(i18n.t("Banir {player}? Escreva um motivo (opcional) e confirme.", { player }), "");
+        const answer = await askText(i18n.t("Banir {player}? Escreva um motivo (opcional) e confirme.", { player }), "", { confirmLabel: i18n.t("Banir"), danger: true, placeholder: i18n.t("Motivo (opcional)"), maxLength: 100 });
         if (answer === null) return; // cancelou
         const reason = answer.trim().replace(/\s+/g, " ");
         if (reason.length > 100) { showToast(i18n.t("Motivo muito longo (máximo 100 caracteres)."), true); return; }
@@ -1565,6 +2086,7 @@
 
     el("btn-players-refresh").addEventListener("click", () => {
       const btn = el("btn-players-refresh");
+      if (playersTab !== "online") { requestAccessLists(); return; }
       if (!sendToAgent({ type: "players_refresh" })) return;
       btn.disabled = true;
       clearTimeout(playersRefreshTimer);
@@ -1578,6 +2100,7 @@
       if (msg.type === "access") {
         currentAccess = { isOwner: !!msg.isOwner, permissions: msg.permissions };
         applyAccess();
+        if (pendingOpenShare && currentAccess.isOwner) { pendingOpenShare = false; el("btn-share").click(); }
         return;
       }
 
@@ -1630,6 +2153,11 @@
         return;
       }
 
+      if (msg.type === "access_lists") {
+        onAccessLists(msg);
+        return;
+      }
+
       if (msg.type === "error") {
         // Uma ação de jogador negada pelo relay (sem permissão, relay antigo
         // que não conhece "player_action") vem como "error" sem requestId:
@@ -1645,6 +2173,7 @@
       if (msg.type === "server_list") {
         lastServers = msg.servers || [];
         renderServerList();
+        if (playersTab !== "online") { if (accessLists) renderAccess(); else requestAccessLists(); }
         tryDeepStart();
       }
     }
@@ -1660,7 +2189,7 @@
 
     async function copyText(text) {
       try { await navigator.clipboard.writeText(text); showToast(i18n.t("Copiado!")); }
-      catch { window.prompt(i18n.t("Copie o link:"), text); }
+      catch { await askText(i18n.t("Copie o link:"), text, { readOnly: true, hideCancel: true, confirmLabel: i18n.t("Fechar"), maxLength: 2000 }); }
     }
 
     function inviteUrl(token) {
@@ -1701,10 +2230,36 @@
     el("share-close").addEventListener("click", closeShareModal);
     el("share-modal").addEventListener("click", (e) => { if (e.target === el("share-modal")) closeShareModal(); });
 
+    function ownerName() {
+      return document.getElementById("device-account-email")?.textContent || i18n.t("Um amigo");
+    }
+
+    /** "Copiar mensagem" e, onde o aparelho tem, o menu de compartilhar do celular (WhatsApp, Discord…). */
+    function shareActions(text, url) {
+      const box = document.createElement("div");
+      box.className = "actions";
+      box.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;";
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "btn-mini";
+      copy.textContent = i18n.t("Copiar mensagem");
+      copy.addEventListener("click", () => copyText(text));
+      box.appendChild(copy);
+      if (navigator.share) {
+        const share = document.createElement("button");
+        share.type = "button";
+        share.className = "btn-mini";
+        share.textContent = i18n.t("Compartilhar…");
+        share.addEventListener("click", () => { navigator.share({ title: "Cubicase", text, url }).catch(() => {}); });
+        box.appendChild(share);
+      }
+      return box;
+    }
+
     el("btn-send-invite").addEventListener("click", async () => {
       const permissions = inviteEditor.get();
       if (permissions.commands.mode === "allowlist" && permissions.commands.allowlist.length === 0) {
-        showShareResult(escapeHtml(i18n.t("Informe ao menos um comando na lista, ou escolha \"Nenhum\"/\"Todos\".")), true);
+        showShareResult(escapeHtml(i18n.t("Adicione ao menos um comando à lista, ou escolha “Nenhum” ou “Todos”.")), true);
         return;
       }
       const body = { kind: inviteKind, permissions };
@@ -1725,8 +2280,14 @@
 
       if (!r.ok) { showShareResult(escapeHtml(r.message || i18n.t("Não foi possível criar o convite.")), true); return; }
       if (inviteKind === "email") {
+        const email = body.email;
         el("invite-email").value = "";
-        showShareResult(escapeHtml(r.message));
+        const box = showShareResult(escapeHtml(r.message), r.data?.emailed === false && !!r.data);
+        // Sem e-mail enviado, o host precisa avisar a pessoa por outro meio: já deixa a mensagem pronta.
+        if (r.data?.emailed !== true) {
+          const text = i18n.t("{owner} convidou você para o painel do Cubicase. Abra {url} e entre com o e-mail {email}: o convite aparece em “Convites para você”.", { owner: ownerName(), url: `${location.origin}/painel/`, email });
+          box.querySelector(".notice").appendChild(shareActions(text, `${location.origin}/painel/`));
+        }
       } else {
         const url = inviteUrl(r.data.token);
         const box = showShareResult(escapeHtml(i18n.t("Link criado. Envie para quem você quer convidar:")));
@@ -1736,6 +2297,7 @@
         wrap.querySelector("input").addEventListener("focus", (e) => e.target.select());
         wrap.querySelector("button").addEventListener("click", () => copyText(url));
         box.querySelector(".notice").appendChild(wrap);
+        box.querySelector(".notice").appendChild(shareActions(i18n.t("{owner} convidou você para acessar um computador no painel do Cubicase: {url}", { owner: ownerName(), url }), url));
       }
       await refreshShareLists();
     });
@@ -1795,7 +2357,7 @@
           slot.hidden = false;
         });
         row.querySelector('[data-act="remove"]').addEventListener("click", async () => {
-          if (!confirm(i18n.t("Remover o acesso de {who}? A pessoa será desconectada agora.", { who: m.name || m.email || i18n.t("esta conta") }))) return;
+          if (!(await askConfirm(i18n.t("Remover o acesso de {who}? A pessoa será desconectada agora.", { who: m.name || m.email || i18n.t("esta conta") }), { confirmLabel: i18n.t("Remover"), danger: true }))) return;
           const res = await api(`/devices/${currentDevice.id}/members/${m.userId}`, { method: "DELETE" }).catch(() => null);
           if (res?.ok) { showToast(i18n.t("Acesso removido.")); await refreshShareLists(); }
           else showToast(res?.message || i18n.t("Não foi possível remover."), true);
@@ -2058,7 +2620,7 @@
       openDevice({ id: d.id, deviceName: d.deviceName, isOwner: !!owned });
     }
 
-    function tryDeepStart() {
+    async function tryDeepStart() {
       if (!pendingDeepStart || !agentConnected || !lastServers.length || currentAccess === null) return;
       const { serverName } = pendingDeepStart;
       pendingDeepStart = null;
@@ -2068,7 +2630,7 @@
       if (!target) { showToast(i18n.t("Não encontrei esse servidor parado na lista."), true); return; }
       const anyRunning = lastServers.some((x) => x.status === "running");
       if (anyRunning) { showToast(i18n.t("Já há um servidor rodando neste computador."), true); return; }
-      if (!confirm(i18n.t("Iniciar o servidor \"{name}\" agora?", { name: target.name }))) return;
+      if (!(await askConfirm(i18n.t("Iniciar o servidor \"{name}\" agora?", { name: target.name }), { confirmLabel: i18n.t("Iniciar") }))) return;
       requestStartServer(target.id, { stopFirst: false });
     }
 
@@ -2196,6 +2758,316 @@
     // Se o arquivo de aparência não carregou, o painel segue funcionando; só some o botão.
     if (theme) wireAppearance(); else el("btn-appearance").hidden = true;
 
+    // ---- Perguntas da própria página (no lugar do confirm/prompt do navegador) ----
+    const dialogEl = el("dialog-modal");
+    const dialogInput = el("dialog-input");
+    let dialogDone = null;
+
+    function closeDialog(result) {
+      dialogEl.hidden = true;
+      const done = dialogDone;
+      dialogDone = null;
+      if (done) done(result);
+    }
+
+    function openDialog({ message, value = null, placeholder = "", maxLength = 200, readOnly = false, confirmLabel, cancelLabel, hideCancel = false, danger = false }) {
+      if (dialogDone) closeDialog({ ok: false, value: "" }); // uma pergunta por vez
+      el("dialog-message").textContent = message;
+      const hasInput = value !== null;
+      dialogInput.hidden = !hasInput;
+      dialogInput.value = value ?? "";
+      dialogInput.placeholder = placeholder;
+      dialogInput.maxLength = maxLength;
+      dialogInput.readOnly = readOnly;
+      el("dialog-ok").textContent = confirmLabel ?? i18n.t("Confirmar");
+      el("dialog-cancel").textContent = cancelLabel ?? i18n.t("Cancelar");
+      el("dialog-cancel").hidden = hideCancel;
+      dialogEl.firstElementChild.classList.toggle("is-danger", danger);
+      dialogEl.hidden = false;
+      return new Promise((resolve) => {
+        dialogDone = resolve;
+        // Perguntas de ação perigosa começam em "Cancelar": um Enter sem querer não apaga nada.
+        setTimeout(() => {
+          if (hasInput) { dialogInput.focus(); dialogInput.select(); }
+          else (danger ? el("dialog-cancel") : el("dialog-ok")).focus();
+        }, 0);
+      });
+    }
+
+    el("dialog-ok").addEventListener("click", () => closeDialog({ ok: true, value: dialogInput.value }));
+    el("dialog-cancel").addEventListener("click", () => closeDialog({ ok: false, value: "" }));
+    dialogEl.addEventListener("click", (e) => { if (e.target === dialogEl) closeDialog({ ok: false, value: "" }); });
+    dialogInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); closeDialog({ ok: true, value: dialogInput.value }); } });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !dialogEl.hidden) { e.stopPropagation(); closeDialog({ ok: false, value: "" }); }
+    }, true);
+
+    /** Pergunta sim/não. Devolve true se a pessoa confirmou. */
+    async function askConfirm(message, opts = {}) { return (await openDialog({ message, ...opts })).ok; }
+    /** Pergunta com um campo de texto. Devolve o texto, ou null se cancelou. */
+    async function askText(message, value, opts = {}) {
+      const r = await openDialog({ message, value: value ?? "", ...opts });
+      return r.ok ? r.value : null;
+    }
+
+    // ---- Whitelist, operadores e banidos ----
+    // As listas vêm dos arquivos do servidor, no computador (só nomes: nenhum UUID chega aqui). Quem altera é o próprio
+    // console do servidor, pelas mesmas ações de jogador (player_action), então as permissões são as do console: quem não
+    // pode rodar "whitelist" ou "op" não vê o botão, e o Worker barra de qualquer jeito.
+    const ACCESS_TABS = {
+      whitelist: { add: "whitelist_add", remove: "whitelist_remove", addCmd: "whitelist add", removeCmd: "whitelist remove", label: "Whitelist", removeLabel: "Remover", empty: "Ninguém na whitelist ainda." },
+      ops: { add: "op", remove: "deop", addCmd: "op", removeCmd: "deop", label: "OPs", removeLabel: "Tirar OP", empty: "Nenhum operador." },
+      banned: { add: "ban", remove: "pardon", addCmd: "ban", removeCmd: "pardon", label: "Banidos", removeLabel: "Perdoar", empty: "Nenhum jogador banido." },
+    };
+    const ACCESS_ACTIONS = new Set(["whitelist_add", "whitelist_remove", "op", "deop", "ban", "pardon"]);
+    const ACCESS_WAIT_MS = 6000;
+    let playersTab = "online";
+    let accessServerId = null;
+    let accessLists = null;     // { serverId, whitelist, ops, banned, whitelistEnabled, truncated, receivedAt }
+    let accessWaitTimer = null;
+    let accessRefreshTimer = null;
+    let accessAskedAt = 0;
+    let accessExpect = [];      // conferências a fazer quando as listas chegarem de novo: { list, player, present }
+
+    function resetAccessLists() {
+      accessServerId = null;
+      accessLists = null;
+      accessExpect = [];
+      accessAskedAt = 0;
+      clearTimeout(accessWaitTimer);
+      clearTimeout(accessRefreshTimer);
+      playersTab = "online";
+    }
+
+    function actionAllowed(action, player = "x") {
+      const tab = Object.values(ACCESS_TABS).find((t) => t.add === action || t.remove === action);
+      if (!tab) return false;
+      return commandAllowed(`${tab.add === action ? tab.addCmd : tab.removeCmd} ${player}`);
+    }
+
+    /** O servidor das listas: o que está rodando, ou o que a pessoa escolheu, ou o primeiro. */
+    function pickAccessServer() {
+      const ids = lastServers.map((x) => x.id);
+      if (accessServerId && ids.includes(accessServerId)) return accessServerId;
+      accessServerId = (lastServers.find((x) => x.status === "running") ?? lastServers[0])?.id ?? null;
+      return accessServerId;
+    }
+
+    function requestAccessLists() {
+      const id = pickAccessServer();
+      if (!id || !currentAccess?.permissions?.viewConsole) { renderAccess(); return; }
+      if (!sendToAgent({ type: "access_lists_get", serverId: id })) return;
+      accessAskedAt = Date.now();
+      clearTimeout(accessWaitTimer);
+      accessWaitTimer = setTimeout(renderAccess, ACCESS_WAIT_MS + 100);
+      renderAccess();
+    }
+
+    function scheduleAccessRefresh() {
+      clearTimeout(accessRefreshTimer);
+      accessRefreshTimer = setTimeout(requestAccessLists, 1200);
+    }
+
+    function onAccessLists(msg) {
+      if (msg.serverId !== accessServerId) return; // pedido de outro painel aberto, para outro servidor
+      const arr = (v) => (Array.isArray(v) ? v.filter((e) => e && typeof e.name === "string").slice(0, 500) : []);
+      accessLists = {
+        serverId: msg.serverId,
+        whitelist: arr(msg.whitelist), ops: arr(msg.ops), banned: arr(msg.banned),
+        whitelistEnabled: typeof msg.whitelistEnabled === "boolean" ? msg.whitelistEnabled : null,
+        truncated: msg.truncated === true,
+        receivedAt: Date.now(),
+      };
+      clearTimeout(accessWaitTimer);
+      // Conferência: o servidor recusa em silêncio o que não pode (nome que não existe, por exemplo).
+      const key = { whitelist: "whitelist", ops: "ops", banned: "banned" };
+      for (const exp of accessExpect) {
+        const has = accessLists[key[exp.list]].some((e) => e.name.toLowerCase() === exp.player.toLowerCase());
+        if (has !== exp.present) showToast(i18n.t("O servidor não confirmou a mudança para {player}. Confira o nome e o console.", { player: exp.player }), true);
+      }
+      accessExpect = [];
+      renderAccess();
+    }
+
+    function setPlayersTab(tab) {
+      playersTab = tab in ACCESS_TABS ? tab : "online";
+      el("players-tabs").querySelectorAll("[data-ptab]").forEach((b) => {
+        const on = b.dataset.ptab === playersTab;
+        b.classList.toggle("is-active", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      if (playersTab !== "online") {
+        el("access-filter").value = "";
+        el("access-add-name").value = "";
+        el("access-add-reason").value = "";
+        requestAccessLists();
+      }
+      renderPlayers();
+    }
+    el("players-tabs").querySelectorAll("[data-ptab]").forEach((b) => b.addEventListener("click", () => setPlayersTab(b.dataset.ptab)));
+    el("access-server").addEventListener("change", (e) => { accessServerId = e.target.value; accessLists = null; requestAccessLists(); });
+    el("access-filter").addEventListener("input", renderAccess);
+
+    function renderAccess() {
+      const online = playersTab === "online";
+      el("players-online").hidden = !online;
+      el("access-pane").hidden = online;
+
+      // contagens nas abas
+      const counts = accessLists && accessLists.serverId === accessServerId ? accessLists : null;
+      el("players-tabs").querySelectorAll("[data-ptab]").forEach((b) => {
+        const tab = ACCESS_TABS[b.dataset.ptab];
+        if (!tab) return;
+        const n = counts ? counts[b.dataset.ptab].length : null;
+        b.textContent = n === null ? i18n.t(tab.label) : `${i18n.t(tab.label)} · ${n}`;
+      });
+
+      if (online) return;
+      const refresh = el("btn-players-refresh");
+      const canSee = !!currentAccess?.permissions?.viewConsole;
+      refresh.hidden = !canSee || !agentConnected;
+      refresh.disabled = false;
+
+      const tab = ACCESS_TABS[playersTab];
+      const note = el("access-note");
+      const showNote = (text, isError = false) => { note.textContent = text; note.hidden = false; note.classList.toggle("is-error", isError); };
+      note.hidden = true;
+      el("access-empty").hidden = true;
+      el("access-updated").hidden = true;
+      el("access-list").innerHTML = "";
+      el("access-add-form").hidden = true;
+      el("access-filter").hidden = true;
+
+      // escolha do servidor (só aparece quando há mais de um)
+      const sel = el("access-server");
+      sel.hidden = lastServers.length < 2;
+      if (!sel.hidden) {
+        pickAccessServer();
+        sel.innerHTML = lastServers.map((x) => `<option value="${escapeHtml(x.id)}"${x.id === accessServerId ? " selected" : ""}>${escapeHtml(x.name)}${x.status === "running" ? " ●" : ""}</option>`).join("");
+      }
+
+      if (!currentAccess) return;
+      if (!canSee) { showNote(i18n.t("Você não tem permissão para ver as listas de jogadores.")); return; }
+      if (!agentConnected) { showNote(i18n.t("Computador desconectado.")); return; }
+      if (!pickAccessServer()) { showNote(i18n.t("Nenhum servidor encontrado neste computador ainda.")); return; }
+
+      if (!counts) {
+        if (accessAskedAt && Date.now() - accessAskedAt >= ACCESS_WAIT_MS) {
+          showNote(i18n.t("O Cubicase do computador não respondeu. Atualize o Cubicase nesse computador e tente de novo."), true);
+        } else {
+          showNote(i18n.t("Carregando…"));
+        }
+        return;
+      }
+
+      const selected = lastServers.find((x) => x.id === accessServerId);
+      const running = selected?.status === "running";
+      if (playersTab === "whitelist" && counts.whitelistEnabled === false) {
+        showNote(i18n.t("A whitelist está desligada neste servidor: qualquer pessoa com o código consegue entrar, mesmo fora da lista."));
+      } else if (!running) {
+        showNote(i18n.t("Este servidor está desligado. Dá para ver as listas, mas só dá para alterar com ele ligado."));
+      }
+
+      // adicionar
+      const canAdd = running && actionAllowed(tab.add);
+      el("access-add-form").hidden = !canAdd;
+      el("access-add-reason").hidden = playersTab !== "banned";
+      el("access-add-btn").textContent = playersTab === "banned" ? i18n.t("Banir") : i18n.t("Adicionar");
+      el("access-add-btn").classList.toggle("btn-danger-fill", playersTab === "banned");
+
+      const entries = counts[playersTab];
+      const q = el("access-filter").value.trim().toLowerCase();
+      el("access-filter").hidden = entries.length < 8;
+      const shown = q ? entries.filter((e) => e.name.toLowerCase().includes(q)) : entries;
+      if (shown.length === 0) {
+        const empty = el("access-empty");
+        empty.textContent = q ? i18n.t("Nada encontrado.") : i18n.t(tab.empty);
+        empty.hidden = false;
+      }
+      const pending = new Set([...pendingPlayerActions.values()].map((p) => p.player.toLowerCase()));
+      const canRemove = running && actionAllowed(tab.remove);
+      const noPerm = i18n.t("Você não tem permissão para isso");
+      for (const e of shown) {
+        const row = document.createElement("div");
+        row.className = "player-row access-row" + (pending.has(e.name.toLowerCase()) ? " is-pending" : "");
+        const head = document.createElement("div");
+        head.className = "player-head is-letter";
+        head.textContent = (e.name.replace(/^\./, "")[0] || "?").toUpperCase();
+        const sub = playersTab === "ops" ? i18n.t("Nível {level}", { level: e.level ?? 4 }) : playersTab === "banned" && e.reason ? e.reason : "";
+        const nameBox = document.createElement("div");
+        nameBox.className = "player-name";
+        nameBox.textContent = e.name;
+        if (sub) { const small = document.createElement("small"); small.textContent = sub; nameBox.appendChild(small); }
+        const actions = document.createElement("div");
+        actions.className = "player-actions";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-mini" + (playersTab === "banned" ? "" : " btn-mini-danger");
+        btn.textContent = i18n.t(tab.removeLabel);
+        btn.dataset.accessRemove = e.name;
+        if (!canRemove || pending.has(e.name.toLowerCase())) { btn.disabled = true; if (!canRemove && running) btn.title = noPerm; }
+        actions.appendChild(btn);
+        row.append(head, nameBox, actions);
+        el("access-list").appendChild(row);
+      }
+      if (counts.truncated) showNote(i18n.t("Mostrando só as primeiras 500 entradas de cada lista."));
+      el("access-updated").textContent = i18n.t("Atualizado às {time}", { time: new Date(counts.receivedAt).toLocaleTimeString(i18n.locale()) });
+      el("access-updated").hidden = false;
+    }
+
+    function startAccessAction(action, player, reason) {
+      if ([...pendingPlayerActions.values()].some((p) => p.player.toLowerCase() === player.toLowerCase())) return;
+      const list = Object.entries(ACCESS_TABS).find(([, t]) => t.add === action || t.remove === action)?.[0];
+      const adding = ACCESS_TABS[list]?.add === action;
+      accessExpect = [...accessExpect.filter((x) => !(x.list === list && x.player.toLowerCase() === player.toLowerCase())), { list, player, present: adding }];
+      startPlayerAction(action, player, reason);
+    }
+
+    el("access-add-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const player = el("access-add-name").value.trim();
+      if (!/^\.?[A-Za-z0-9_]{1,16}$/.test(player)) { showToast(i18n.t("Nome de jogador inválido."), true); return; }
+      const tab = ACCESS_TABS[playersTab];
+      if (!tab || !actionAllowed(tab.add, player)) { showToast(i18n.t("Você não tem permissão para isso"), true); return; }
+      let reason;
+      if (playersTab === "ops") {
+        if (!(await askConfirm(i18n.t("Dar OP a {player}? Operador tem controle total do servidor, inclusive banir e rodar qualquer comando.", { player }), { confirmLabel: i18n.t("Dar OP"), danger: true }))) return;
+      } else if (playersTab === "banned") {
+        if (!(await askConfirm(i18n.t("Banir {player}?", { player }), { confirmLabel: i18n.t("Banir"), danger: true }))) return;
+        reason = el("access-add-reason").value.trim().replace(/\s+/g, " ") || undefined;
+      }
+      el("access-add-name").value = "";
+      el("access-add-reason").value = "";
+      startAccessAction(tab.add, player, reason);
+    });
+
+    el("access-list").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-access-remove]");
+      if (!btn || btn.disabled) return;
+      const player = btn.dataset.accessRemove;
+      const tab = ACCESS_TABS[playersTab];
+      const msgs = {
+        whitelist: i18n.t("Remover {player} da whitelist? A pessoa não consegue mais entrar se a whitelist estiver ligada.", { player }),
+        ops: i18n.t("Tirar o OP de {player}?", { player }),
+        banned: i18n.t("Perdoar {player}? A pessoa volta a poder entrar.", { player }),
+      };
+      if (!(await askConfirm(msgs[playersTab], { confirmLabel: i18n.t(tab.removeLabel), danger: playersTab !== "banned" }))) return;
+      startAccessAction(tab.remove, player);
+    });
+
+    // ---- Seu acesso a um computador compartilhado ----
+    el("access-badge").addEventListener("click", () => {
+      if (!currentAccess || currentAccess.isOwner) return;
+      el("access-modal-owner").textContent = currentDevice?.ownerLabel
+        ? i18n.t("{owner} compartilhou este computador com você.", { owner: currentDevice.ownerLabel })
+        : i18n.t("Este computador foi compartilhado com você.");
+      el("access-modal-perms").innerHTML = `<strong>${escapeHtml(i18n.t("O que você pode fazer"))}</strong>${renderPermList(currentAccess.permissions)}`;
+      el("access-modal").hidden = false;
+    });
+    const closeAccessModal = () => { el("access-modal").hidden = true; };
+    el("access-modal-close").addEventListener("click", closeAccessModal);
+    el("access-modal").addEventListener("click", (e) => { if (e.target === el("access-modal")) closeAccessModal(); });
+
     // ---- Boot ----
 
     readDeepLinkFromUrl();
@@ -2204,7 +3076,10 @@
       if (data.session) afterLogin();
       else {
         showStep("login");
-        if (initialInvite || pendingInviteToken()) showStatus(i18n.t("Você recebeu um convite para acessar um computador. Faça login para aceitá-lo."));
+        if (initialInvite || pendingInviteToken()) {
+          setHero(true);
+          showStatus(i18n.t("Você recebeu um convite para acessar um computador. Faça login para aceitá-lo."));
+        }
       }
     });
     supabase.auth.onAuthStateChange((event, session) => {

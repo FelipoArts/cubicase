@@ -1642,3 +1642,51 @@ async fn datapacks_listar_desativar_e_remover() {
     }
     assert!(dir.join("server.properties").is_file());
 }
+
+// ---------------- listas de acesso para o painel web ----------------
+
+#[test]
+fn retrato_das_listas_de_acesso_so_tem_nomes_em_ordem() {
+    let dir = TempDir::new().unwrap();
+    let p = dir.path();
+    fs::write(p.join("whitelist.json"), r#"[{"uuid":"11111111-1111-1111-1111-111111111111","name":"zeta"},{"uuid":"22222222-2222-2222-2222-222222222222","name":"Alex"}]"#).unwrap();
+    fs::write(p.join("ops.json"), r#"[{"uuid":"33333333-3333-3333-3333-333333333333","name":"Steve","level":4,"bypassesPlayerLimit":false}]"#).unwrap();
+    fs::write(p.join("banned-players.json"), r#"[{"uuid":"44444444-4444-4444-4444-444444444444","name":"Grief","created":"2026-01-01 10:00:00 +0000","source":"Server","expires":"forever","reason":"fazendo grief"}]"#).unwrap();
+    fs::write(p.join("server.properties"), "motd=oi\nwhite-list=true\n").unwrap();
+
+    let snap = access_lists_snapshot(p);
+    let names = |k: &str| snap[k].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(names("whitelist"), vec!["Alex", "zeta"]);
+    assert_eq!(names("ops"), vec!["Steve"]);
+    assert_eq!(snap["ops"][0]["level"], 4);
+    assert_eq!(snap["banned"][0]["reason"], "fazendo grief");
+    assert_eq!(snap["whitelistEnabled"], true);
+    assert_eq!(snap["truncated"], false);
+    // nenhum UUID sai do computador
+    assert!(!snap.to_string().contains("1111-1111"));
+    assert!(!snap.to_string().contains("uuid"));
+}
+
+#[test]
+fn retrato_das_listas_sem_arquivos_e_com_arquivo_quebrado() {
+    let dir = TempDir::new().unwrap();
+    let snap = access_lists_snapshot(dir.path());
+    assert_eq!(snap["whitelist"].as_array().unwrap().len(), 0);
+    assert!(snap["whitelistEnabled"].is_null());
+
+    fs::write(dir.path().join("ops.json"), "isto não é json").unwrap();
+    fs::write(dir.path().join("server.properties"), "white-list=false\n").unwrap();
+    let snap = access_lists_snapshot(dir.path());
+    assert_eq!(snap["ops"].as_array().unwrap().len(), 0);
+    assert_eq!(snap["whitelistEnabled"], false);
+}
+
+#[test]
+fn retrato_das_listas_corta_em_500_e_avisa() {
+    let dir = TempDir::new().unwrap();
+    let many: Vec<String> = (0..(ACCESS_LISTS_MAX + 5)).map(|i| format!(r#"{{"uuid":"u{i}","name":"P{i:04}"}}"#)).collect();
+    fs::write(dir.path().join("whitelist.json"), format!("[{}]", many.join(","))).unwrap();
+    let snap = access_lists_snapshot(dir.path());
+    assert_eq!(snap["whitelist"].as_array().unwrap().len(), ACCESS_LISTS_MAX);
+    assert_eq!(snap["truncated"], true);
+}
