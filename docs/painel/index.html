@@ -230,6 +230,37 @@
     /* O seletor de idioma fixo cobriria os botões do painel: dentro do painel ele mora em "Aparência". */
     body.in-panel > .lang-switch { display: none; }
 
+    /* ---- Escolha do computador ---- */
+    .device-account { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+    .device-account .who { min-width: 0; display: flex; flex-direction: column; }
+    .device-account .label { font-size: 12px; color: var(--text-muted); }
+    .device-account strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .device-dups { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .device-dups p { flex: 1 1 220px; }
+    .device-empty { text-align: left; }
+    .device-empty h3 { font-size: 16px; margin-bottom: 10px; }
+    .device-empty ol { margin: 0 0 12px; padding-left: 20px; color: var(--text-secondary); font-size: 14px; display: grid; gap: 6px; }
+    .device-section-title .count { color: var(--text-secondary); font-weight: 600; }
+    .dev { align-items: flex-start; }
+    .dev .dev-ico { position: relative; flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text, var(--accent)); }
+    .dev .dev-ico svg { width: 22px; height: 22px; }
+    .dev .dev-ico .dot { position: absolute; right: -3px; bottom: -3px; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--bg-elevated); background: var(--text-muted); }
+    .dev .dev-ico .dot.on { background: #34d976; }
+    .dev.is-off .dev-ico { background: var(--bg-card); color: var(--text-muted); }
+    .dev .dev-main { flex: 1; min-width: 0; }
+    .dev .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dev .state { font-size: 13px; margin-top: 2px; color: var(--text-muted); }
+    .dev .state.on { color: #34d976; font-weight: 600; }
+    html[data-panel-mode="light"] .dev .state.on { color: #0f8a3e; }
+    .dev .meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .dev .dev-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .dev .chev { align-self: center; color: var(--text-muted); font-size: 20px; flex: none; }
+    @media (max-width: 720px) {
+      .device-item.dev { padding: 14px; gap: 12px; }
+      .dev .chev { display: none; }
+      .dev .dev-actions .btn-mini { flex: 1; padding-left: 10px; padding-right: 10px; }
+    }
+
     /* ============================================================
        Celular: uma seção por vez, com abas embaixo (telas até 720 px)
        ============================================================ */
@@ -363,13 +394,25 @@
 
         <!-- Escolha de dispositivo (vários computadores podem estar pareados na mesma conta). -->
         <div id="device-picker" hidden>
+          <div class="device-account">
+            <div class="who"><span class="label">Conectado como</span><strong id="device-account-email"></strong></div>
+            <button type="button" class="link-btn" id="btn-logout">Sair da conta</button>
+          </div>
           <p class="notice" id="device-notice" hidden></p>
+          <div class="notice device-dups" id="device-dups" hidden>
+            <p id="device-dups-text"></p>
+            <button type="button" class="btn-mini" id="btn-dups-clean">Limpar repetidos</button>
+          </div>
           <div id="device-sections"></div>
-          <p id="device-empty" class="login-status" hidden>
-            Nenhum computador ainda. Abra o Cubicase no computador que vai hospedar, com o Cubicase Plus
-            ativo — o pareamento acontece sozinho — ou peça um convite a quem hospeda.
-          </p>
-          <button type="button" class="link-btn" id="btn-logout" style="margin-top: 16px;">Sair</button>
+          <div id="device-empty" class="device-empty" hidden>
+            <h3>Nenhum computador ainda</h3>
+            <ol>
+              <li>Abra o Cubicase no computador que vai hospedar.</li>
+              <li>Entre na mesma conta, com o Cubicase Plus ativo.</li>
+              <li>O pareamento acontece sozinho e o computador aparece aqui.</li>
+            </ol>
+            <p class="perm-hint">Ou peça um convite a quem hospeda.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -877,6 +920,10 @@
       sections.innerHTML = "";
       empty.hidden = true;
 
+      // Quem está logado e o botão de sair ficam sempre no topo desta tela.
+      supabase.auth.getSession().then(({ data }) => { el("device-account-email").textContent = data.session?.user?.email ?? ""; });
+      el("device-dups").hidden = true;
+
       let r;
       try { r = await api("/devices"); } catch { return; }
       if (!r.ok) {
@@ -913,6 +960,26 @@
       };
       const seenText = (d) => d.lastSeenAt ? i18n.t("Visto por último em {date}", { date: new Date(d.lastSeenAt).toLocaleString(i18n.locale()) }) : i18n.t("Nunca conectou ainda");
 
+      // "há 3 dias" / "3 days ago", no idioma da página.
+      const ago = (iso) => {
+        const diff = (new Date(iso).getTime() - Date.now()) / 1000, abs = Math.abs(diff);
+        const rtf = new Intl.RelativeTimeFormat(i18n.locale(), { numeric: "auto" });
+        if (abs < 3600) return rtf.format(Math.round(diff / 60), "minute");
+        if (abs < 86400) return rtf.format(Math.round(diff / 3600), "hour");
+        if (abs < 30 * 86400) return rtf.format(Math.round(diff / 86400), "day");
+        return rtf.format(Math.round(diff / (30 * 86400)), "month");
+      };
+      const stateOf = (d) => d.online === true
+        ? { on: true, text: i18n.t("Online agora") }
+        : { on: false, text: d.lastSeenAt ? i18n.t("Offline · visto {when}", { when: ago(d.lastSeenAt) }) : i18n.t("Nunca conectou ainda") };
+      const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>';
+      const deviceHead = (d, st, metaHtml) => `
+        <div class="dev-ico">${ICON}<span class="dot${st.on ? " on" : ""}"></span></div>
+        <div class="dev-main">
+          <div class="name">${escapeHtml(d.deviceName)}</div>
+          <div class="state${st.on ? " on" : ""}">${escapeHtml(st.text)}</div>
+          ${metaHtml}`;
+
       if (pendingInvites.length) {
         const list = addSection(i18n.t("Convites para você"));
         for (const inv of pendingInvites) {
@@ -943,28 +1010,56 @@
       }
 
       if (owned.length) {
+        // Online primeiro; depois o visto por último. Computadores com o mesmo nome (normalmente o MESMO computador
+        // pareado de novo) são avisados no topo, com o botão de limpar.
+        const sorted = [...owned].sort((a, b) => (b.online === true) - (a.online === true) || (Date.parse(b.lastSeenAt || "") || 0) - (Date.parse(a.lastSeenAt || "") || 0));
+        const byName = new Map();
+        for (const d of owned) byName.set(d.deviceName.trim().toLowerCase(), [...(byName.get(d.deviceName.trim().toLowerCase()) ?? []), d]);
+        const dup = [...byName.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length)[0];
+        if (dup) {
+          el("device-dups-text").textContent = i18n.t("Você tem {count} computadores chamados \"{name}\". Provavelmente é o mesmo computador pareado de novo: dá para limpar os repetidos.", { count: dup.length, name: dup[0].deviceName });
+          el("device-dups").hidden = false;
+        }
+
         const list = addSection(i18n.t("Meus computadores"));
-        for (const d of owned) {
+        list.previousSibling.insertAdjacentHTML("beforeend", ` <span class="count">· ${owned.length}</span>`);
+        for (const d of sorted) {
+          const st = stateOf(d);
           const row = document.createElement("div");
-          row.className = "device-item";
-          row.innerHTML = `<div><div class="name">${escapeHtml(d.deviceName)}</div><div class="seen">${seenText(d)}</div></div><div>›</div>`;
+          row.className = "device-item dev" + (st.on ? "" : " is-off");
+          const added = d.createdAt ? `<div class="meta">${escapeHtml(i18n.t("Adicionado em {date}", { date: new Date(d.createdAt).toLocaleDateString(i18n.locale()) }))}</div>` : "";
+          row.innerHTML = `${deviceHead(d, st, added)}
+            <div class="dev-actions">
+              <button type="button" class="btn-mini" data-act="rename">Renomear</button>
+              <button type="button" class="btn-mini btn-mini-danger" data-act="remove">Remover</button>
+            </div></div><div class="chev">›</div>`;
           row.addEventListener("click", () => openDevice({ id: d.id, deviceName: d.deviceName, isOwner: true }));
+          row.querySelector('[data-act="rename"]').addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const name = prompt(i18n.t("Novo nome para este computador"), d.deviceName);
+            if (name === null || !name.trim() || name.trim() === d.deviceName) return;
+            const res = await api(`/devices/${d.id}`, { method: "PATCH", body: { deviceName: name } }).catch(() => null);
+            await loadDevices(res?.ok ? i18n.t("Computador renomeado.") : (res?.message || i18n.t("Não foi possível renomear.")), !res?.ok);
+          });
+          row.querySelector('[data-act="remove"]').addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm(i18n.t("Remover \"{name}\" da sua conta? O Cubicase desse computador perde o painel web até parear de novo (acontece sozinho ao abrir o app, logado com o Plus), e quem tinha acesso compartilhado a ele também perde.", { name: d.deviceName }))) return;
+            const res = await api(`/devices/${d.id}`, { method: "DELETE" }).catch(() => null);
+            await loadDevices(res?.ok ? i18n.t("Computador removido.") : (res?.message || i18n.t("Não foi possível remover.")), !res?.ok);
+          });
           list.appendChild(row);
         }
       }
 
       if (shared.length) {
         const list = addSection(i18n.t("Compartilhados comigo"));
-        for (const d of shared) {
+        list.previousSibling.insertAdjacentHTML("beforeend", ` <span class="count">· ${shared.length}</span>`);
+        for (const d of [...shared].sort((a, b) => (b.online === true) - (a.online === true))) {
+          const st = stateOf(d);
           const row = document.createElement("div");
-          row.className = "device-item";
-          row.innerHTML = `
-            <div>
-              <div class="name">${escapeHtml(d.deviceName)}</div>
-              <div class="seen">${escapeHtml(i18n.t("De {owner} · {seen}", { owner: d.ownerLabel, seen: seenText(d) }))}</div>
-              <div class="perms">${escapeHtml(summarizePermissions(d.permissions))}</div>
-            </div>
-            <div class="row-actions"><button type="button" class="link-btn" data-act="leave">Sair</button><span>›</span></div>`;
+          row.className = "device-item dev" + (st.on ? "" : " is-off");
+          row.innerHTML = `${deviceHead(d, st, `<div class="meta">${escapeHtml(i18n.t("De {owner}", { owner: d.ownerLabel }))}</div><div class="perms">${escapeHtml(summarizePermissions(d.permissions))}</div>`)}
+            <div class="dev-actions"><button type="button" class="btn-mini" data-act="leave">Sair</button></div></div><div class="chev">›</div>`;
           row.addEventListener("click", () => openDevice({ id: d.id, deviceName: d.deviceName, isOwner: false }));
           row.querySelector('[data-act="leave"]').addEventListener("click", async (e) => {
             e.stopPropagation();
@@ -977,6 +1072,17 @@
         }
       }
     }
+
+    el("btn-dups-clean").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      const res = await api("/devices/cleanup", { method: "POST" }).catch(() => null);
+      const removed = res?.data?.removed ?? 0;
+      let message;
+      if (!res?.ok) message = res?.message || i18n.t("Não foi possível limpar agora.");
+      else if (removed > 0) message = i18n.t("Computadores repetidos removidos: {count}.", { count: removed });
+      else message = i18n.t("Nenhum repetido pôde ser removido agora. Só saem os que nunca conectaram ou estão parados há mais de um dia.");
+      await loadDevices(message, !res?.ok);
+    });
 
     // ---- Passo 3+4: conectar no dispositivo escolhido ----
 

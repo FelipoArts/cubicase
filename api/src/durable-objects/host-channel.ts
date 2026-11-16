@@ -215,6 +215,10 @@ export class HostChannel {
     if (request.method === 'POST' && url.pathname === '/kick') {
       return this.handleKick(request);
     }
+    // Computador removido da conta: derruba todo mundo e esquece tudo (inscrições de push incluídas).
+    if (request.method === 'POST' && url.pathname === '/unpair') return this.handleUnpair();
+    // O app do computador está conectado agora? (a lista de computadores do painel mostra "Online")
+    if (request.method === 'POST' && url.pathname === '/presence') return Response.json({ agentOnline: this.ctx.getWebSockets('agent').length > 0 });
     if (request.method === 'POST' && url.pathname === '/push-subscribe') return this.handlePushSubscribe(request);
     if (request.method === 'POST' && url.pathname === '/push-unsubscribe') return this.handlePushUnsubscribe(request);
     if (request.method === 'POST' && url.pathname === '/push-check') return this.handlePushCheck(request);
@@ -306,6 +310,14 @@ export class HostChannel {
    * permissões dele (reconecta já com as novas) ou de removê-lo (o Worker
    * passa a negar o ticket, então ele não volta).
    */
+  private async handleUnpair(): Promise<Response> {
+    for (const ws of this.ctx.getWebSockets()) {
+      try { ws.close(4003, 'device-removed'); } catch { /* já fechando */ }
+    }
+    await this.ctx.storage.deleteAll();
+    return new Response(null, { status: 204 });
+  }
+
   private async handleKick(request: Request): Promise<Response> {
     let body: any;
     try { body = await request.json(); } catch { return new Response('JSON inválido.', { status: 400 }); }

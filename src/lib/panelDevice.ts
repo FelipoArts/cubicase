@@ -51,6 +51,25 @@ async function saveLocalPanelDevice(device: PanelDevice): Promise<void> {
   await writeTextFile(await devicePath(), JSON.stringify(device, null, 2));
 }
 
+const MACHINE_ID_RE = /^[a-f0-9-]{36}$/;
+
+/**
+ * Identificador deste computador, gerado uma vez e guardado ao lado do pareamento (mas num arquivo à parte, que sair da
+ * conta NÃO apaga). É ele que impede o painel de ganhar um computador repetido a cada vez que o pareamento local se perde.
+ */
+export async function loadMachineId(): Promise<string> {
+  const path = await join(await appLocalDataDir(), "machine_id");
+  try {
+    if (await exists(path)) {
+      const saved = (await readTextFile(path)).trim().toLowerCase();
+      if (MACHINE_ID_RE.test(saved)) return saved;
+    }
+  } catch { /* arquivo ilegível: gera outro */ }
+  const fresh = crypto.randomUUID();
+  await writeTextFile(path, fresh).catch(() => { /* sem disco: vale só nesta execução */ });
+  return fresh;
+}
+
 /**
  * Garante que esta instalação tem um dispositivo pareado para o painel web
  * remoto, se o usuário logado tiver Cubicase Plus ativo. Idempotente e
@@ -75,15 +94,30 @@ export async function ensurePanelDeviceIfEligible(): Promise<PanelDevice | null>
 
   const deviceName = (await hostname().catch(() => null)) || "Meu computador";
 
-  const { data, error } = await supabase
+  // Este computador já está na conta (o pareamento local se perdeu, por exemplo ao sair e entrar de novo)? Reaproveita
+  // a mesma linha em vez de criar um computador repetido no painel.
+  const machineId = await loadMachineId();
+  const findExisting = () => supabase
     .from("panel_devices")
-    .insert({ user_id: session.user.id, device_name: deviceName })
     .select("id, device_token, device_name")
-    .single();
+    .eq("user_id", session.user.id)
+    .eq("machine_id", machineId)
+    .maybeSingle();
 
-  if (error || !data) {
-    console.error("[panel] Falha ao registrar dispositivo do painel web:", error);
-    return null;
+  let { data } = await findExisting();
+  if (!data) {
+    const inserted = await supabase
+      .from("panel_devices")
+      .insert({ user_id: session.user.id, device_name: deviceName, machine_id: machineId })
+      .select("id, device_token, device_name")
+      .single();
+    data = inserted.data;
+    // Duas execuções ao mesmo tempo: a segunda esbarra no índice único e então só lê a linha que a primeira criou.
+    if (!data && inserted.error?.code === "23505") data = (await findExisting()).data;
+    if (!data) {
+      console.error("[panel] Falha ao registrar dispositivo do painel web:", inserted.error);
+      return null;
+    }
   }
 
   const device: PanelDevice = { id: data.id, device_token: data.device_token, device_name: data.device_name, user_id: session.user.id };

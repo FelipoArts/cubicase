@@ -61,6 +61,7 @@ interface DeviceRow {
   user_id: string;
   device_name: string;
   last_seen_at: string | null;
+  created_at?: string;
 }
 
 interface InviteRow {
@@ -197,6 +198,8 @@ export async function handlePanelAccessRoute(req: Request, deps: PanelDeps, meth
   const sub = path.slice('/api/v1/panel'.length); // "" | "/devices" | "/invites/accept" ...
 
   const mDevices = sub === '/devices' && method === 'GET';
+  const isCleanup = sub === '/devices/cleanup' && method === 'POST';
+  const mDevice = sub.match(/^\/devices\/([A-Za-z0-9-]+)$/);
   const mMembers = sub.match(/^\/devices\/([A-Za-z0-9-]+)\/members$/);
   const mInvites = sub.match(/^\/devices\/([A-Za-z0-9-]+)\/invites$/);
   const mInvite = sub.match(/^\/devices\/([A-Za-z0-9-]+)\/invites\/([A-Za-z0-9-]+)$/);
@@ -207,6 +210,8 @@ export async function handlePanelAccessRoute(req: Request, deps: PanelDeps, meth
 
   const matched =
     mDevices ||
+    isCleanup ||
+    (mDevice && (method === 'DELETE' || method === 'PATCH')) ||
     (mMembers && method === 'GET') ||
     (mInvites && method === 'POST') ||
     (mInvite && method === 'DELETE') ||
@@ -220,6 +225,9 @@ export async function handlePanelAccessRoute(req: Request, deps: PanelDeps, meth
   if (!user) return UNAUTHORIZED;
 
   if (mDevices) return listDevices(env, user);
+  if (isCleanup) return cleanupDevices(env, user);
+  if (mDevice && method === 'PATCH') return renameDevice(req, env, user, mDevice[1]);
+  if (mDevice) return removeDevice(env, user, mDevice[1]);
   if (mMembers) return listMembers(env, user, mMembers[1]);
   if (mInvites) return createInvite(req, deps, user, mInvites[1]);
   if (mInvite) return revokeInvite(env, user, mInvite[1], mInvite[2]);
@@ -232,10 +240,34 @@ export async function handlePanelAccessRoute(req: Request, deps: PanelDeps, meth
 
 // ---- Dispositivos (meus + compartilhados comigo + convites pendentes) ----
 
+/** O app do computador está conectado agora? `null` se não deu para saber (o painel então não mostra nada). */
+async function agentOnline(env: PanelEnv, deviceId: string): Promise<boolean | null> {
+  try {
+    const stub = env.HOST_CHANNEL.get(env.HOST_CHANNEL.idFromName(deviceId));
+    const r = await stub.fetch('https://host-channel.internal/presence', { method: 'POST', signal: AbortSignal.timeout(1500) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { agentOnline?: unknown };
+    return typeof j.agentOnline === 'boolean' ? j.agentOnline : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Derruba as conexões de um computador que saiu da conta (o app dele passa a ser barrado no próximo contato). */
+async function unpairDevice(env: PanelEnv, deviceId: string): Promise<void> {
+  try {
+    const stub = env.HOST_CHANNEL.get(env.HOST_CHANNEL.idFromName(deviceId));
+    await stub.fetch('https://host-channel.internal/unpair', { method: 'POST' });
+  } catch { /* melhor esforço: o token já não existe mais no banco */ }
+}
+
+/** Mais que isto na lista, o painel não consulta quem está online (cada consulta é uma chamada ao Durable Object). */
+const PRESENCE_MAX_DEVICES = 30;
+
 async function listDevices(env: PanelEnv, user: SupabaseUser): Promise<PanelResult> {
   const nowIso = new Date().toISOString();
   const [owned, memberships, pending] = await Promise.all([
-    supabaseService(env, `/rest/v1/panel_devices?user_id=eq.${enc(user.id)}&select=id,device_name,last_seen_at&order=last_seen_at.desc.nullslast`).then((r) => rows<DeviceRow>(r)),
+    supabaseService(env, `/rest/v1/panel_devices?user_id=eq.${enc(user.id)}&select=id,device_name,last_seen_at,created_at&order=last_seen_at.desc.nullslast`).then((r) => rows<DeviceRow>(r)),
     supabaseService(env, `/rest/v1/panel_device_members?user_id=eq.${enc(user.id)}&select=permissions,panel_devices(id,user_id,device_name,last_seen_at)`).then((r) => rows<any>(r)),
     supabaseService(env, `/rest/v1/panel_device_invites?kind=eq.email&target_user_id=eq.${enc(user.id)}&expires_at=gt.${enc(nowIso)}&select=id,permissions,expires_at,created_by,panel_devices(device_name)`).then((r) => rows<any>(r)),
   ]);
@@ -245,14 +277,18 @@ async function listDevices(env: PanelEnv, user: SupabaseUser): Promise<PanelResu
     ...pending.map((p) => p.created_by),
   ]);
 
+  const sharedDevices = memberships.filter((m) => m.panel_devices);
+  const ids = [...owned.map((d) => d.id), ...sharedDevices.map((m) => m.panel_devices.id as string)].slice(0, PRESENCE_MAX_DEVICES);
+  const online = new Map<string, boolean | null>(await Promise.all(ids.map(async (id) => [id, await agentOnline(env, id)] as const)));
+
   return OK('Dispositivos listados.', {
-    owned: owned.map((d) => ({ id: d.id, deviceName: d.device_name, lastSeenAt: d.last_seen_at })),
-    shared: memberships
-      .filter((m) => m.panel_devices)
+    owned: owned.map((d) => ({ id: d.id, deviceName: d.device_name, lastSeenAt: d.last_seen_at, createdAt: d.created_at ?? null, online: online.get(d.id) ?? null })),
+    shared: sharedDevices
       .map((m) => ({
         id: m.panel_devices.id,
         deviceName: m.panel_devices.device_name,
         lastSeenAt: m.panel_devices.last_seen_at,
+        online: online.get(m.panel_devices.id) ?? null,
         ownerLabel: labelOf(info.get(m.panel_devices.user_id)),
         permissions: normalizePermissions(m.permissions),
       })),
@@ -264,6 +300,99 @@ async function listDevices(env: PanelEnv, user: SupabaseUser): Promise<PanelResu
       expiresAt: p.expires_at,
     })),
   });
+}
+
+// ---- Gerenciar os próprios computadores: remover, renomear e limpar duplicados ----
+
+export const DEVICE_NAME_MAX = 40;
+
+/** Nome de computador aceito: sem caracteres de controle, espaços arrumados, de 1 a 40 caracteres. */
+export function cleanDeviceName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const name = raw.replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return name.length >= 1 && [...name].length <= DEVICE_NAME_MAX ? name : null;
+}
+
+/** Tira um computador da conta. O app dele perde o pareamento (o token deixa de existir) e quem tinha acesso compartilhado também. */
+async function removeDevice(env: PanelEnv, user: SupabaseUser, deviceId: string): Promise<PanelResult> {
+  const owner = await requireOwner(env, user, deviceId);
+  if ('result' in owner) return owner.result;
+  const resp = await supabaseService(env, `/rest/v1/panel_devices?id=eq.${enc(deviceId)}&user_id=eq.${enc(user.id)}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+  if (!resp.ok) return res(502, 'INTERNAL_ERROR', 'Não foi possível remover o computador.');
+  await unpairDevice(env, deviceId);
+  return OK('Computador removido.');
+}
+
+async function renameDevice(req: Request, env: PanelEnv, user: SupabaseUser, deviceId: string): Promise<PanelResult> {
+  const owner = await requireOwner(env, user, deviceId);
+  if ('result' in owner) return owner.result;
+  const body: any = await req.json().catch(() => null);
+  const name = cleanDeviceName(body?.deviceName);
+  if (!name) return res(400, 'VALIDATION_ERROR', `O nome precisa ter de 1 a ${DEVICE_NAME_MAX} caracteres.`);
+  const resp = await supabaseService(env, `/rest/v1/panel_devices?id=eq.${enc(deviceId)}&user_id=eq.${enc(user.id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ device_name: name }),
+  });
+  if (!resp.ok) return res(502, 'INTERNAL_ERROR', 'Não foi possível renomear o computador.');
+  return OK('Computador renomeado.', { deviceName: name });
+}
+
+const CLEANUP_MIN_AGE_MS = 24 * 3600 * 1000;
+
+/**
+ * Remove os computadores repetidos da conta: entre os de mesmo nome fica o visto por último, e os outros saem se não
+ * têm ninguém com acesso, não estão online agora, não foram vistos nas últimas 24 horas (ou nunca conectaram) e não
+ * são recém-criados.
+ * Devolve quantos saíram. Idempotente: rodar de novo não remove mais nada.
+ */
+async function cleanupDevices(env: PanelEnv, user: SupabaseUser): Promise<PanelResult> {
+  const own = await rows<DeviceRow>(await supabaseService(env, `/rest/v1/panel_devices?user_id=eq.${enc(user.id)}&select=id,device_name,last_seen_at,created_at&limit=200`));
+  const groups = new Map<string, DeviceRow[]>();
+  for (const d of own) {
+    const key = d.device_name.trim().toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), d]);
+  }
+  const stamp = (d: DeviceRow) => Date.parse(d.last_seen_at ?? '') || 0;
+  const created = (d: DeviceRow) => Date.parse(d.created_at ?? '') || 0;
+
+  const candidates: DeviceRow[] = [];
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort((a, b) => stamp(b) - stamp(a) || created(b) - created(a));
+    candidates.push(...sorted.slice(1));
+  }
+  if (candidates.length === 0) return OK('Nenhum computador repetido.', { removed: 0 });
+
+  // Quem tem pessoas com acesso (ou convite) não é lixo: não mexe.
+  const idList = candidates.map((d) => enc(d.id)).join(',');
+  const [members, invites] = await Promise.all([
+    rows<{ device_id: string }>(await supabaseService(env, `/rest/v1/panel_device_members?device_id=in.(${idList})&select=device_id`)),
+    rows<{ device_id: string }>(await supabaseService(env, `/rest/v1/panel_device_invites?device_id=in.(${idList})&select=device_id`)),
+  ]);
+  const busy = new Set([...members, ...invites].map((r) => r.device_id));
+
+  const now = Date.now();
+  const doomed: DeviceRow[] = [];
+  for (const d of candidates) {
+    if (busy.has(d.id)) continue;
+    if (stamp(d) && now - stamp(d) < CLEANUP_MIN_AGE_MS) continue; // visto há pouco: pode ser outro computador com o mesmo nome
+    if (created(d) && now - created(d) < CLEANUP_MIN_AGE_MS) continue; // recém-criado: o app ainda nem teve tempo de conectar
+    if ((await agentOnline(env, d.id)) !== false) continue; // online, ou sem saber: na dúvida, fica
+    doomed.push(d);
+  }
+  if (doomed.length === 0) return OK('Nenhum computador repetido.', { removed: 0 });
+
+  const resp = await supabaseService(env, `/rest/v1/panel_devices?id=in.(${doomed.map((d) => enc(d.id)).join(',')})&user_id=eq.${enc(user.id)}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+  if (!resp.ok) return res(502, 'INTERNAL_ERROR', 'Não foi possível limpar os computadores repetidos.');
+  await Promise.all(doomed.map((d) => unpairDevice(env, d.id)));
+  return OK('Computadores repetidos removidos.', { removed: doomed.length });
 }
 
 // ---- Membros e convites de um dispositivo (só o dono) ----
