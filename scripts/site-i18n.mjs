@@ -15,7 +15,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS = path.join(ROOT, "docs");
 
 export const STATIC_PAGES = ["index.html", "download/index.html"];
-export const RUNTIME_PAGES = ["entrar/index.html", "obrigado/index.html", "assinatura/sucesso/index.html", "painel/index.html"];
+export const RUNTIME_PAGES = ["entrar/index.html", "obrigado/index.html", "assinatura/sucesso/index.html", "painel/index.html", "vincular/index.html"];
 
 // Páginas legais têm texto próprio em inglês (geradas por scripts/build-legal-pages.mjs), em outra URL.
 const LEGAL_EN = { "privacidade/": "privacy/", "termos/": "terms/", "licencas/": "licenses/", "discord/": "discord/" };

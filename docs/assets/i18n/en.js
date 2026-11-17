@@ -293,6 +293,12 @@ window.CUBICASE_I18N = {
 
     // ------------------------------------------------------------ painel instalável e notificações
     "Instalar app": "Install app",
+    "Vincular conta do Minecraft — Cubicase": "Link your Minecraft account — Cubicase",
+    "Página de retorno do login da Microsoft para vincular a conta do Minecraft ao Cubicase.": "Microsoft sign-in return page for linking your Minecraft account to Cubicase.",
+    "Vincular conta do Minecraft": "Link your Minecraft account",
+    "Esta é a página que recebe o retorno do login da Microsoft quando você vincula a sua conta do Minecraft Java ao Cubicase. O vínculo é opcional e o recurso ainda está em desenvolvimento.": "This is the page that receives the Microsoft sign-in return when you link your Minecraft Java account to Cubicase. Linking is optional and the feature is still in development.",
+    "O login é feito na página da Microsoft: o Cubicase nunca vê a sua senha. Do Minecraft, lemos só o seu nome de jogador e o identificador (UUID), e os dados de acesso da Microsoft são usados uma única vez e descartados. Você pode desvincular a qualquer momento. Detalhes na": "Sign-in happens on Microsoft's page: Cubicase never sees your password. From Minecraft we read only your player name and identifier (UUID), and the Microsoft access data is used once and discarded. You can unlink at any time. Details in the",
+    "O Cubicase não é afiliado à Mojang nem à Microsoft.": "Cubicase is not affiliated with Mojang or Microsoft.",
     "Convite": "Invite",
     "Você foi convidado para acessar um computador. Entre ou crie a sua conta para ver o convite. Você não precisa ter o Cubicase Plus.": "You were invited to access a computer. Sign in or create your account to see the invite. You do not need Cubicase Plus.",
     "Você não precisa ter o Cubicase Plus para aceitar. O computador precisa estar ligado, com o Cubicase aberto, para você usar o painel.": "You do not need Cubicase Plus to accept. The computer must be on, with Cubicase open, for you to use the panel.",

@@ -4,5 +4,6 @@ Disallow: /painel/
 Disallow: /entrar/
 Disallow: /obrigado/
 Disallow: /assinatura/
+Disallow: /vincular/
 
 Sitemap: https://cubicase.net/sitemap.xml
