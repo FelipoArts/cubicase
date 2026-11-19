@@ -10,6 +10,7 @@ import { remove } from "@tauri-apps/plugin-fs";
 import { useAppStore, type ServerStatus } from "@/app/store";
 
 import { pushDiagnostic } from "@/app/diagnostics";
+import { markMilestone } from "@/lib/milestones";
 import { hostingHeadline, type HostingHeadline, isGuestActiveError, isHostingActive, secondsUntilRetry, type HostingStatus } from "@/lib/hosting";
 import { listLocalServers, listAllServers, installMinecraftServer, installForgeServer, installFabricServer, installPaperServer, importExistingServer, scanExternalServer, startServerOrchestrated, updateStoredShortCode, type ServerInfo, type ServerInstallProgress } from "@/lib/server";
 import type { ResourceSnapshot } from "@/lib/resourceDiagnostics";
@@ -406,7 +407,7 @@ export function useHostController({
       console.error(err);
       setServerStatus("offline");
       onSetMcLogs(prev => [...prev, tn("host.mc.startFailed", { error: String(err) })]);
-      pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("host.err.startServer"), message: String(err) });
+      pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("host.err.startServer"), message: String(err), kind: "server_start_failed" });
     }
   };
 
@@ -453,7 +454,7 @@ export function useHostController({
       await invoke("retry_hosting_network");
     } catch (err) {
       console.error(err);
-      pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.retryNetwork"), message: String(err) });
+      pushDiagnostic({ level: "error", source: tn("diag.source.network"), title: tn("host.err.retryNetwork"), message: String(err), kind: "connection_failed" });
     }
   };
 
@@ -484,6 +485,7 @@ export function useHostController({
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+    markMilestone("invited");
     setCopiedText(text);
     setTimeout(() => setCopiedText((current) => (current === text ? null : current)), 2000);
   };
@@ -517,7 +519,7 @@ export function useHostController({
       onSetServerInstallProgress(null);
     } catch (err) {
       console.error(err);
-      pushDiagnostic({ level: "error", source: tn("diag.source.install"), title: tn("host.err.createServer"), message: String(err) });
+      pushDiagnostic({ level: "error", source: tn("diag.source.install"), title: tn("host.err.createServer"), message: String(err), kind: "install_failed" });
       onSetServerInstallProgress(null);
     }
   };

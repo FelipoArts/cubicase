@@ -31,6 +31,9 @@ import { isDirectFailureCode, useConnectionHelp } from "@/lib/connectionHelp";
 import { setModsSource } from "@/lib/modSync";
 import { radminAddress, radminProbe } from "@/lib/radmin";
 import { useUpdaterStore } from "@/app/updater";
+import { getVersion } from "@tauri-apps/api/app";
+import { sendInstallPing } from "@/lib/installPing";
+import { applySnapshot } from "@/lib/milestones";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
 import { usePerfStore, type PerfState } from "@/lib/perfMonitor";
@@ -82,6 +85,23 @@ export default function Home() {
       clearInterval(interval);
     };
   }, []);
+
+  // Contagem anônima de instalações (1x por dia, desligável em Configurações > Privacidade): ver lib/installPing.ts.
+  const installPing = useAppStore((s) => s.installPing);
+  useEffect(() => {
+    if (!installPing) return;
+    // Marcos do uso (conta, servidor, convite...) saem do estado do app; só viram bits locais (lib/milestones.ts).
+    const snap = () => {
+      const s = useAppStore.getState();
+      applySnapshot({ hasUser: !!s.user, serverCount: s.localServers.length, serverStatus: s.serverStatus, onlinePlayers: s.onlinePlayers.length });
+    };
+    snap();
+    const unsub = useAppStore.subscribe(snap);
+    const send = () => getVersion().then((v) => sendInstallPing(true, v)).catch(() => {});
+    const timer = setTimeout(send, 15000);
+    const interval = setInterval(send, 60 * 60 * 1000); // reenvia (no máximo a cada hora) se um marco novo apareceu
+    return () => { clearTimeout(timer); clearInterval(interval); unsub(); };
+  }, [installPing]);
 
   // --- Store ---
   const {
@@ -539,6 +559,7 @@ export default function Home() {
             source: t("diag.source.server"),
             title: t("host.err.startServer"),
             message: event.payload.error,
+            kind: "server_start_failed",
           });
           useAppStore.getState().setServerStatus("offline");
         }

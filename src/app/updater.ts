@@ -53,6 +53,7 @@ export const useUpdaterStore = create<UpdaterState>((set, get) => {
       message: t("update.installFailed.message"),
       detail: String(e),
       source: t("update.source"),
+      kind: "update_failed",
     });
   }
 

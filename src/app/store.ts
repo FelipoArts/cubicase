@@ -111,6 +111,8 @@ interface AppSettings {
   networkPath: NetworkPathInfo | null;
   // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
   privateMode: boolean;
+  // Contagem anônima de instalações (ver lib/installPing.ts): ligada por padrão, dá para desligar em Configurações.
+  installPing: boolean;
   // Estado do relay informado pela API na última conexão (cota do mês esgotada, relay desligado...) — runtime.
   relayStatus: RelayStatus | null;
   // Conexão do convidado pelo Radmin (plano B), se for essa a ativa — runtime.
@@ -188,6 +190,7 @@ interface AppSettings {
   acceptEula: () => void;
   setNetworkPath: (p: NetworkPathInfo | null) => void;
   setPrivateMode: (enabled: boolean) => void;
+  setInstallPing: (enabled: boolean) => void;
   setRelayStatus: (s: RelayStatus | null) => void;
   setRadminRoute: (r: RadminRoute | null) => void;
   setBackupRetentionCount: (count: number) => void;
@@ -273,6 +276,7 @@ export const useAppStore = create<AppSettings>()(
       eulaAcceptedAt: null,
       networkPath: null,
       privateMode: false,
+      installPing: true,
       relayStatus: null,
       radminRoute: null,
       backupRetentionCount: 10,
@@ -302,6 +306,7 @@ export const useAppStore = create<AppSettings>()(
       acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
       setNetworkPath: (p) => set({ networkPath: p }),
       setPrivateMode: (enabled) => set({ privateMode: enabled }),
+      setInstallPing: (enabled) => set({ installPing: enabled }),
       setRelayStatus: (s) => set({ relayStatus: s }),
       setRadminRoute: (r) => set({ radminRoute: r }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
@@ -406,6 +411,7 @@ export const useAppStore = create<AppSettings>()(
         autoBackupEnabled: state.autoBackupEnabled,
         eulaAcceptedAt: state.eulaAcceptedAt,
         privateMode: state.privateMode,
+        installPing: state.installPing,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,
         selectedServer: state.selectedServer,

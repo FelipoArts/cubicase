@@ -15,6 +15,9 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, supabaseService, type SupabaseE
 import { ADMIN_HTML } from './admin-page';
 import { listProfileReports, resolveProfileReport } from './profile-moderation';
 import { listBannerReports, resolveBannerReport, type BannerReportsEnv } from './server-look-reports';
+import { installs } from './installs';
+import { searchAccounts, getAccount, applyAccountAction, type AccountsEnv } from './admin-accounts';
+import { listAudit } from './admin-audit';
 
 export interface AdminEnv extends SupabaseEnv {
   CUBEFORGE_REGISTRY: KVNamespace;
@@ -291,19 +294,38 @@ async function relay(env: AdminEnv, now: number) {
   return { month, servers: rows.length, totalBytes: rows.reduce((s, r) => s + r.bytes, 0), top: rows.slice(0, 10) };
 }
 
+/** Das contas criadas: quantas chegaram a cada etapa (perfil, servidor na biblioteca, computador pareado, Plus) + servidores que já tiveram convidado. */
+async function activation(env: AdminEnv) {
+  const distinct = async (path: string): Promise<number> => {
+    const res = await supabaseService(env, path);
+    if (!res.ok) throw new Error(`Supabase HTTP ${res.status}`);
+    return new Set(((await res.json()) as { user_id: string }[]).map((r) => r.user_id)).size;
+  };
+  const [withProfile, hosts, withDevice, plus, guests] = await Promise.all([
+    distinct('/rest/v1/profiles?select=user_id&limit=10000'),
+    distinct('/rest/v1/server_members?role=eq.host&select=user_id&limit=10000'),
+    distinct('/rest/v1/panel_devices?select=user_id&limit=10000'),
+    distinct('/rest/v1/subscriptions?status=in.(active,trialing)&select=user_id&limit=10000'),
+    listKeys(env.CUBEFORGE_REGISTRY, 'guestseen:', 10),
+  ]);
+  return { withProfile, hosts, withDevice, plus, serversWithGuest: guests.length };
+}
+
 let overviewCache: { at: number; value: unknown } | null = null;
 export function resetOverviewCache(): void { overviewCache = null; }
 
 export async function collectOverview(env: AdminEnv, f: typeof fetch = defaultProbes.fetch, now = Date.now(), force = false) {
   if (!force && overviewCache && now - overviewCache.at < OVERVIEW_CACHE_MS) return overviewCache.value;
-  const [dl, acc, sub, srv, rly] = await Promise.all([
+  const [dl, acc, sub, srv, rly, ins, act] = await Promise.all([
     section(() => downloads(f)),
     section(() => accounts(env, now)),
     section(() => subscriptions(env)),
     section(() => servers(env, now)),
     section(() => relay(env, now)),
+    section(() => installs(env, now)),
+    section(() => activation(env)),
   ]);
-  const value = { generatedAt: new Date(now).toISOString(), downloads: dl, accounts: acc, subscriptions: sub, servers: srv, relay: rly };
+  const value = { generatedAt: new Date(now).toISOString(), downloads: dl, accounts: acc, subscriptions: sub, servers: srv, relay: rly, installs: ins, activation: act };
   overviewCache = { at: now, value };
   return value;
 }
@@ -387,6 +409,25 @@ export async function handleAdminRequest(
     const body: any = await req.json().catch(() => null);
     const r = await resolveBannerReport(env as BannerReportsEnv, resolveBanner[1].toLowerCase(), body?.action);
     return r.ok ? respond({ success: true }) : respond({ success: false, message: r.message }, r.status);
+  }
+  // Contas: busca, ficha e ações (ver admin-accounts.ts) + registro de ações
+  if (req.method === 'GET' && p === '/api/v1/admin/accounts') {
+    try { return respond({ items: await searchAccounts(env, url.searchParams.get('q') ?? '') }); }
+    catch (e) { return respond({ success: false, message: e instanceof Error ? e.message : 'Falha na busca.' }, 502); }
+  }
+  const acct = /^\/api\/v1\/admin\/accounts\/([0-9a-fA-F-]{36})$/.exec(p);
+  if (req.method === 'GET' && acct) {
+    const a = await getAccount(env, acct[1].toLowerCase());
+    return a ? respond({ account: a }) : respond({ success: false, message: 'Conta não encontrada.' }, 404);
+  }
+  const acctAct = /^\/api\/v1\/admin\/accounts\/([0-9a-fA-F-]{36})\/action$/.exec(p);
+  if (req.method === 'POST' && acctAct) {
+    const body: any = await req.json().catch(() => null);
+    const r = await applyAccountAction(env as AccountsEnv, acctAct[1].toLowerCase(), body?.action);
+    return r.ok ? respond({ success: true, message: r.message }) : respond({ success: false, message: r.message }, r.status);
+  }
+  if (req.method === 'GET' && p === '/api/v1/admin/audit') {
+    return respond({ items: await listAudit(env) });
   }
   if (req.method === 'GET' && p === '/api/v1/admin/feedback') {
     return respond({ items: await listFeedback(env) });

@@ -23,6 +23,7 @@ import {
   sendTest, EVENT_KINDS, type McSnapshot, type GuildConfig, type ChannelKind,
 } from './discord-sync';
 import { handleAdminRequest, healthCron, storeFeedback } from './admin';
+import { recordInstallPing } from './installs';
 import { parseFeedback, feedbackFingerprint, feedbackMailConfigured, sendFeedbackEmail, FEEDBACK_LIMITS, type FeedbackField } from './feedback';
 import { buildLinkCredentials, bearerToken, verifyLinkToken, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, verifyRelayUsageSignature, type LinkEnv } from './link';
 export { HostChannel } from './durable-objects/host-channel';
@@ -223,6 +224,7 @@ const CONNECT_NAME_RATE_LIMIT = 5;  // definir/trocar endereço de conexão: mes
 const SLUG_RESOLVE_RATE_LIMIT = 20; // resolver slug->shortCode: chamado pela página de convite (uma vez por visita) — folgado o bastante pra não incomodar visitas legítimas, apertado o bastante pra desanimar varredura de slugs
 const ADMIN_FAIL_LIMIT = 10;       // painel do dono: tentativas com token errado por IP/min (só as erradas gravam no KV)
 const FEEDBACK_RATE_LIMIT = 3;      // central de ajuda: por IP/min — relato é ação manual e rara; barra spam e duplo clique em cascata
+const INSTALL_PING_RATE_LIMIT = 30; // pings de instalação por IP/min (várias instalações atrás do mesmo roteador cabem)
 const FEEDBACK_DEDUPE_SECONDS = 3600; // o mesmo relato (mesmo e-mail/assunto/texto) só passa uma vez por hora
 const LINK_WS_RATE_LIMIT = 120;       // conexões à sala P2P por IP/min: reconexões legítimas cabem; barra varredura
 const PANEL_PUSH_RATE_LIMIT = 30; // inscrição/cancelamento/consulta de notificações do painel, por IP/min
@@ -1205,6 +1207,10 @@ async function handleCreateConnectionSession(shortCode: string, req: Request, en
   if (!body.correlationId || !body.clientVersion || !body.installationId) return json(fail(ResponseCodes.VALIDATION_ERROR, 'correlationId, clientVersion, installationId obrigatórios.'), 400, cors);
   if (body.mode !== 'host' && body.mode !== 'guest') return json(fail(ResponseCodes.VALIDATION_ERROR, 'mode precisa ser "host" ou "guest".'), 400, cors);
   const mode: 'host' | 'guest' = body.mode;
+  // Marca que este servidor já teve convidado (só a primeira vez grava): alimenta o funil do painel do dono.
+  if (mode === 'guest' && !(await env.CUBEFORGE_REGISTRY.get(`guestseen:${shortCode}`))) {
+    await env.CUBEFORGE_REGISTRY.put(`guestseen:${shortCode}`, '1', { expirationTtl: 400 * 24 * 3600 }).catch(() => {});
+  }
   // Host e guest têm, cada um, a própria ConnectionSession (sem isso a sessão do host,
   // sempre ativa, bloqueava todo convidado com 409 OPERATION_IN_PROGRESS).
   // A vaga é por papel: UM host por servidor (e só o dono chega aqui, já
@@ -2193,6 +2199,14 @@ async function handleRequest(req: Request, env: Env, ctx: ExecutionContext): Pro
       // Painel do dono (página + /api/v1/admin/*) — ver admin.ts
       const adminRes = await handleAdminRequest(req, env, clientIp(req), () => checkRateLimit(env, 'admin-fail', clientIp(req), ADMIN_FAIL_LIMIT));
       if (adminRes) return adminRes;
+
+      // POST /api/v1/installs/ping — contagem anônima de instalações (ver installs.ts)
+      if (m === 'POST' && p === '/api/v1/installs/ping') {
+        if (!(await checkRateLimit(env, 'install-ping', clientIp(req), INSTALL_PING_RATE_LIMIT))) return rateLimitedResponse(cors);
+        const body = await req.json().catch(() => null);
+        const r = await recordInstallPing(env, body);
+        return r.ok ? json(ok('INSTALL_PING', 'Ok.'), 200, cors) : json(fail(ResponseCodes.VALIDATION_ERROR, r.message), 400, cors);
+      }
 
       // POST /api/v1/feedback — central de ajuda (bug, problema, sugestão) -> e-mail do dono
       if (m === 'POST' && p === '/api/v1/feedback') {

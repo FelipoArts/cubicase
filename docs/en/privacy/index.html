@@ -56,7 +56,7 @@
   </header>
 
   <main class="container legal">
-    <p class="legal-lead">Summary: Cubicase works without an account, has no ads and uses no behavioral analytics. Your server and worlds stay on your computer. Below is everything that goes through our infrastructure, and why.</p>
+    <p class="legal-lead">Summary: Cubicase works without an account, has no ads and uses no third-party analytics. We only measure, anonymously and with an off switch, how many installs exist and how far into the app they get. Your server and worlds stay on your computer. Below is everything that goes through our infrastructure, and why.</p>
       <section class="legal-section">
         <h2>1. Who is responsible</h2>
         <p><strong>Cubicase</strong> is an independent project, developed and operated in Brazil (“we”). We are the controller of the data described here under the Brazilian General Data Protection Law (LGPD, Law 13,709/2018) and, where applicable, comparable laws.</p>
@@ -72,6 +72,7 @@
         <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
         <tbody>
         <tr><td><strong>Using the app (no account)</strong></td><td>A random installation identifier (not your name or e-mail); app version; the IP address of your connection (seen by the infrastructure and used for up to ~1 minute to limit abuse).</td><td>Make the service work and protect it from abuse.</td></tr>
+        <tr><td><strong>Anonymous install count</strong></td><td>Once a day: a random number generated on this computer (not tied to your account, computer name or IP), the app version, the system (for example, Windows), which usage steps this installation has reached (signed in, created or started a server, copied the invite, had 2+ players together) and which kinds of failure have happened (creating the server, starting it, connecting, updating). We do not send names, error messages, paths, servers or anything you do in the game. We also record, without identifying anyone, that a server has had at least one guest. It can be turned off in Settings → Privacy.</td><td>Know how many installs are active, where people stop using the app and which failures get in the way, so we fix what matters most.</td></tr>
         <tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players and whether the host is connected. If you use Radmin VPN as plan B, also your address on that network (26.x.x.x range) and the server port, while it is on. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
         <tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; temporary connection credentials (valid for up to 24 hours).</td><td>Connect you to the host's server.</td></tr>
         <tr><td><strong>Connection between host and guests</strong></td><td>To link the computers, the app exchanges network addresses (each side's public IP address and local addresses) through a temporary signaling room on our server. <strong>With the direct connection, host and guests get to see each other's IP address</strong>, which is inherent to this kind of connection; private mode (Cubicase Plus) hides the host's IP. When a direct connection is not possible, traffic goes through a backup server that relays already-encrypted data and records the volume relayed per server.</td><td>Connect host and guests and measure the backup server's monthly allowance.</td></tr>
@@ -121,6 +122,7 @@
         <ul>
         <li>Connection credentials and sessions: expire within 24 hours.</li>
         <li>Monthly backup-server usage (bytes relayed per server): up to 40 days.</li>
+        <li>Anonymous install count (random number, version and system): up to about 13 months after the last one sent.</li>
         <li>Per-IP anti-abuse counters: about 1 minute.</li>
         <li>Server record: until you delete the server in the app or ask for removal.</li>
         <li>Account: as long as it exists; you may ask for deletion.</li>

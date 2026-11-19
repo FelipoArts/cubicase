@@ -56,7 +56,7 @@
   </header>
 
   <main class="container legal">
-    <p class="legal-lead">Resumo: o Cubicase funciona sem conta, não tem anúncios e não usa ferramentas de análise de comportamento. Seu servidor e seus mundos ficam no seu computador. Abaixo está tudo o que passa pela nossa infraestrutura, e por quê.</p>
+    <p class="legal-lead">Resumo: o Cubicase funciona sem conta, não tem anúncios e não usa ferramentas de análise de terceiros. Só medimos, de forma anônima e desligável, quantas instalações existem e até que etapa do uso elas chegam. Seu servidor e seus mundos ficam no seu computador. Abaixo está tudo o que passa pela nossa infraestrutura, e por quê.</p>
       <section class="legal-section">
         <h2>1. Quem é o responsável</h2>
         <p>O <strong>Cubicase</strong> é um projeto independente, desenvolvido e operado no Brasil (“nós”). Somos o controlador dos dados descritos aqui, nos termos da Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018).</p>
@@ -72,6 +72,7 @@
         <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
         <tbody>
         <tr><td><strong>Usar o app (sem conta)</strong></td><td>Um identificador aleatório da instalação (não é seu nome nem e-mail); versão do app; o endereço IP da sua conexão (visto pela infraestrutura, usado por até ~1 minuto para limitar abuso).</td><td>Fazer o serviço funcionar e protegê-lo contra abuso.</td></tr>
+        <tr><td><strong>Contagem anônima de instalações</strong></td><td>Uma vez por dia (e quando uma etapa nova é alcançada): um número aleatório gerado neste computador (não é ligado à sua conta, ao nome do computador nem ao IP), a versão do app, o sistema (por exemplo, Windows), quais etapas do uso esta instalação já alcançou (entrou numa conta, criou ou ligou um servidor, copiou o convite, teve 2 ou mais jogadores juntos) e quais tipos de falha já ocorreram (criar o servidor, ligar o servidor, conectar, atualizar). Não enviamos nomes, mensagens de erro, caminhos, servidores nem o que você faz dentro do jogo. Também registramos, sem identificar ninguém, que um servidor já teve algum convidado. Pode ser desligada em Configurações → Privacidade.</td><td>Saber quantas instalações estão ativas, em que etapa as pessoas deixam de usar o app e quais falhas atrapalham, para corrigir o que mais importa.</td></tr>
         <tr><td><strong>Registrar um servidor para convidar amigos</strong></td><td>Código de convite, nome do servidor, versão do Minecraft, tipo/loader, descrição, estado (online/offline), quantidade de jogadores online e se o host está conectado. Se você usa o Radmin VPN como plano B, também o seu endereço nessa rede (faixa 26.x.x.x) e a porta do servidor, enquanto ele está ligado. O segredo de dono é guardado só como <em>hash</em>.</td><td>Permitir que seus amigos encontrem e entrem no servidor.</td></tr>
         <tr><td><strong>Entrar como convidado</strong></td><td>O código digitado; identificador da instalação; credenciais temporárias de conexão (válidas por até 24 horas).</td><td>Conectar você ao servidor do host.</td></tr>
         <tr><td><strong>Conexão entre host e convidados</strong></td><td>Para ligar os computadores, o app troca endereços de rede (o endereço IP público e os endereços locais de cada um) por uma sala de sinalização temporária no nosso servidor. <strong>Na conexão direta, host e convidados passam a ver o endereço IP uns dos outros</strong>, o que é inerente a esse tipo de conexão; o modo privado (Cubicase Plus) esconde o IP do host. Quando a conexão direta não é possível, o tráfego passa por um servidor de reserva, que repassa dados já cifrados e registra o volume repassado por servidor.</td><td>Conectar host e convidados e medir a cota mensal do servidor de reserva.</td></tr>
@@ -121,6 +122,7 @@
         <ul>
         <li>Credenciais e sessões de conexão: expiram em até 24 horas.</li>
         <li>Consumo mensal do servidor de reserva (bytes repassados por servidor): até 40 dias.</li>
+        <li>Contagem anônima de instalações (número aleatório, versão e sistema): até cerca de 13 meses depois do último envio.</li>
         <li>Contadores anti-abuso por IP: cerca de 1 minuto.</li>
         <li>Registro do servidor: até você apagar o servidor no app ou pedir a remoção.</li>
         <li>Conta: enquanto existir; você pode pedir a exclusão.</li>

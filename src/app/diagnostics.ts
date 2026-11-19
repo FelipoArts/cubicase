@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { markError, type ErrorKind } from '@/lib/milestones';
 
 // ============================================================
 // Central de Diagnósticos
@@ -36,6 +37,8 @@ export interface PushDiagnosticInput {
   message: string;
   detail?: string;
   source: string;
+  /** Tipo de falha para a contagem anônima (lib/milestones.ts); nada do texto do erro é enviado. */
+  kind?: ErrorKind;
 }
 
 const MAX_HISTORY = 200;
@@ -71,6 +74,7 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
   unreadCount: 0,
 
   push: (input) => {
+    if (input.kind) markError(input.kind);
     // Se o mesmo diagnóstico (nível+fonte+título+mensagem) já está ativo como
     // toast, não empilha um novo popup — só atualiza o existente com um
     // contador, evitando que o usuário precise fechar vários X repetidos

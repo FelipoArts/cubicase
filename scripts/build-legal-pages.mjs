@@ -38,7 +38,7 @@ const PAGES = {
       title: "Política de Privacidade — Cubicase",
       desc: "Quais dados o Cubicase trata, para quê, com quem são compartilhados e como exercer seus direitos (LGPD).",
       h1: "Política de Privacidade",
-      lead: "Resumo: o Cubicase funciona sem conta, não tem anúncios e não usa ferramentas de análise de comportamento. Seu servidor e seus mundos ficam no seu computador. Abaixo está tudo o que passa pela nossa infraestrutura, e por quê.",
+      lead: "Resumo: o Cubicase funciona sem conta, não tem anúncios e não usa ferramentas de análise de terceiros. Só medimos, de forma anônima e desligável, quantas instalações existem e até que etapa do uso elas chegam. Seu servidor e seus mundos ficam no seu computador. Abaixo está tudo o que passa pela nossa infraestrutura, e por quê.",
       sections: [
         ["1. Quem é o responsável", `<p>O <strong>Cubicase</strong> é um projeto independente, desenvolvido e operado no Brasil (“nós”). Somos o controlador dos dados descritos aqui, nos termos da Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018).</p>
 <p>Contato sobre privacidade e exercício de direitos: pela <strong>Central de Ajuda dentro do app</strong> (Ajuda → Enviar mensagem) ou pelo e-mail ${MAIL}.</p>`],
@@ -47,6 +47,7 @@ const PAGES = {
 <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
 <tbody>
 <tr><td><strong>Usar o app (sem conta)</strong></td><td>Um identificador aleatório da instalação (não é seu nome nem e-mail); versão do app; o endereço IP da sua conexão (visto pela infraestrutura, usado por até ~1 minuto para limitar abuso).</td><td>Fazer o serviço funcionar e protegê-lo contra abuso.</td></tr>
+<tr><td><strong>Contagem anônima de instalações</strong></td><td>Uma vez por dia (e quando uma etapa nova é alcançada): um número aleatório gerado neste computador (não é ligado à sua conta, ao nome do computador nem ao IP), a versão do app, o sistema (por exemplo, Windows), quais etapas do uso esta instalação já alcançou (entrou numa conta, criou ou ligou um servidor, copiou o convite, teve 2 ou mais jogadores juntos) e quais tipos de falha já ocorreram (criar o servidor, ligar o servidor, conectar, atualizar). Não enviamos nomes, mensagens de erro, caminhos, servidores nem o que você faz dentro do jogo. Também registramos, sem identificar ninguém, que um servidor já teve algum convidado. Pode ser desligada em Configurações → Privacidade.</td><td>Saber quantas instalações estão ativas, em que etapa as pessoas deixam de usar o app e quais falhas atrapalham, para corrigir o que mais importa.</td></tr>
 <tr><td><strong>Registrar um servidor para convidar amigos</strong></td><td>Código de convite, nome do servidor, versão do Minecraft, tipo/loader, descrição, estado (online/offline), quantidade de jogadores online e se o host está conectado. Se você usa o Radmin VPN como plano B, também o seu endereço nessa rede (faixa 26.x.x.x) e a porta do servidor, enquanto ele está ligado. O segredo de dono é guardado só como <em>hash</em>.</td><td>Permitir que seus amigos encontrem e entrem no servidor.</td></tr>
 <tr><td><strong>Entrar como convidado</strong></td><td>O código digitado; identificador da instalação; credenciais temporárias de conexão (válidas por até 24 horas).</td><td>Conectar você ao servidor do host.</td></tr>
 <tr><td><strong>Conexão entre host e convidados</strong></td><td>Para ligar os computadores, o app troca endereços de rede (o endereço IP público e os endereços locais de cada um) por uma sala de sinalização temporária no nosso servidor. <strong>Na conexão direta, host e convidados passam a ver o endereço IP uns dos outros</strong>, o que é inerente a esse tipo de conexão; o modo privado (Cubicase Plus) esconde o IP do host. Quando a conexão direta não é possível, o tráfego passa por um servidor de reserva, que repassa dados já cifrados e registra o volume repassado por servidor.</td><td>Conectar host e convidados e medir a cota mensal do servidor de reserva.</td></tr>
@@ -87,6 +88,7 @@ const PAGES = {
         ["6. Por quanto tempo guardamos", `<ul>
 <li>Credenciais e sessões de conexão: expiram em até 24 horas.</li>
 <li>Consumo mensal do servidor de reserva (bytes repassados por servidor): até 40 dias.</li>
+<li>Contagem anônima de instalações (número aleatório, versão e sistema): até cerca de 13 meses depois do último envio.</li>
 <li>Contadores anti-abuso por IP: cerca de 1 minuto.</li>
 <li>Registro do servidor: até você apagar o servidor no app ou pedir a remoção.</li>
 <li>Conta: enquanto existir; você pode pedir a exclusão.</li>
@@ -113,7 +115,7 @@ const PAGES = {
       title: "Privacy Policy — Cubicase",
       desc: "Which data Cubicase handles, why, who it is shared with and how to exercise your rights.",
       h1: "Privacy Policy",
-      lead: "Summary: Cubicase works without an account, has no ads and uses no behavioral analytics. Your server and worlds stay on your computer. Below is everything that goes through our infrastructure, and why.",
+      lead: "Summary: Cubicase works without an account, has no ads and uses no third-party analytics. We only measure, anonymously and with an off switch, how many installs exist and how far into the app they get. Your server and worlds stay on your computer. Below is everything that goes through our infrastructure, and why.",
       sections: [
         ["1. Who is responsible", `<p><strong>Cubicase</strong> is an independent project, developed and operated in Brazil (“we”). We are the controller of the data described here under the Brazilian General Data Protection Law (LGPD, Law 13,709/2018) and, where applicable, comparable laws.</p>
 <p>Privacy contact and exercise of rights: through the <strong>in-app Help Center</strong> (Help → Send message) or by e-mail at ${MAIL}.</p>`],
@@ -122,6 +124,7 @@ const PAGES = {
 <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
 <tbody>
 <tr><td><strong>Using the app (no account)</strong></td><td>A random installation identifier (not your name or e-mail); app version; the IP address of your connection (seen by the infrastructure and used for up to ~1 minute to limit abuse).</td><td>Make the service work and protect it from abuse.</td></tr>
+<tr><td><strong>Anonymous install count</strong></td><td>Once a day: a random number generated on this computer (not tied to your account, computer name or IP), the app version, the system (for example, Windows), which usage steps this installation has reached (signed in, created or started a server, copied the invite, had 2+ players together) and which kinds of failure have happened (creating the server, starting it, connecting, updating). We do not send names, error messages, paths, servers or anything you do in the game. We also record, without identifying anyone, that a server has had at least one guest. It can be turned off in Settings → Privacy.</td><td>Know how many installs are active, where people stop using the app and which failures get in the way, so we fix what matters most.</td></tr>
 <tr><td><strong>Registering a server to invite friends</strong></td><td>Invite code, server name, Minecraft version, type/loader, description, state (online/offline), number of online players and whether the host is connected. If you use Radmin VPN as plan B, also your address on that network (26.x.x.x range) and the server port, while it is on. The owner secret is stored only as a <em>hash</em>.</td><td>Let your friends find and join the server.</td></tr>
 <tr><td><strong>Joining as a guest</strong></td><td>The code you type; installation identifier; temporary connection credentials (valid for up to 24 hours).</td><td>Connect you to the host's server.</td></tr>
 <tr><td><strong>Connection between host and guests</strong></td><td>To link the computers, the app exchanges network addresses (each side's public IP address and local addresses) through a temporary signaling room on our server. <strong>With the direct connection, host and guests get to see each other's IP address</strong>, which is inherent to this kind of connection; private mode (Cubicase Plus) hides the host's IP. When a direct connection is not possible, traffic goes through a backup server that relays already-encrypted data and records the volume relayed per server.</td><td>Connect host and guests and measure the backup server's monthly allowance.</td></tr>
@@ -162,6 +165,7 @@ const PAGES = {
         ["6. How long we keep it", `<ul>
 <li>Connection credentials and sessions: expire within 24 hours.</li>
 <li>Monthly backup-server usage (bytes relayed per server): up to 40 days.</li>
+<li>Anonymous install count (random number, version and system): up to about 13 months after the last one sent.</li>
 <li>Per-IP anti-abuse counters: about 1 minute.</li>
 <li>Server record: until you delete the server in the app or ask for removal.</li>
 <li>Account: as long as it exists; you may ask for deletion.</li>

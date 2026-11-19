@@ -101,6 +101,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
   const defaultTab = useAppStore((s) => s.defaultTab);
   const privateMode = useAppStore((s) => s.privateMode);
   const setPrivateMode = useAppStore((s) => s.setPrivateMode);
+  const installPing = useAppStore((s) => s.installPing);
+  const setInstallPing = useAppStore((s) => s.setInstallPing);
   const relayStatus = useAppStore((s) => s.relayStatus);
   const setDefaultTab = useAppStore((s) => s.setDefaultTab);
 
@@ -388,6 +390,16 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
             <button type="button" onClick={() => { onClose(); useConnectionHelp.getState().show("private_locked"); }} className="h-9 px-3.5 rounded-xl border border-theme-card hover:bg-theme-card text-xs font-bold text-theme-primary transition-colors cursor-pointer">{t("settings.private.withoutPlus")}</button>
           </div>
         )}
+      </Section>
+
+      <Section title={t("settings.privacy.title")} hint={t("settings.privacy.hint")}>
+        <div className="flex items-start justify-between gap-4 p-4 rounded-2xl border border-theme-card bg-theme-card">
+          <div className="min-w-0">
+            <span className="text-sm font-bold text-theme-primary">{t("settings.privacy.ping.label")}</span>
+            <p className="text-xs text-theme-secondary mt-1 leading-relaxed">{t("settings.privacy.ping.desc")}</p>
+          </div>
+          <Switch checked={installPing} onChange={() => setInstallPing(!installPing)} />
+        </div>
       </Section>
 
       <Section title={t("settings.wake.title")} hint={t("settings.wake.desc")} badge="Plus">
