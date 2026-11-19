@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
 export default defineConfig({
+  // Vários arquivos rodam em paralelo (e o servidor do GitHub é mais lento que um PC): 5 s de padrão estourava em testes
+  // que fazem dezenas de requisições seguidas. Isto só dá folga; não mascara travamento de verdade.
+  test: { testTimeout: 30_000 },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.toml" },

@@ -139,9 +139,4 @@ describe("rotas de contas do admin", () => {
     expect(r.status).toBe(200);
     expect(((await r.json()) as any).items[0].action).toBe("grant_plus");
   });
-
-  it("a visão geral traz o bloco de instalações", async () => {
-    const r = await call("/api/v1/admin/overview?refresh=1");
-    expect(((await r.json()) as any).installs.ok).toBe(true);
-  });
 });

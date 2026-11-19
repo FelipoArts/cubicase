@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { markMilestone, MILESTONES } from "../milestones";
 import { sendInstallPing, getInstallId, detectOs } from "../installPing";
 
+const calls = (f: unknown) => (f as { mock: { calls: [string, { body: string }][] } }).mock.calls;
 const okFetch = () => vi.fn(async () => new Response("{}", { status: 200 })) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 
 describe("installPing", () => {
@@ -19,7 +20,7 @@ describe("installPing", () => {
   it("manda só id, versão e sistema", async () => {
     const f = okFetch();
     expect(await sendInstallPing(true, "0.8.4", f, 1_000_000)).toBe(true);
-    const [url, init] = (f as any).mock.calls[0];
+    const [url, init] = calls(f)[0];
     expect(url).toContain("/api/v1/installs/ping");
     expect(Object.keys(JSON.parse(init.body)).sort()).toEqual(["e", "id", "os", "s", "v"]);
   });
@@ -45,7 +46,7 @@ describe("installPing", () => {
     markMilestone("server_started");
     expect(await sendInstallPing(true, "0.8.4", f, 10_000_000 + 10 * 60_000)).toBe(false); // cedo demais
     expect(await sendInstallPing(true, "0.8.4", f, 10_000_000 + 2 * 3600_000)).toBe(true);
-    expect(JSON.parse((f as any).mock.calls[1][1].body).s).toBe(MILESTONES.server_started);
+    expect(JSON.parse(calls(f)[1][1].body).s).toBe(MILESTONES.server_started);
     expect(await sendInstallPing(true, "0.8.4", f, 10_000_000 + 4 * 3600_000)).toBe(false); // nada mudou
   });
 
