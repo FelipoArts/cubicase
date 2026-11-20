@@ -564,6 +564,10 @@ function generateServerProperties(version: string, _ramGb: number, seed?: string
     `max-players=20`,
     `view-distance=10`,
     `simulation-distance=10`,
+    // -1 desliga o "watchdog" do servidor: com o computador no limite ou um mod
+    // pesado, um tick lento não derruba o servidor (o padrão do Minecraft é
+    // 60000 ms e ele encerra com "A single server tick took 60.00 seconds").
+    `max-tick-time=-1`,
     `difficulty=easy`,
     `gamemode=survival`,
     `enable-command-block=false`,

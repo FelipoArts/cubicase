@@ -14,12 +14,15 @@ export interface ModIdentity {
   mod_id: string | null;
   version: string | null;
   loader: string | null;
+  /** O mod declara que só funciona no cliente — num servidor é inútil e costuma derrubá-lo. */
+  client_only?: boolean;
 }
 
 export interface JarIdentity {
   mod_id: string | null;
   version: string | null;
   loader: string | null;
+  client_only?: boolean;
 }
 
 export function readModIdentities(serverDir: string, folderName: string): Promise<ModIdentity[]> {

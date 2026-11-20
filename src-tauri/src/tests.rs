@@ -292,6 +292,28 @@ async fn read_server_properties_missing_file_is_error() {
     assert!(read_server_properties(server_dir(&tmp)).await.is_err());
 }
 
+#[test]
+fn max_tick_time_e_desligado_so_quando_ausente() {
+    // Ausente (sem newline final): acrescenta -1 sem colar na linha anterior.
+    let tmp = TempDir::new().unwrap();
+    write_properties(&tmp, "level-name=world");
+    ensure_max_tick_time_disabled(&server_dir(&tmp));
+    let c = fs::read_to_string(tmp.path().join("server.properties")).unwrap();
+    assert_eq!(c, "level-name=world\nmax-tick-time=-1\n");
+
+    // Já definido pelo usuário (inclusive o padrão): respeita.
+    let tmp = TempDir::new().unwrap();
+    write_properties(&tmp, "max-tick-time=60000\n");
+    ensure_max_tick_time_disabled(&server_dir(&tmp));
+    let c = fs::read_to_string(tmp.path().join("server.properties")).unwrap();
+    assert_eq!(c, "max-tick-time=60000\n");
+
+    // Sem arquivo: não cria nada.
+    let tmp = TempDir::new().unwrap();
+    ensure_max_tick_time_disabled(&server_dir(&tmp));
+    assert!(!tmp.path().join("server.properties").exists());
+}
+
 #[tokio::test]
 async fn write_server_properties_updates_existing_key_in_place() {
     let tmp = TempDir::new().unwrap();

@@ -2076,6 +2076,8 @@ async fn start_minecraft_server(
 
     log_to_file(&app, &format!("Executando: {} {:?}", java_path, args));
 
+    ensure_max_tick_time_disabled(&server_dir);
+
     // --- Checar porta ocupada ANTES de iniciar o processo ---
     // Lê a porta configurada em server.properties (cai para `local_port` se ausente/ilegível)
     // e testa se algo já está escutando nela. Se estiver, o Java vai falhar ao dar bind
@@ -3276,6 +3278,23 @@ async fn write_server_properties(state: tauri::State<'_, AppState>, server_dir: 
     }
     let new_content = lines.join("\n");
     atomic_write(std::path::Path::new(&path), new_content.as_bytes())
+}
+
+/// Se o `server.properties` existe e NÃO tem `max-tick-time`, acrescenta `max-tick-time=-1`
+/// (desliga o watchdog que derruba o servidor após 60 s num único tick). Quem já definiu
+/// qualquer valor, inclusive o padrão 60000, é respeitado. Falhas são ignoradas: é só um ajuste.
+fn ensure_max_tick_time_disabled(server_dir: &str) {
+    let path = std::path::PathBuf::from(server_dir).join("server.properties");
+    let Ok(content) = std::fs::read_to_string(&path) else { return };
+    if content.lines().any(|l| l.trim_start().starts_with("max-tick-time")) {
+        return;
+    }
+    let mut out = content;
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str("max-tick-time=-1\n");
+    let _ = atomic_write(&path, out.as_bytes());
 }
 
 /// Chave de `server.properties`: letras, números, ponto, hífen e sublinhado.

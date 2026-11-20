@@ -30,7 +30,8 @@ import { ServerUpgradeWizard } from "./ServerUpgradeWizard";
 import { WorldsSection } from "./WorldsSection";
 import { WorldPacksModal } from "./WorldPacksModal";
 import { TYPE_LABELS, installedLoaderVersion, isUpgradeSupported, type LoaderTarget, type UpgradableType } from "@/lib/serverUpgrade";
-import type { ServerStatus } from "@/app/store";
+import { useAppStore, type ServerStatus } from "@/app/store";
+import { maybeBackupWorld } from "@/lib/autoBackup";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
 import { Checkbox } from "@/app/components/Checkbox";
@@ -171,6 +172,11 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     }
     return map;
   }, [identities]);
+  // Mods que se declaram só de cliente (ainda ativos): inúteis no servidor e uma causa clássica de crash na subida.
+  const clientOnlyFiles = useMemo(
+    () => new Set(identities.filter((i) => i.enabled && i.client_only).map((i) => i.file_name)),
+    [identities],
+  );
   const duplicateCount = useMemo(() => new Set([...duplicateByFile.values()].map((d) => d.modId)).size, [duplicateByFile]);
 
   // Servidor recém-criado: avisa o HostView que o pedido de abrir o navegador de mods foi atendido.
@@ -259,8 +265,33 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const autoBackupEnabled = useAppStore((s) => s.autoBackupEnabled);
+  const backupRetentionCount = useAppStore((s) => s.backupRetentionCount);
+
+  // Tirar um mod que adicionou blocos/itens pode estragar o mundo (blocos viram "ar", itens somem). Antes de
+  // remover ou desativar, guarda uma cópia do mundo (respeita o interruptor de backup automático e pula se
+  // nada mudou desde o último). Falha de backup nunca impede a ação: maybeBackupWorld só registra o aviso.
+  const backupBeforeRemoving = () =>
+    maybeBackupWorld(serverDir, serverName, "before-mods", { enabled: autoBackupEnabled, retentionCount: backupRetentionCount })
+      .then(() => loadBackups())
+      .catch(() => {});
+
+  // Desativa (não apaga) os mods só de cliente. Não mexem no mundo, então dispensa o backup.
+  const handleDisableClientOnly = async () => {
+    try {
+      for (const fileName of clientOnlyFiles) {
+        await invoke("toggle_mod", { serverDir, fileName, folderName: itemsFolder });
+      }
+      await loadMods();
+    } catch (err) {
+      console.error(err);
+      pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("manage.err.toggle", { item: itemWord }), message: String(err) });
+    }
+  };
+
   const handleToggleMod = async (mod: ModInfo) => {
     try {
+      if (mod.enabled) await backupBeforeRemoving();
       await invoke("toggle_mod", { serverDir, fileName: mod.file_name, folderName: itemsFolder });
       await loadMods();
     } catch (err) {
@@ -340,9 +371,11 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
     if (!pendingAction) return;
     try {
       if (pendingAction.kind === "delete-mod") {
+        await backupBeforeRemoving();
         await invoke("delete_mod", { serverDir, fileName: pendingAction.fileName, folderName: itemsFolder });
         await loadMods();
       } else if (pendingAction.kind === "delete-mods-bulk") {
+        await backupBeforeRemoving();
         for (const fileName of pendingAction.fileNames) {
           await invoke("delete_mod", { serverDir, fileName, folderName: itemsFolder });
         }
@@ -580,6 +613,21 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
             </div>
           )}
 
+          {clientOnlyFiles.size > 0 && (
+            <div className="p-3 bg-theme-warning border border-theme-warning text-amber-800 dark:text-amber-200 rounded-xl flex items-center gap-2.5 text-xs">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">{t("manage.client.banner", { count: clientOnlyFiles.size })}</span>
+              <button
+                type="button"
+                onClick={handleDisableClientOnly}
+                disabled={!isServerStopped}
+                className="px-3 h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold disabled:opacity-50 cursor-pointer flex-shrink-0"
+              >
+                {t("manage.client.disableAll")}
+              </button>
+            </div>
+          )}
+
           {mods.length > 0 && (
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-secondary pointer-events-none" />
@@ -639,6 +687,14 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
                         <p className={cn("text-sm font-semibold truncate", mod.enabled ? "text-theme-primary" : "text-theme-secondary line-through")}>
                           {mod.display_name}
                         </p>
+                        {mod.enabled && clientOnlyFiles.has(mod.file_name) && (
+                          <span
+                            title={t("manage.client.title")}
+                            className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-[9px] font-bold uppercase tracking-wide flex-shrink-0"
+                          >
+                            {t("manage.client.badge")}
+                          </span>
+                        )}
                         {mod.enabled && duplicateByFile.has(mod.file_name) && (
                           <span
                             title={t("manage.dup.title", {

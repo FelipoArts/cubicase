@@ -25,7 +25,7 @@ interface BackupInfo {
   kind?: string;
 }
 
-export type AutoBackupReason = "stop" | "crash" | "safety-net";
+export type AutoBackupReason = "stop" | "crash" | "safety-net" | "before-mods";
 
 export interface AutoBackupOptions {
   enabled: boolean;
@@ -34,7 +34,12 @@ export interface AutoBackupOptions {
 
 // Função (não constante) para respeitar o idioma no momento do backup.
 const reasonLabel = (reason: AutoBackupReason): string =>
-  t(reason === "stop" ? "backup.reason.stop" : reason === "crash" ? "backup.reason.crash" : "backup.reason.safetyNet");
+  t(
+    reason === "stop" ? "backup.reason.stop"
+      : reason === "crash" ? "backup.reason.crash"
+      : reason === "before-mods" ? "backup.reason.beforeMods"
+      : "backup.reason.safetyNet",
+  );
 
 // Último `world_last_modified` que já gerou um backup, por servidor — em
 // memória, só dura a sessão do app (reiniciar o app no máximo gera um

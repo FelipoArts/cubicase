@@ -31,6 +31,8 @@ pub struct JarIdentity {
     pub version: Option<String>,
     /// "fabric" | "quilt" | "neoforge" | "forge" | "bukkit"
     pub loader: Option<String>,
+    /// O próprio mod declara que só funciona no cliente (num servidor ele é inútil e costuma derrubá-lo).
+    pub client_only: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -40,6 +42,7 @@ pub struct ModIdentityEntry {
     pub mod_id: Option<String>,
     pub version: Option<String>,
     pub loader: Option<String>,
+    pub client_only: bool,
 }
 
 // ------------------------------------------------------------
@@ -59,6 +62,66 @@ pub(crate) fn parse_quilt_json(text: &str) -> Option<(String, Option<String>)> {
     let id = loader.get("id")?.as_str()?.to_string();
     let version = loader.get("version").and_then(|x| x.as_str()).map(str::to_string);
     Some((id, version))
+}
+
+/// Fabric: `"environment": "client"` (qualquer outro valor, ou ausente, roda no servidor).
+pub(crate) fn fabric_client_only(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| v.get("environment").and_then(|e| e.as_str()).map(|e| e.eq_ignore_ascii_case("client")))
+        .unwrap_or(false)
+}
+
+/// Quilt: `minecraft.environment` = "client".
+pub(crate) fn quilt_client_only(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.get("minecraft")
+                .and_then(|m| m.get("environment"))
+                .and_then(|e| e.as_str())
+                .map(|e| e.eq_ignore_ascii_case("client"))
+        })
+        .unwrap_or(false)
+}
+
+/// Forge/NeoForge: a dependência do próprio jogo (`modId="minecraft"`) com `side="CLIENT"`.
+/// Só vale se existe ao menos um bloco para o Minecraft e TODOS dizem CLIENT; `side` em
+/// dependência de outro mod diz respeito àquele mod, não a este.
+pub(crate) fn mods_toml_client_only(text: &str) -> bool {
+    let mut in_dep = false;
+    let mut mod_id = String::new();
+    let mut side = String::new();
+    let mut blocks: Vec<(String, String)> = Vec::new();
+    let mut flush = |in_dep: bool, mod_id: &mut String, side: &mut String, blocks: &mut Vec<(String, String)>| {
+        if in_dep {
+            blocks.push((std::mem::take(mod_id), std::mem::take(side)));
+        } else {
+            mod_id.clear();
+            side.clear();
+        }
+    };
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with('[') {
+            flush(in_dep, &mut mod_id, &mut side, &mut blocks);
+            in_dep = line.starts_with("[[dependencies");
+            continue;
+        }
+        if !in_dep {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            match key.trim() {
+                "modId" => mod_id = unquote(value),
+                "side" => side = unquote(value),
+                _ => {}
+            }
+        }
+    }
+    flush(in_dep, &mut mod_id, &mut side, &mut blocks);
+    let game: Vec<_> = blocks.iter().filter(|(id, _)| id == "minecraft").collect();
+    !game.is_empty() && game.iter().all(|(_, side)| side.eq_ignore_ascii_case("client"))
 }
 
 /// Valor de uma linha `chave = "valor"` (TOML) ou `chave: valor` (YAML), sem aspas nem comentário.
@@ -169,7 +232,13 @@ pub(crate) fn identify_jar(path: &Path) -> JarIdentity {
         if version.as_deref().map_or(true, |v| v.starts_with("${")) {
             version = read_entry(&mut archive, "META-INF/MANIFEST.MF").and_then(|m| parse_manifest_version(&m));
         }
-        return JarIdentity { mod_id: Some(id), version, loader: Some(loader.to_string()) };
+        let client_only = match loader {
+            "fabric" => fabric_client_only(&text),
+            "quilt" => quilt_client_only(&text),
+            "forge" | "neoforge" => mods_toml_client_only(&text),
+            _ => false,
+        };
+        return JarIdentity { mod_id: Some(id), version, loader: Some(loader.to_string()), client_only };
     }
     JarIdentity::default()
 }
@@ -233,6 +302,7 @@ pub async fn read_mod_identities(server_dir: String, folder_name: Option<String>
             mod_id: id.mod_id,
             version: id.version,
             loader: id.loader,
+            client_only: id.client_only,
         });
     }
     Ok(out)
@@ -510,5 +580,43 @@ version="9"
         assert_eq!(safe_manifest_dir("../../AppData/x.jar"), "AppData");
         assert_eq!(safe_manifest_dir("C:/Windows/x.jar"), "Windows");
         assert_eq!(safe_manifest_dir("so-arquivo.jar"), "");
+    }
+
+    #[test]
+    fn detecta_mod_so_de_cliente_em_cada_loader() {
+        assert!(fabric_client_only(r#"{"id":"sodium","environment":"client"}"#));
+        assert!(!fabric_client_only(r#"{"id":"lithium","environment":"*"}"#));
+        assert!(!fabric_client_only(r#"{"id":"x"}"#));
+        assert!(quilt_client_only(r#"{"quilt_loader":{"id":"a"},"minecraft":{"environment":"client"}}"#));
+        assert!(!quilt_client_only(r#"{"quilt_loader":{"id":"a"}}"#));
+
+        let client = "[[mods]]
+modId=\"oculus\"
+[[dependencies.oculus]]
+modId=\"minecraft\"
+side=\"CLIENT\"
+[[dependencies.oculus]]
+modId=\"other\"
+side=\"BOTH\"
+";
+        assert!(mods_toml_client_only(client));
+        let both = "[[mods]]
+modId=\"x\"
+[[dependencies.x]]
+modId=\"minecraft\"
+side=\"BOTH\"
+";
+        assert!(!mods_toml_client_only(both));
+        // side=CLIENT só numa dependência de outro mod não torna ESTE mod de cliente
+        let other = "[[mods]]
+modId=\"x\"
+[[dependencies.x]]
+modId=\"jei\"
+side=\"CLIENT\"
+";
+        assert!(!mods_toml_client_only(other));
+        assert!(!mods_toml_client_only("[[mods]]
+modId=\"x\"
+"));
     }
 }
