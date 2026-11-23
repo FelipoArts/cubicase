@@ -801,6 +801,318 @@ footer {
   color: var(--text-secondary);
 }
 
+/* ------------------------------------------------------------
+   Modal "antes de abrir o instalador" (página de download)
+   ------------------------------------------------------------ */
+
+.dl-modal {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: 0;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  box-shadow: var(--shadow-lg);
+}
+
+.dl-modal::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(3px);
+}
+
+.dl-modal-body {
+  position: relative;
+  padding: 28px 28px 24px;
+  overflow-y: auto;
+  max-height: calc(100vh - 34px);
+  /* Barra de rolagem fina e discreta, no tom do site (Firefox) */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Chrome, Edge e Safari */
+.dl-modal-body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.dl-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 18px 0;
+}
+
+.dl-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.dl-modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 68, 51, 0.7);
+  background-clip: content-box;
+}
+
+.dl-modal-x {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.dl-modal-x:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+
+
+
+
+.dl-modal-sub {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+
+
+
+
+
+
+/* Reprodução estilizada das telas do SmartScreen (não é captura de tela) */
+.ss-mock {
+  margin-top: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: 420px;
+  font-family: "Segoe UI", "Inter", sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ss-bar {
+  background: #1f1f23;
+  color: #cfcfd6;
+  font-size: 11px;
+  padding: 6px 10px;
+}
+
+.ss-win {
+  background: #0f5aa8;
+  color: #fff;
+  padding: 16px 16px 12px;
+}
+
+.ss-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ss-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  opacity: 0.92;
+}
+
+.ss-link {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.ss-hl {
+  text-decoration: underline;
+  padding: 2px 5px;
+  border-radius: 3px;
+  outline: 2px solid #ffd166;
+  outline-offset: 1px;
+}
+
+.ss-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ss-btn {
+  font-size: 11.5px;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ss-btn-hl {
+  outline: 2px solid #ffd166;
+  outline-offset: 2px;
+}
+
+.dl-modal-note {
+  margin: 0 0 18px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.dl-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .dl-modal-body { padding: 22px 18px 18px; }
+  .dl-modal-actions .btn { width: 100%; justify-content: center; }
+}
+
+/* ---- Destaques do modal: o essencial (2 cliques) vem primeiro e chama atenção ---- */
+
+.dl-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #5ee19a;
+  background: rgba(94, 225, 154, 0.1);
+  border: 1px solid rgba(94, 225, 154, 0.25);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-bottom: 14px;
+}
+
+.dl-ok-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5ee19a;
+}
+
+.dl-modal-body h3 {
+  font-size: 25px;
+  line-height: 1.2;
+  padding-right: 40px;
+}
+
+.dl-modal-body .dl-modal-sub {
+  margin: 10px 0 14px;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.dl-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dl-chip {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 9px 16px;
+  border-radius: 12px;
+}
+
+.dl-arrow {
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dl-shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.ss-col {
+  position: relative;
+  min-width: 0;
+}
+
+.ss-label {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dl-shots .ss-mock {
+  margin-top: 0;
+  max-width: none;
+}
+
+/* Pulsa no que a pessoa precisa clicar */
+.ss-hl,
+.ss-btn-hl {
+  animation: dl-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes dl-pulse {
+  0%, 100% { outline-color: #ffd166; box-shadow: 0 0 0 0 rgba(255, 209, 102, 0.55); }
+  50% { outline-color: #fff2c4; box-shadow: 0 0 0 7px rgba(255, 209, 102, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-hl,
+  .ss-btn-hl { animation: none; }
+}
+
+.dl-modal-note {
+  margin: 10px 0 14px;
+}
+
+.dl-why {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.dl-why strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+@media (max-width: 560px) {
+  .dl-shots { grid-template-columns: 1fr; gap: 18px; }
+  .dl-modal-body h3 { font-size: 21px; }
+  .dl-chip { font-size: 13.5px; padding: 8px 12px; }
+}
+
 .after-download {
   padding: 70px 0 90px;
 }

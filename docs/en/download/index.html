@@ -166,6 +166,60 @@
     <div class="container footer-disclaimer">Cubicase is an independent project and is not affiliated with, associated with or endorsed by Mojang Studios or Microsoft. Minecraft is a registered trademark of Mojang Synergies AB.</div>
   </footer>
 
+  <dialog class="dl-modal" id="dl-modal" aria-labelledby="dl-modal-title" data-dl-modal>
+    <div class="dl-modal-body">
+      <button type="button" class="dl-modal-x" data-dl-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+
+      <div class="dl-ok"><span class="dl-ok-dot"></span>Your download has started</div>
+      <h3 id="dl-modal-title">A blue Windows screen will appear. That's normal.</h3>
+      <p class="dl-modal-sub">To continue, it's just two clicks:</p>
+
+      <div class="dl-flow" aria-hidden="true">
+        <span class="dl-chip">1 · More info</span>
+        <span class="dl-arrow">→</span>
+        <span class="dl-chip">2 · Run anyway</span>
+      </div>
+
+      <div class="dl-shots">
+        <div class="ss-col">
+          <div class="ss-label">1</div>
+          <div class="ss-mock" aria-hidden="true">
+            <div class="ss-bar">Windows SmartScreen</div>
+            <div class="ss-win">
+              <div class="ss-title">Windows protected your PC</div>
+              <div class="ss-desc">Microsoft Defender SmartScreen prevented an unrecognized app from starting.</div>
+              <div class="ss-link"><span class="ss-hl">More info</span></div>
+              <div class="ss-actions"><span class="ss-btn">Don't run</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="ss-col">
+          <div class="ss-label">2</div>
+          <div class="ss-mock" aria-hidden="true">
+            <div class="ss-bar">Windows SmartScreen</div>
+            <div class="ss-win">
+              <div class="ss-title">Windows protected your PC</div>
+              <div class="ss-desc">App: Cubicase_setup.exe<br />Publisher: Unknown publisher</div>
+              <div class="ss-actions"><span class="ss-btn ss-btn-hl">Run anyway</span><span class="ss-btn">Don't run</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="dl-modal-note">Illustration of the screens. The exact wording may vary a little depending on your Windows version.</p>
+
+      <div class="dl-why">
+        <strong>Why does this appear?</strong>
+        <span>Cubicase doesn't have a digital publisher signature yet (it's a paid certificate, and the project is new and independent), so Windows calls the publisher "unknown". It doesn't mean there is anything wrong with the file: the code is public on GitHub and the installers are built from it by an automated process.</span>
+      </div>
+
+      <div class="dl-modal-actions">
+        <a class="btn btn-ghost" href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">View the code on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/FelipoArts/cubicase/releases/latest" data-dl-again>Download again</a>
+        <button type="button" class="btn btn-primary" data-dl-close>Got it</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="/assets/site.js"></script>
 </body>
 </html>

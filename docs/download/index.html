@@ -167,6 +167,60 @@
     <div class="container footer-disclaimer">O Cubicase é um projeto independente e não é afiliado, associado nem endossado pela Mojang Studios nem pela Microsoft. Minecraft é uma marca registrada da Mojang Synergies AB.</div>
   </footer>
 
+  <dialog class="dl-modal" id="dl-modal" aria-labelledby="dl-modal-title" data-dl-modal>
+    <div class="dl-modal-body">
+      <button type="button" class="dl-modal-x" data-dl-close aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+
+      <div class="dl-ok"><span class="dl-ok-dot"></span>Seu download começou</div>
+      <h3 id="dl-modal-title">Vai aparecer uma tela azul do Windows. É normal.</h3>
+      <p class="dl-modal-sub">Para continuar, são só dois cliques:</p>
+
+      <div class="dl-flow" aria-hidden="true">
+        <span class="dl-chip">1 · Mais informações</span>
+        <span class="dl-arrow">→</span>
+        <span class="dl-chip">2 · Executar assim mesmo</span>
+      </div>
+
+      <div class="dl-shots">
+        <div class="ss-col">
+          <div class="ss-label">1</div>
+          <div class="ss-mock" aria-hidden="true">
+            <div class="ss-bar">Windows SmartScreen</div>
+            <div class="ss-win">
+              <div class="ss-title">O Windows protegeu seu PC</div>
+              <div class="ss-desc">O Microsoft Defender SmartScreen impediu a inicialização de um aplicativo não reconhecido.</div>
+              <div class="ss-link"><span class="ss-hl">Mais informações</span></div>
+              <div class="ss-actions"><span class="ss-btn">Não executar</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="ss-col">
+          <div class="ss-label">2</div>
+          <div class="ss-mock" aria-hidden="true">
+            <div class="ss-bar">Windows SmartScreen</div>
+            <div class="ss-win">
+              <div class="ss-title">O Windows protegeu seu PC</div>
+              <div class="ss-desc">Aplicativo: Cubicase_setup.exe<br />Editor: Editor desconhecido</div>
+              <div class="ss-actions"><span class="ss-btn ss-btn-hl">Executar assim mesmo</span><span class="ss-btn">Não executar</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="dl-modal-note">Ilustração das telas. O texto exato pode variar um pouco conforme a versão do Windows.</p>
+
+      <div class="dl-why">
+        <strong>Por que isso aparece?</strong>
+        <span>O Cubicase ainda não tem assinatura digital de editor (é um certificado pago, e o projeto é novo e independente), então o Windows chama o editor de "desconhecido". Não quer dizer que o arquivo tenha algo errado: o código é público no GitHub e os instaladores são gerados de lá, por um processo automático.</span>
+      </div>
+
+      <div class="dl-modal-actions">
+        <a class="btn btn-ghost" href="https://github.com/FelipoArts/cubicase" target="_blank" rel="noopener">Ver o código no GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/FelipoArts/cubicase/releases/latest" data-dl-again>Baixar de novo</a>
+        <button type="button" class="btn btn-primary" data-dl-close>Entendi</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="/assets/site.js"></script>
 </body>
 </html>

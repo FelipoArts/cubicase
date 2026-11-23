@@ -85,6 +85,28 @@ async function loadLatestRelease() {
   }
 }
 
+// Página de download: ao clicar em "Baixar", o download começa normalmente e o modal abre
+// por cima explicando a tela do SmartScreen (o instalador ainda não tem assinatura de editor).
+// Só abre quando o link já é o do instalador (.exe/.msi): se a API do GitHub falhou e o botão
+// aponta para a página de releases, o clique navega e o modal não faria sentido.
+function setupDownloadModal() {
+  const btn = document.querySelector("[data-download-btn]");
+  const modal = document.querySelector("[data-dl-modal]");
+  if (!btn || !modal || typeof modal.showModal !== "function") return;
+  const again = modal.querySelector("[data-dl-again]");
+
+  btn.addEventListener("click", () => {
+    if (!/\.(exe|msi)$/i.test(btn.href)) return;
+    if (again) again.href = btn.href;
+    if (!modal.open) modal.showModal();
+  });
+  modal.querySelectorAll("[data-dl-close]").forEach((el) => el.addEventListener("click", () => modal.close()));
+  // Clique no fundo escuro (fora da caixa) fecha.
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.close();
+  });
+}
+
 // Botão do cabeçalho: "Entrar" (leva ao login do painel) ou, se já houver sessão do
 // Supabase salva neste navegador (criada pelo login do /painel/), "Painel".
 // Só lê o localStorage — não carrega o supabase-js nas páginas de marketing.
@@ -117,4 +139,5 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavToggle();
   setupScrollReveal();
   loadLatestRelease();
+  setupDownloadModal();
 });
