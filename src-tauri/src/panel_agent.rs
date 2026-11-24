@@ -272,25 +272,24 @@ fn scan_local_servers(app: &AppHandle) -> Vec<LocalServerSummary> {
         .unwrap_or_else(|e| e.into_inner())
         .is_some();
 
-    match app.path().document_dir() {
-        Ok(docs_dir) => {
-            let servers_root = docs_dir.join("CubicaseServers");
-            match std::fs::read_dir(&servers_root) {
-                Ok(entries) => {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            servers.push(summarize_server_dir(&path, active_dir.as_deref(), has_running_process));
-                        }
+    {
+        let servers_root = crate::storage_dirs::servers_root(app);
+        match std::fs::read_dir(&servers_root) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        servers.push(summarize_server_dir(&path, active_dir.as_deref(), has_running_process));
                     }
                 }
-                Err(e) => log_to_file(
-                    app,
-                    &format!("[PANEL] Não consegui ler {}: {}", servers_root.display(), e),
-                ),
             }
+            // A pasta só passa a existir quando o primeiro servidor é criado: não é erro.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => log_to_file(
+                app,
+                &format!("[PANEL] Não consegui ler {}: {}", servers_root.display(), e),
+            ),
         }
-        Err(e) => log_to_file(app, &format!("[PANEL] document_dir() falhou: {}", e)),
     }
 
     for imported in load_imported_server_paths(app) {
@@ -485,10 +484,8 @@ static LAST_REMOTE_BACKUP_MS: AtomicI64 = AtomicI64::new(0);
 /// Pasta do servidor cujo id (uuid do cubicase-meta.json) é `server_id`, entre os da pasta padrão e os importados.
 fn find_server_dir(app: &AppHandle, server_id: &str) -> Option<std::path::PathBuf> {
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(docs_dir) = app.path().document_dir() {
-        if let Ok(entries) = std::fs::read_dir(docs_dir.join("CubicaseServers")) {
-            candidates.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
-        }
+    if let Ok(entries) = std::fs::read_dir(crate::storage_dirs::servers_root(app)) {
+        candidates.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
     }
     candidates.extend(load_imported_server_paths(app).into_iter().map(std::path::PathBuf::from).filter(|p| p.is_dir()));
     candidates.into_iter().find(|p| summarize_server_dir(p, None, false).id == server_id)

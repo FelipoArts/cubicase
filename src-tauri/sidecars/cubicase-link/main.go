@@ -18,15 +18,25 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 const version = "0.1.0"
+
+// Quanto tempo o --prewarm mantém as portas abertas: dá à pessoa tempo de ler e responder à pergunta do Windows.
+const prewarmHold = 90 * time.Second
 
 func main() {
 	useStdin := flag.Bool("stdin", false, "ler a configuração da primeira linha do stdin")
 	configPath := flag.String("config", "", "caminho do arquivo de configuração JSON")
 	showVersion := flag.Bool("version", false, "mostra a versão e sai")
+	prewarm := flag.Bool("prewarm", false, "abre portas por alguns segundos só para o Windows perguntar sobre o Firewall, e sai")
 	flag.Parse()
+
+	if *prewarm {
+		prewarmFirewall(prewarmHold)
+		return
+	}
 
 	if *showVersion {
 		fmt.Println(version)

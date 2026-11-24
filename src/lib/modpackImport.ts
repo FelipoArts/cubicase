@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { join, documentDir } from "@tauri-apps/api/path";
+import { join } from "@tauri-apps/api/path";
+import { getServersRoot } from "@/lib/serversRoot";
+import { assertServerNameFits } from "@/lib/server";
 import { exists, readTextFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
 import { installForgeServer, installFabricServer, type ServerInstallProgress } from "@/lib/server";
@@ -289,8 +291,9 @@ export async function installModpack(
   ramGb: number,
   onProgress: (p: ModpackInstallProgress) => void
 ): Promise<void> {
-  const docsDir = await documentDir();
-  const serverPath = await join(docsDir, "CubicaseServers", serverName);
+  const serversRoot = await getServersRoot();
+  assertServerNameFits(serverName, serversRoot);
+  const serverPath = await join(serversRoot, serverName);
   if (await exists(serverPath)) {
     throw new Error(t("modpack.nameExists", { name: serverName }));
   }

@@ -42,7 +42,7 @@ const PAGES = {
       sections: [
         ["1. Quem é o responsável", `<p>O <strong>Cubicase</strong> é um projeto independente, desenvolvido e operado no Brasil (“nós”). Somos o controlador dos dados descritos aqui, nos termos da Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018).</p>
 <p>Contato sobre privacidade e exercício de direitos: pela <strong>Central de Ajuda dentro do app</strong> (Ajuda → Enviar mensagem) ou pelo e-mail ${MAIL}.</p>`],
-        ["2. O que fica só no seu computador", `<p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (Documentos/CubicaseServers, a pasta de backups — por padrão Documentos/CubicaseBackups, ou a que você escolher nas Configurações — e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>`],
+        ["2. O que fica só no seu computador", `<p>Servidores, mundos, backups, mods, configurações do app, registros técnicos do app (<code>cubeforge_debug.log</code>) e o segredo de dono dos seus servidores ficam em pastas do seu computador (a pasta de servidores — por padrão Cubicase/Servers dentro da sua pasta de usuário, ou Documentos/CubicaseServers em instalações mais antigas —, a pasta de backups — por padrão Cubicase/Backups, ou a que você escolher nas Configurações — e a pasta de dados do app). <strong>Não enviamos esses arquivos</strong> para nós. Os registros técnicos só saem do seu computador se você os copiar e enviar em um pedido de ajuda.</p>`],
         ["3. Dados que tratamos e por quê", `<table>
 <thead><tr><th>Situação</th><th>Dados</th><th>Finalidade</th></tr></thead>
 <tbody>
@@ -119,7 +119,7 @@ const PAGES = {
       sections: [
         ["1. Who is responsible", `<p><strong>Cubicase</strong> is an independent project, developed and operated in Brazil (“we”). We are the controller of the data described here under the Brazilian General Data Protection Law (LGPD, Law 13,709/2018) and, where applicable, comparable laws.</p>
 <p>Privacy contact and exercise of rights: through the <strong>in-app Help Center</strong> (Help → Send message) or by e-mail at ${MAIL}.</p>`],
-        ["2. What stays on your computer", `<p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (Documents/CubicaseServers, the backups folder — by default Documents/CubicaseBackups, or the one you choose in Settings — and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>`],
+        ["2. What stays on your computer", `<p>Servers, worlds, backups, mods, app settings, the app's technical log (<code>cubeforge_debug.log</code>) and the owner secret of your servers stay in folders on your computer (the servers folder — by default Cubicase/Servers inside your user folder, or Documents/CubicaseServers on older installs —, the backups folder — by default Cubicase/Backups, or the one you choose in Settings — and the app data folder). <strong>We do not upload these files.</strong> The technical log only leaves your computer if you copy and send it with a help request.</p>`],
         ["3. Data we handle and why", `<table>
 <thead><tr><th>Situation</th><th>Data</th><th>Purpose</th></tr></thead>
 <tbody>

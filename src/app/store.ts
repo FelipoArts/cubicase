@@ -113,6 +113,8 @@ interface AppSettings {
   privateMode: boolean;
   // Contagem anônima de instalações (ver lib/installPing.ts): ligada por padrão, dá para desligar em Configurações.
   installPing: boolean;
+  // Já mostramos o aviso e pedimos ao Windows a permissão de rede do cubicase-link (ver lib/firewall.ts). Uma vez por instalação.
+  firewallPrompted: boolean;
   // Estado do relay informado pela API na última conexão (cota do mês esgotada, relay desligado...) — runtime.
   relayStatus: RelayStatus | null;
   // Conexão do convidado pelo Radmin (plano B), se for essa a ativa — runtime.
@@ -191,6 +193,7 @@ interface AppSettings {
   setNetworkPath: (p: NetworkPathInfo | null) => void;
   setPrivateMode: (enabled: boolean) => void;
   setInstallPing: (enabled: boolean) => void;
+  setFirewallPrompted: (done: boolean) => void;
   setRelayStatus: (s: RelayStatus | null) => void;
   setRadminRoute: (r: RadminRoute | null) => void;
   setBackupRetentionCount: (count: number) => void;
@@ -277,6 +280,7 @@ export const useAppStore = create<AppSettings>()(
       networkPath: null,
       privateMode: false,
       installPing: true,
+      firewallPrompted: false,
       relayStatus: null,
       radminRoute: null,
       backupRetentionCount: 10,
@@ -307,6 +311,7 @@ export const useAppStore = create<AppSettings>()(
       setNetworkPath: (p) => set({ networkPath: p }),
       setPrivateMode: (enabled) => set({ privateMode: enabled }),
       setInstallPing: (enabled) => set({ installPing: enabled }),
+      setFirewallPrompted: (done) => set({ firewallPrompted: done }),
       setRelayStatus: (s) => set({ relayStatus: s }),
       setRadminRoute: (r) => set({ radminRoute: r }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
@@ -412,6 +417,7 @@ export const useAppStore = create<AppSettings>()(
         eulaAcceptedAt: state.eulaAcceptedAt,
         privateMode: state.privateMode,
         installPing: state.installPing,
+        firewallPrompted: state.firewallPrompted,
         backupRetentionCount: state.backupRetentionCount,
         backupSafetyNetIntervalHours: state.backupSafetyNetIntervalHours,
         selectedServer: state.selectedServer,

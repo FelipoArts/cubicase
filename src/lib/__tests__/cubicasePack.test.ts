@@ -28,6 +28,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 }));
 
 const acceptEulaMock = vi.fn(() => Promise.resolve());
+vi.mock("@/lib/serversRoot", () => ({ getServersRoot: () => Promise.resolve("/docs/CubicaseServers") }));
 vi.mock("@/lib/server", () => ({
   getJavaVersion: (v: string) => (v.startsWith("1.16") ? 17 : 21),
   acceptEula: (...a: unknown[]) => (acceptEulaMock as (...x: unknown[]) => Promise<void>)(...a),

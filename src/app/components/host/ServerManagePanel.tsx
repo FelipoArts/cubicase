@@ -32,6 +32,7 @@ import { WorldPacksModal } from "./WorldPacksModal";
 import { TYPE_LABELS, installedLoaderVersion, isUpgradeSupported, type LoaderTarget, type UpgradableType } from "@/lib/serverUpgrade";
 import { useAppStore, type ServerStatus } from "@/app/store";
 import { maybeBackupWorld } from "@/lib/autoBackup";
+import { accessDeniedText, isAccessDeniedError } from "@/lib/accessDenied";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { ModBrowserModal } from "./ModBrowserModal";
 import { Checkbox } from "@/app/components/Checkbox";
@@ -360,8 +361,15 @@ export function ServerManagePanel({ serverDir, serverName, serverType, serverSta
       await loadBackups();
     } catch (err) {
       console.error(err);
-      setError(String(err));
-      pushDiagnostic({ level: "error", source: tn("diag.source.server"), title: tn("manage.err.backup"), message: String(err) });
+      const denied = isAccessDeniedError(err) ? accessDeniedText(await getBackupsDir(serverName).catch(() => undefined)) : null;
+      setError(denied?.message ?? String(err));
+      pushDiagnostic({
+        level: "error",
+        source: tn("diag.source.server"),
+        title: denied?.title ?? tn("manage.err.backup"),
+        message: denied?.message ?? String(err),
+        detail: denied ? String(err) : undefined,
+      });
     } finally {
       setIsBackingUp(false);
     }

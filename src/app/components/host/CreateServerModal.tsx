@@ -14,6 +14,7 @@ import {
   getJavaVersion,
   getForgeVersions,
   sanitizeServerFolderName,
+  MAX_SERVER_NAME_LENGTH,
   getFabricLoaderVersions,
   getPaperBuilds,
   type VersionManifest,
@@ -319,6 +320,7 @@ export function CreateServerModal({
                     required
                     placeholder={t("create.serverNamePlaceholder")}
                     value={serverName}
+                    maxLength={MAX_SERVER_NAME_LENGTH}
                     onChange={(e) => setServerName(e.target.value)}
                     className="w-full h-12 px-4 border border-theme-card rounded-2xl focus:border-indigo-500 focus:outline-none transition-all text-sm font-semibold text-theme-primary bg-transparent"
                   />

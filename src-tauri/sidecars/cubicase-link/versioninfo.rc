@@ -1,0 +1,26 @@
+#include <winver.h>
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Cubicase"
+      VALUE "FileDescription", "Cubicase"
+      VALUE "FileVersion", "0.1.0.0"
+      VALUE "InternalName", "cubicase-link"
+      VALUE "LegalCopyright", "Copyright 2026 Cubicase"
+      VALUE "OriginalFilename", "cubicase-link.exe"
+      VALUE "ProductName", "Cubicase"
+      VALUE "ProductVersion", "0.1.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 0x04B0
+  END
+END

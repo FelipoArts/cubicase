@@ -551,11 +551,11 @@
 
   <h3>Where backups are kept</h3>
   <p>While a backup runs, Cubicase shows the notice <em>“Backing up…”</em>. On big worlds it takes a few minutes: you can keep using the app, but don't close it until it finishes.</p>
-  <p>They live in a <code>CubicaseBackups</code> folder, separated by server name. If you rename the server, Cubicase moves the backups along; if it can't, it tells you where they stayed so you can move them manually.</p>
+  <p>They live in the backups folder (by default <code>Cubicase\Backups</code> inside your user folder; on older installs, <code>Documents\CubicaseBackups</code>), separated by server name. If you rename the server, Cubicase moves the backups along; if it can't, it tells you where they stayed so you can move them manually.</p>
   <p>To keep them somewhere else (another drive, for example), pick it under <span class="ui">Settings</span> → <span class="ui">Backups</span> → <span class="ui">Backups folder</span>. It applies to every server and also to backups requested from the web panel and Discord. Changing the folder does not move existing backups (the app shows where the old ones are). If the folder is on OneDrive, every big backup is uploaded to the cloud, and Cubicase warns you; if the drive is disconnected, new backups fail until it is back.</p>
   <div class="tut-callout is-tip">
     <strong>Good practice</strong>
-    <p>Backups on the same machine don't protect against a disk failure. From time to time, copy the <code>CubicaseBackups</code> folder to a flash drive or the cloud.</p>
+    <p>Backups on the same machine don't protect against a disk failure. From time to time, copy the backups folder to a flash drive or the cloud.</p>
   </div>
 </article>
 
@@ -1108,6 +1108,7 @@
         <tr><td>Corrupted world</td><td>A region/chunk file is damaged (power loss, forced shutdown). Restore a <a href="#mundo-backups">backup</a>.</td></tr>
         <tr><td>Out of memory (OutOfMemoryError)</td><td>Increase the allocated RAM (if the PC has headroom) or reduce mods/players. See <a href="#diagnosticos">Diagnostics</a>.</td></tr>
         <tr><td>Server froze (Watchdog)</td><td>A mod or plugin stuck in a loop, a query that is too heavy, or a slow disk/network. Check in the details which mod shows up near the error.</td></tr>
+        <tr><td>Windows blocked writing (Controlled folder access)</td><td>Windows Security has a ransomware protection called Controlled folder access. It is off by default, but some people turn it on. When it is on, it stops programs Windows does not know from changing Documents, Desktop and Pictures. New Cubicase installs keep servers and backups in a Cubicase folder inside your user folder, which this protection does not cover. But older installs (which use Documents), servers imported from Documents or Desktop, and folders you choose can be blocked. In those cases Cubicase needs to write there to create the server, save the world and mods, and make backups; without that, the server cannot keep progress. It only writes your own server's files. You do not have to turn the protection off: in Windows Security, open Virus &amp; threat protection, then Ransomware protection, then Allow an app through Controlled folder access, and add Cubicase and the java.exe it installed (in Cubicase's data folder, under AppData\Local).</td></tr>
       </tbody>
     </table>
   </div>

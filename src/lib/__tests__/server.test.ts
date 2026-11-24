@@ -23,6 +23,9 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   size: vi.fn(),
 }));
 
+// A pasta de servidores vem do backend (storage_dirs.rs): aqui é fixa, só para os caminhos esperados.
+vi.mock("@/lib/serversRoot", () => ({ getServersRoot: () => Promise.resolve("/fake/docs/CubicaseServers") }));
+
 // A pasta de backups (padrão ou escolhida pela pessoa) é decidida pelo Rust: aqui só interessa que renameServer
 // peça para mover a subpasta e trate a falha sem desfazer o rename do servidor.
 const renameServerBackupsMock = vi.fn();
@@ -31,7 +34,14 @@ vi.mock("@/lib/backupsFolder", () => ({
   renameServerBackups: (...args: unknown[]) => renameServerBackupsMock(...args),
 }));
 
-const { renameServer } = await import("@/lib/server");
+const {
+  renameServer,
+  sanitizeServerFolderName,
+  allowedServerNameLength,
+  assertServerNameFits,
+  MAX_SERVER_NAME_LENGTH,
+  MAX_SERVER_DIR_LENGTH,
+} = await import("@/lib/server");
 
 beforeEach(() => {
   documentDirMock.mockClear();
@@ -135,5 +145,33 @@ describe("renameServer", () => {
     await expect(renameServer("Foo", "Bar", [])).rejects.toThrow();
     // Não deveria nem tentar migrar backups se o rename principal falhou.
     expect(renameMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("limite de tamanho do nome e do caminho", () => {
+  it("renomear recusa nome acima do máximo, sem tocar nos arquivos", async () => {
+    await expect(renameServer("Foo", "x".repeat(MAX_SERVER_NAME_LENGTH + 1), [])).rejects.toThrow(String(MAX_SERVER_NAME_LENGTH));
+    expect(renameMock).not.toHaveBeenCalled();
+  });
+
+  it("renomear aceita o nome no limite exato", async () => {
+    renameMock.mockResolvedValue(undefined);
+    const name = "x".repeat(MAX_SERVER_NAME_LENGTH);
+    await expect(renameServer("Foo", name, [])).resolves.toMatchObject({ name });
+  });
+
+  it("a sanitização corta nomes longos e não deixa ponto ou espaço no fim", () => {
+    const cut = sanitizeServerFolderName("a".repeat(MAX_SERVER_NAME_LENGTH - 1) + " b".repeat(10));
+    expect(cut.length).toBeLessThanOrEqual(MAX_SERVER_NAME_LENGTH);
+    expect(cut).not.toMatch(/[ .]$/);
+  });
+
+  it("o nome cabe menos quando a pasta de servidores já é comprida (limite do caminho do Windows)", () => {
+    expect(allowedServerNameLength("C:\Users\ana\Cubicase\Servers")).toBe(MAX_SERVER_NAME_LENGTH);
+    const longRoot = "C:\\" + "p".repeat(MAX_SERVER_DIR_LENGTH - 20);
+    expect(allowedServerNameLength(longRoot)).toBeLessThan(MAX_SERVER_NAME_LENGTH);
+    expect(allowedServerNameLength("C:\\" + "p".repeat(MAX_SERVER_DIR_LENGTH))).toBe(0);
+    expect(() => assertServerNameFits("a".repeat(allowedServerNameLength(longRoot) + 1), longRoot)).toThrow();
+    expect(() => assertServerNameFits("ab", longRoot)).not.toThrow();
   });
 });

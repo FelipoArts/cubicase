@@ -137,6 +137,9 @@ fn detects_known_minecraft_errors() {
         ("java.net.BindException: Address already in use", "port_in_use"),
         ("Exception: BindException at ...", "port_in_use"),
         ("You need to agree to the EULA in order to run the server", "eula_not_accepted"),
+        ("java.nio.file.AccessDeniedException: C:\\Users\\x\\Documents\\CubicaseServers\\s\\world\\level.dat", "access_denied"),
+        ("Failed to save level (Acesso negado)", "access_denied"),
+        ("java.io.FileNotFoundException: server.properties (Access is denied)", "access_denied"),
     ];
     for (line, expected_code) in cases {
         let result = detect_known_mc_error(line);
@@ -1711,4 +1714,19 @@ fn retrato_das_listas_corta_em_500_e_avisa() {
     let snap = access_lists_snapshot(dir.path());
     assert_eq!(snap["whitelist"].as_array().unwrap().len(), ACCESS_LISTS_MAX);
     assert_eq!(snap["truncated"], true);
+}
+
+
+#[test]
+fn probe_dir_write_distingue_ok_de_pasta_invalida() {
+    let tmp = TempDir::new().unwrap();
+    assert_eq!(probe_dir_write(&tmp.path().join("novo").join("sub")), "ok");
+    assert!(tmp.path().join("novo").join("sub").is_dir());
+    // não deixa o arquivo de teste para trás
+    assert_eq!(std::fs::read_dir(tmp.path().join("novo").join("sub")).unwrap().count(), 0);
+    // um arquivo no lugar da pasta não é "negado": é outro erro, e o texto do erro volta
+    let file = tmp.path().join("arquivo.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let out = probe_dir_write(&file.join("dentro"));
+    assert_ne!(out, "ok");
 }

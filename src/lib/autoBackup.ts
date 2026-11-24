@@ -16,6 +16,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { t } from "@/i18n";
 import { getBackupsDir } from "@/lib/server";
+import { accessDeniedText, isAccessDeniedError } from "@/lib/accessDenied";
 
 interface BackupInfo {
   file_name: string;
@@ -105,11 +106,14 @@ export function maybeBackupWorld(
       } catch (err) {
         // Best-effort: em crash o mundo pode estar num estado ruim pra zipar,
         // não é um erro que mereça alarmar o usuário como "error".
+        // Bloqueio do Windows (Acesso controlado a pastas): explica o motivo em vez do erro cru.
+        const denied = isAccessDeniedError(err) ? accessDeniedText(backupsDir) : null;
         pushDiagnostic({
           level: "warning",
           source: t("backup.source"),
-          title: t("backup.failed.title"),
-          message: String(err),
+          title: denied?.title ?? t("backup.failed.title"),
+          message: denied?.message ?? String(err),
+          detail: denied ? String(err) : undefined,
         });
         return;
       }

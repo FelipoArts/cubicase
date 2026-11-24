@@ -31,7 +31,7 @@ import {
   CONNECT_NAME_DOMAIN,
   connectNameFormatHint,
 } from '@/lib/connectAddress';
-import { renameServer } from '@/lib/server';
+import { renameServer, MAX_SERVER_NAME_LENGTH } from '@/lib/server';
 import { waitForPendingBackup } from '@/lib/autoBackup';
 import { useT } from '@/i18n';
 
@@ -490,6 +490,7 @@ export function ServerSettingsForm({ serverDir, serverName, isImported, existing
                       <input
                         type="text"
                         value={nameInput}
+                        maxLength={MAX_SERVER_NAME_LENGTH}
                         disabled={isServerRunning || nameSubmitting}
                         onChange={(e) => setNameInput(e.target.value)}
                         className="flex-1 min-w-0 h-11 px-3 rounded-xl border border-theme-card bg-theme-card focus:outline-none text-sm text-theme-primary disabled:opacity-70 disabled:cursor-not-allowed"

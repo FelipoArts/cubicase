@@ -36,6 +36,8 @@ mod hosting;
 mod mod_identity;
 mod mc_report;
 mod backups_dir;
+mod storage_dirs;
+mod firewall;
 mod owner_secret;
 mod server_inspect;
 mod upgrade;
@@ -678,17 +680,21 @@ async fn start_network_node_impl(
                                     let detail = warn_val.get("detail").and_then(|v| v.as_str()).unwrap_or("");
                                     let (title, message) = map_sidecar_warning_code(code, detail);
                                     log_to_file(&app_clone, &format!("[Sidecar] Aviso: código={}, detail={}", code, detail));
-                                    let _ = app_clone.emit("network-diagnostic", DiagnosticPayload {
-                                        level: "warning".to_string(),
-                                        title,
-                                        message,
-                                        detail: if detail.is_empty() { None } else { Some(detail.to_string()) },
-                                        code: Some(code.to_string()),
-                                        crash_report_text: None,
-                                        crash_report_file: None,
-                                        resource_snapshot: None,
-                                        allocated_ram_mb: None,
-                                    });
+                                    // Durante um "parar" pedido pelo usuário, o sidecar avisa que a sala caiu (fomos nós que a
+                                    // apagamos): fica só no log, sem notificação.
+                                    if !app_clone.state::<AppState>().network_stop_requested.load(Ordering::SeqCst) {
+                                        let _ = app_clone.emit("network-diagnostic", DiagnosticPayload {
+                                            level: "warning".to_string(),
+                                            title,
+                                            message,
+                                            detail: if detail.is_empty() { None } else { Some(detail.to_string()) },
+                                            code: Some(code.to_string()),
+                                            crash_report_text: None,
+                                            crash_report_file: None,
+                                            resource_snapshot: None,
+                                            allocated_ram_mb: None,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -944,6 +950,13 @@ async fn stop_network_node_internal(
     state: &tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     log_to_file(app, "=== PARANDO NÓ DE REDE ===");
+    // O cleanup abaixo apaga a sala de sinalização na API; o sidecar, ainda vivo por alguns instantes, vê a
+    // conexão cair e avisa "signal_lost". Isso é consequência do próprio "parar", não um problema: marca o
+    // pedido de parada JÁ AQUI para o leitor do sidecar não transformar esse aviso em notificação ao usuário.
+    // Só marca se há um sidecar — é o evento Terminated dele que limpa a marca.
+    if state.sidecar_process.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        state.network_stop_requested.store(true, Ordering::SeqCst);
+    }
     *state.active_network_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *state.network_ip.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
@@ -1862,7 +1875,43 @@ fn detect_known_mc_error(line: &str) -> Option<(String, String, String)> {
             tr!("mc.eula.message"),
         ));
     }
+    // O Windows barrou a escrita (ex.: "Acesso controlado a pastas" ligado): o Java reclama de acesso negado.
+    if line.contains("AccessDeniedException") || line.contains("Access is denied") || line.contains("Acesso negado") {
+        return Some((
+            "access_denied".to_string(),
+            tr!("mc.accessDenied.title"),
+            tr!("mc.accessDenied.message"),
+        ));
+    }
     None
+}
+
+/// Testa se dá para gravar em `path` (cria a pasta se preciso e escreve/apaga um arquivo de teste).
+/// Devolve "ok", "denied" (o Windows recusou o acesso, caso típico do "Acesso controlado a pastas")
+/// ou o texto do erro, para qualquer outro problema. Não confunde "negado" com disco cheio ou caminho inválido.
+#[tauri::command]
+async fn probe_folder_write(path: String) -> Result<String, String> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_absolute() || dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(tr!("err.javaPathInvalid"));
+    }
+    Ok(probe_dir_write(&dir))
+}
+
+fn probe_dir_write(dir: &std::path::Path) -> String {
+    let denied = |e: &std::io::Error| e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(5);
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        return if denied(&e) { "denied".to_string() } else { e.to_string() };
+    }
+    let probe = dir.join(format!(".cubicase-teste-{}", std::process::id()));
+    match std::fs::write(&probe, b"ok") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            "ok".to_string()
+        }
+        Err(e) if denied(&e) => "denied".to_string(),
+        Err(e) => e.to_string(),
+    }
 }
 
 /// Detecta a linha de log que sinaliza que o servidor Minecraft terminou de
@@ -7132,6 +7181,11 @@ pub fn run() {
        upgrade::backup_server_full,
        upgrade::commit_server_upgrade,
        perf::get_perf_state,
+       probe_folder_write,
+       storage_dirs::get_servers_root,
+       firewall::prewarm_firewall,
+       firewall::firewall_status,
+       firewall::allow_firewall,
        backups_dir::get_backups_settings,
        backups_dir::set_backups_root,
        backups_dir::rename_server_backups,

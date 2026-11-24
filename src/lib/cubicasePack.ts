@@ -426,9 +426,8 @@ export async function inspectPack(packPath: string): Promise<PackInspection> {
   return await invoke<PackInspection>("pack_read", { packPath });
 }
 
-export async function getServersRoot(): Promise<string> {
-  return await join(await documentDir(), "CubicaseServers");
-}
+import { getServersRoot } from "@/lib/serversRoot";
+export { getServersRoot };
 
 export type JreState = "included" | "present" | "downloaded" | "pending";
 

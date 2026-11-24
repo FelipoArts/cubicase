@@ -27,6 +27,8 @@ import { UpdateBanner } from "@/app/components/UpdateBanner";
 import { BackupIndicator } from "@/app/components/BackupIndicator";
 import { HelpCenter } from "@/app/components/HelpCenter";
 import { ConnectionHelpModal } from "@/app/components/ConnectionHelpModal";
+import { FirewallAllowModal } from "@/app/components/FirewallAllowModal";
+import { ensureFirewallPrompted, offerFirewallIfBlocked } from "@/lib/firewall";
 import { isDirectFailureCode, useConnectionHelp } from "@/lib/connectionHelp";
 import { setModsSource } from "@/lib/modSync";
 import { radminAddress, radminProbe } from "@/lib/radmin";
@@ -375,6 +377,8 @@ export default function Home() {
         const prev = useAppStore.getState().networkPath;
         useAppStore.getState().setNetworkPath({ path: event.payload.path, rttMs: event.payload.rttMs ?? null });
         useConnectionHelp.getState().setTarget(null);
+        // Caiu no relay: se o Windows tem um bloqueio para o programa, oferece o botão que desfaz.
+        if (event.payload.path === "relay") void offerFirewallIfBlocked();
         if (prev?.path !== event.payload.path) {
           const rtt = event.payload.rttMs != null ? ` · ${event.payload.rttMs} ms` : "";
           setLogs((logs) => [...logs, t("net.path.log", { label: t(pathLabelKey(event.payload.path)), rtt })]);
@@ -1052,6 +1056,7 @@ export default function Home() {
     setModsSource({ kind: "proxy" });
 
     try {
+      await ensureFirewallPrompted(); // primeira vez: o Windows pergunta sobre a rede agora, com explicação antes
       await invoke("start_network_node", {
         mode: "guest",
         shortCode: shortCodeClean,
@@ -1158,6 +1163,7 @@ export default function Home() {
       <BackupIndicator />
       <UpdateBanner />
       <HelpCenter isOpen={showHelp} onClose={() => setShowHelp(false)} />
+        <FirewallAllowModal />
         <ConnectionHelpModal onUseRadmin={(code) => void handleGuestConnect(`CF-${code}`, { via: "radmin" })} />
         <PlusModal
                 isOpen={plusUi.open}

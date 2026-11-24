@@ -337,6 +337,9 @@ fn broad_level(dir: &Path) -> Option<bool> {
         env("USERPROFILE"), env("APPDATA"), env("LOCALAPPDATA"), env("ProgramFiles"), env("ProgramFiles(x86)"),
         env("ProgramW6432"), env("SystemRoot"), env("windir"), env("ProgramData"),
         env("USERPROFILE").map(|p| p.join("Documents").join("CubicaseServers")),
+        env("USERPROFILE").map(|p| p.join("Cubicase")),
+        env("USERPROFILE").map(|p| p.join("Cubicase").join("Servers")),
+        env("USERPROFILE").map(|p| p.join("Cubicase").join("Backups")),
     ];
     if hard.into_iter().flatten().any(|p| normal(&p) == me) {
         return Some(true);

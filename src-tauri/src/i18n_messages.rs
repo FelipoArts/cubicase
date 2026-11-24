@@ -148,6 +148,14 @@ messages! {
         "O arquivo eula.txt não está marcado como aceito. Isso normalmente é feito automaticamente pelo Cubicase — se persistir, abra a pasta do servidor e defina eula=true em eula.txt.",
         "The eula.txt file isn't marked as accepted. Cubicase normally does this automatically — if it persists, open the server folder and set eula=true in eula.txt."
     ),
+    "mc.accessDenied.title" => (
+        "O Windows bloqueou o Cubicase de gravar arquivos",
+        "Windows blocked Cubicase from writing files"
+    ),
+    "mc.accessDenied.message" => (
+        "O servidor tentou gravar um arquivo e o Windows recusou o acesso. Quase sempre é o \"Acesso controlado a pastas\" (proteção contra ransomware do Segurança do Windows), que impede programas que ele não conhece de alterar Documentos, Área de Trabalho e Imagens. O servidor precisa gravar na pasta dele para salvar o mundo, as configurações e os mods; sem isso, ele não guarda o progresso e pode travar ao salvar. Ele só grava os arquivos do seu próprio servidor ali, nada além disso. Você não precisa desligar a proteção: abra Segurança do Windows > Proteção contra vírus e ameaças > Proteção contra ransomware > Permitir que um aplicativo seja executado pelo acesso controlado a pastas, e adicione o Cubicase e o java.exe que o Cubicase instalou (dentro da pasta de dados dele, em AppData\\Local).",
+        "The server tried to write a file and Windows refused. It's almost always \"Controlled folder access\" (Windows Security's ransomware protection), which stops programs it doesn't know from changing Documents, Desktop and Pictures. The server needs to write to its folder to save the world, settings and mods; without that it can't keep progress and may hang while saving. It only writes your own server's files there, nothing else. You don't have to turn the protection off: open Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, and add Cubicase and the java.exe that Cubicase installed (inside its data folder, under AppData\\Local)."
+    ),
     "mc.portBusy" => (
         "A porta {port} já está em uso por outro processo. Pare-o ou altere a porta do servidor antes de iniciar.",
         "Port {port} is already in use by another process. Stop it or change the server port before starting."

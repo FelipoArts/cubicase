@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 
 import { open } from "@tauri-apps/plugin-dialog";
-import { documentDir } from "@tauri-apps/api/path";
+import { getServersRoot } from "@/lib/serversRoot";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { remove } from "@tauri-apps/plugin-fs";
@@ -12,6 +12,7 @@ import { useAppStore, type ServerStatus } from "@/app/store";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { markMilestone } from "@/lib/milestones";
 import { hostingHeadline, type HostingHeadline, isGuestActiveError, isHostingActive, secondsUntilRetry, type HostingStatus } from "@/lib/hosting";
+import { accessDeniedText, isAccessDeniedError, warnIfFoldersBlocked } from "@/lib/accessDenied";
 import { listLocalServers, listAllServers, installMinecraftServer, installForgeServer, installFabricServer, installPaperServer, importExistingServer, scanExternalServer, startServerOrchestrated, updateStoredShortCode, type ServerInfo, type ServerInstallProgress } from "@/lib/server";
 import type { ResourceSnapshot } from "@/lib/resourceDiagnostics";
 import { getServerSlug, defaultSlugFor } from "@/lib/inviteLink";
@@ -240,11 +241,15 @@ export function useHostController({
   useEffect(() => {
     (async () => {
       if (!serverDir) {
-        const docs = await documentDir();
-        setServerDir(`${docs}\\CubicaseServers`);
+        setServerDir(await getServersRoot());
       }
     })();
   }, [serverDir, setServerDir]);
+
+  // Uma vez por sessão: avisa cedo se o Windows (Acesso controlado a pastas) bloqueia a gravação.
+  useEffect(() => {
+    warnIfFoldersBlocked();
+  }, []);
 
   // Carregar servidores (locais + importados) e RAM total
   useEffect(() => {
@@ -519,7 +524,16 @@ export function useHostController({
       onSetServerInstallProgress(null);
     } catch (err) {
       console.error(err);
-      pushDiagnostic({ level: "error", source: tn("diag.source.install"), title: tn("host.err.createServer"), message: String(err), kind: "install_failed" });
+      // Bloqueio do Windows (Acesso controlado a pastas): explica o motivo em vez do erro cru.
+      const denied = isAccessDeniedError(err) ? accessDeniedText(await getServersRoot()) : null;
+      pushDiagnostic({
+        level: "error",
+        source: tn("diag.source.install"),
+        title: denied?.title ?? tn("host.err.createServer"),
+        message: denied?.message ?? String(err),
+        detail: denied ? String(err) : undefined,
+        kind: "install_failed",
+      });
       onSetServerInstallProgress(null);
     }
   };
@@ -561,8 +575,7 @@ export function useHostController({
       if (!serverInfo) throw new Error(tn("host.err.notFound.title"));
 
       // Verificar se é um servidor importado (fora da pasta padrão)
-      const docsDir = await documentDir();
-      const defaultPath = `${docsDir}\\CubicaseServers\\${deleteConfirmServer}`;
+      const defaultPath = `${await getServersRoot()}\\${deleteConfirmServer}`;
       const isImported = serverInfo.path.toLowerCase() !== defaultPath.toLowerCase();
 
       if (isImported) {

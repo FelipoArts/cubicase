@@ -29,6 +29,9 @@ export default defineMessages({
     "backup.reason.beforeMods": "antes de remover ou desativar mods",
     "backup.created.title": "Backup automático criado",
     "backup.created.message": "Backup do mundo gerado ({reason}).",
+    "access.denied.somewhere": "esta pasta",
+    "access.denied.title": "O Windows bloqueou o Cubicase de gravar arquivos",
+    "access.denied.message": "O Windows recusou o acesso a {folder}. Quase sempre é o \"Acesso controlado a pastas\" (a proteção contra ransomware do Segurança do Windows), que impede programas que ele não conhece de alterar Documentos, Área de Trabalho e Imagens. O Cubicase precisa gravar ali para criar o seu servidor, salvar o mundo e os mods e guardar os backups; sem isso ele não consegue criar o servidor nem salvar o progresso. Ele só grava os arquivos do seu próprio servidor, nada além disso. Você não precisa desligar a proteção: abra o Segurança do Windows > Proteção contra vírus e ameaças > Proteção contra ransomware > Permitir que um aplicativo seja executado pelo acesso controlado a pastas, e adicione o Cubicase e o java.exe que ele instalou (dentro da pasta de dados do Cubicase, em AppData\\Local). Se preferir, escolha uma pasta fora de Documentos para os backups, nas configurações.",
     "backup.failed.title": "Não foi possível criar o backup automático",
 
     "deeplink.unrecognized.title": "Link de convite não reconhecido",
@@ -62,6 +65,9 @@ export default defineMessages({
     "backup.reason.beforeMods": "before removing or disabling mods",
     "backup.created.title": "Automatic backup created",
     "backup.created.message": "World backup created ({reason}).",
+    "access.denied.somewhere": "this folder",
+    "access.denied.title": "Windows blocked Cubicase from writing files",
+    "access.denied.message": "Windows refused access to {folder}. It's almost always \"Controlled folder access\" (Windows Security's ransomware protection), which stops programs it doesn't know from changing Documents, Desktop and Pictures. Cubicase needs to write there to create your server, save the world and mods, and keep backups; without that it can't create the server or save progress. It only writes your own server's files, nothing else. You don't have to turn the protection off: open Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, and add Cubicase and the java.exe it installed (inside Cubicase's data folder, under AppData\\Local). If you prefer, pick a folder outside Documents for backups, in the settings.",
     "backup.failed.title": "Couldn't create the automatic backup",
 
     "deeplink.unrecognized.title": "Invite link not recognized",

@@ -551,11 +551,11 @@
 
   <h3>Onde ficam os backups</h3>
   <p>Enquanto um backup roda, o Cubicase mostra o aviso <em>“Fazendo backup de…”</em>. Em mundos grandes leva alguns minutos: pode continuar usando o app, mas não o feche até terminar.</p>
-  <p>Ficam numa pasta <code>CubicaseBackups</code>, separados por nome de servidor. Se você renomear o servidor, o Cubicase move os backups junto; se não conseguir, avisa onde eles ficaram para você mover manualmente.</p>
+  <p>Ficam na pasta de backups (por padrão <code>Cubicase\Backups</code>, dentro da sua pasta de usuário; em instalações antigas, <code>Documentos\CubicaseBackups</code>), separados por nome de servidor. Se você renomear o servidor, o Cubicase move os backups junto; se não conseguir, avisa onde eles ficaram para você mover manualmente.</p>
   <p>Para guardar em outro lugar (outro disco, por exemplo), escolha em <span class="ui">Configurações</span> → <span class="ui">Backups</span> → <span class="ui">Pasta dos backups</span>. Ela vale para todos os servidores e também para os backups pedidos pelo painel web e pelo Discord. Mudar a pasta não move os backups que já existem (o app mostra onde estão os antigos). Se a pasta estiver no OneDrive, cada backup grande é enviado para a nuvem, e o Cubicase avisa; se o disco estiver desconectado, os backups novos falham até ele voltar.</p>
   <div class="tut-callout is-tip">
     <strong>Boa prática</strong>
-    <p>Backups na mesma máquina não protegem contra falha do disco. De vez em quando copie a pasta <code>CubicaseBackups</code> para um pen drive ou nuvem.</p>
+    <p>Backups na mesma máquina não protegem contra falha do disco. De vez em quando copie a pasta de backups para um pen drive ou nuvem.</p>
   </div>
 </article>
 
@@ -1108,6 +1108,7 @@
         <tr><td>Mundo corrompido</td><td>Um arquivo de região/chunk está danificado (queda de energia, encerramento forçado). Restaure um <a href="#mundo-backups">backup</a>.</td></tr>
         <tr><td>Sem memória (OutOfMemoryError)</td><td>Aumente a RAM alocada (se o PC tiver folga) ou reduza mods/jogadores. Veja <a href="#diagnosticos">Diagnósticos</a>.</td></tr>
         <tr><td>Servidor travou (Watchdog)</td><td>Mod ou plugin preso em loop, consulta pesada demais ou disco/rede lentos. Veja nos detalhes qual mod aparece perto do erro.</td></tr>
+        <tr><td>O Windows bloqueou a gravação (Acesso controlado a pastas)</td><td>O Segurança do Windows tem uma proteção contra ransomware chamada Acesso controlado a pastas. Ela vem desligada, mas algumas pessoas a ativam. Quando ligada, impede programas que o Windows não conhece de alterar Documentos, Área de Trabalho e Imagens. Instalações novas do Cubicase guardam servidores e backups em uma pasta Cubicase dentro da sua pasta de usuário, que essa proteção não cobre. Mas instalações antigas (que usam Documentos), servidores importados de Documentos ou da Área de Trabalho e pastas que você escolher podem ser bloqueados. Nesses casos o Cubicase precisa gravar lá para criar o servidor, salvar o mundo e os mods e fazer backup; sem isso, o servidor não guarda o progresso. Ele só grava os arquivos do seu próprio servidor. Você não precisa desligar a proteção: em Segurança do Windows, abra Proteção contra vírus e ameaças, depois Proteção contra ransomware, depois Permitir que um aplicativo seja executado pelo acesso controlado a pastas, e adicione o Cubicase e o java.exe que ele instalou (na pasta de dados do Cubicase, em AppData\Local).</td></tr>
       </tbody>
     </table>
   </div>

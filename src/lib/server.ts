@@ -1,11 +1,14 @@
 import { syncServerIcon } from "@/lib/serverIconSync";
 import { invoke } from "@tauri-apps/api/core";
 import { generateShortCode } from "@/lib/shortCode";
-import { join, documentDir } from "@tauri-apps/api/path";
+import { join } from "@tauri-apps/api/path";
+import { getServersRoot } from "@/lib/serversRoot";
+import { ensureFirewallPrompted } from "@/lib/firewall";
 import { exists, mkdir, rename, writeTextFile, readDir, readTextFile, remove, size } from "@tauri-apps/plugin-fs";
 import { fetch } from "@tauri-apps/plugin-http";
 import { isJREInstalled, installJRE, getJREPath } from "@/lib/jre";
 import { t as tn } from "@/i18n";
+import { pushDiagnostic } from "@/app/diagnostics";
 import { backupsDirFor, renameServerBackups } from "@/lib/backupsFolder";
 
 // ============================================================
@@ -43,8 +46,48 @@ const RESERVED_WINDOWS_NAMES = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\.|$)/i;
  * bastante pra valer a pena barrar aqui) e nomes reservados do sistema.
  * Lança com a mensagem já traduzida; não lança nada se o nome for válido.
  */
+// ------------------------------------------------------------
+// Limites de tamanho: o Windows limita um caminho a ~260 caracteres (MAX_PATH) e o Minecraft cria arquivos bem
+// dentro da pasta do servidor (world\\DIM-1\\region\\r.-1.-1.mca, libraries\\net\\minecraftforge\\forge\\...,
+// config de mods). Sem folga, o mundo ou os mods falham ao salvar com erros de "caminho não encontrado".
+// ------------------------------------------------------------
+
+/** Tamanho máximo do nome de um servidor (nomes de pasta). */
+export const MAX_SERVER_NAME_LENGTH = 40;
+/** Folga reservada para os arquivos que ficam DENTRO da pasta do servidor. */
+const SERVER_INNER_PATH_RESERVE = 150;
+/** Tamanho máximo do caminho da PASTA de um servidor (260 menos a folga). */
+export const MAX_SERVER_DIR_LENGTH = 260 - SERVER_INNER_PATH_RESERVE;
+
+/** Quantos caracteres o nome pode ter dentro de `serversRoot`, respeitando o limite do caminho. */
+export function allowedServerNameLength(serversRoot: string): number {
+  return Math.max(0, Math.min(MAX_SERVER_NAME_LENGTH, MAX_SERVER_DIR_LENGTH - serversRoot.length - 1));
+}
+
+/** Barra nomes que, na pasta de servidores atual, estourariam o limite de caminho do Windows. */
+export function assertServerNameFits(name: string, serversRoot: string): void {
+  const allowed = allowedServerNameLength(serversRoot);
+  if (name.length > allowed) {
+    throw new Error(tn("config.name.pathTooLong", { allowed, length: name.length, root: serversRoot }));
+  }
+}
+
+/** Aviso (não bloqueia) para pastas de servidor com caminho comprido — as importadas e as de instalações antigas. */
+export function warnIfServerPathLong(serverPath: string): void {
+  if (serverPath.length <= MAX_SERVER_DIR_LENGTH) return;
+  pushDiagnostic({
+    level: "warning",
+    source: tn("diag.source.server"),
+    title: tn("config.path.long.title"),
+    message: tn("config.path.long.message", { length: serverPath.length, max: MAX_SERVER_DIR_LENGTH }),
+  });
+}
+
 function assertValidServerFolderName(name: string): void {
   if (!name) throw new Error(tn("config.name.empty"));
+  if (name.length > MAX_SERVER_NAME_LENGTH) {
+    throw new Error(tn("config.name.tooLong", { max: MAX_SERVER_NAME_LENGTH, length: name.length }));
+  }
   if (INVALID_NAME_CHARS.test(name)) throw new Error(tn("config.name.invalidChars"));
   if (/[ .]$/.test(name)) throw new Error(tn("config.name.trailingDotOrSpace"));
   if (RESERVED_WINDOWS_NAMES.test(name)) throw new Error(tn("config.name.reservedName", { name }));
@@ -59,6 +102,7 @@ export function sanitizeServerFolderName(raw: string): string {
   const clean = raw
     .trim()
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .slice(0, MAX_SERVER_NAME_LENGTH)
     .replace(/[ .]+$/, "");
   if (!clean) return "Servidor";
   return RESERVED_WINDOWS_NAMES.test(clean) ? `${clean}_` : clean;
@@ -95,11 +139,11 @@ export async function renameServer(
   const newName = newNameRaw.trim();
   assertValidServerFolderName(newName);
 
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
   const oldPath = await join(serversRoot, oldName);
 
   if (newName === oldName) return { name: oldName, path: oldPath, backupsMigrationFailed: false };
+  assertServerNameFits(newName, serversRoot);
 
   if (existingNames.some((n) => n.toLowerCase() === newName.toLowerCase())) {
     throw new Error(tn("config.name.alreadyExists", { name: newName }));
@@ -467,8 +511,8 @@ export async function installMinecraftServer(
   onProgress: (p: ServerInstallProgress) => void
 ): Promise<void> {
   // --- Caminhos ---
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
+  assertServerNameFits(serverName, serversRoot);
   const serverPath = await join(serversRoot, serverName);
   const jarPath = await join(serverPath, "server.jar");
 
@@ -895,8 +939,8 @@ export async function installForgeServer(
   onProgress: (p: ServerInstallProgress) => void,
   opts?: { strict?: boolean }
 ): Promise<void> {
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
+  assertServerNameFits(serverName, serversRoot);
   const serverPath = await join(serversRoot, serverName);
 
   // 1. Criar pasta
@@ -1125,8 +1169,8 @@ export async function installFabricServer(
   seed: string | undefined,
   onProgress: (p: ServerInstallProgress) => void
 ): Promise<void> {
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
+  assertServerNameFits(serverName, serversRoot);
   const serverPath = await join(serversRoot, serverName);
 
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
@@ -1286,8 +1330,8 @@ export async function installPaperServer(
   seed: string | undefined,
   onProgress: (p: ServerInstallProgress) => void
 ): Promise<void> {
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
+  assertServerNameFits(serverName, serversRoot);
   const serverPath = await join(serversRoot, serverName);
 
   onProgress({ status: tn("srv.progress.creatingFolder"), percent: 5 });
@@ -1472,6 +1516,7 @@ export async function importExistingServer(path: string): Promise<ServerInfo> {
   if (!inspection.valid) {
     throw new Error(inspectionRefusalMessage(inspection.reason));
   }
+  warnIfServerPathLong(path);
   const launchInfo: { mode: "jar"; jarName: string } | { mode: "argfile"; argsDir: string } =
     inspection.launchMode === "argfile" && inspection.argsDir
       ? { mode: "argfile", argsDir: inspection.argsDir }
@@ -1992,8 +2037,7 @@ export async function fetchMavenSha1(jarUrl: string): Promise<string | null> {
 }
 
 export async function listLocalServers(): Promise<ServerInfo[]> {
-  const docsDir = await documentDir();
-  const serversRoot = await join(docsDir, "CubicaseServers");
+  const serversRoot = await getServersRoot();
 
   if (!(await exists(serversRoot))) return [];
 
@@ -2166,6 +2210,10 @@ export async function startServerOrchestrated(
 ): Promise<void> {
   const { onLog, onInstallProgress } = callbacks;
   const log = (msg: string) => onLog?.(msg);
+
+  // Primeira vez: o Windows pergunta sobre a rede agora, com uma explicação antes (não bloqueia o início).
+  void ensureFirewallPrompted();
+  warnIfServerPathLong(serverInfo.path);
 
   const version = serverInfo.version || "1.20.1";
   const javaVer = getJavaVersion(version);

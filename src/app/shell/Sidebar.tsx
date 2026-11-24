@@ -108,7 +108,9 @@ export function Sidebar({ c, mode, onSetMode, onOpenHelp, onOpenSettings, panel 
                       <ServerAvatar path={s.path} name={s.name} size="xs" />
                       {running && <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--card-bg)]" />}
                     </span>
-                    <span className={cn("min-w-0 flex-1", HIDE)}>
+                    {/* Ao passar o mouse (ou focar), os botões de configurar/excluir aparecem sobre a linha: o texto
+                        ganha espaço à direita para o nome não correr por baixo deles. */}
+                    <span className={cn("min-w-0 flex-1 transition-[padding] group-hover/row:pr-14 group-focus-within/row:pr-14", HIDE)}>
                       <span className="block text-sm font-bold truncate">{s.name}</span>
                       <span className="block text-[11px] text-theme-secondary truncate">{s.version || t("serverList.versionNotFound")}</span>
                     </span>

@@ -38,7 +38,8 @@ pub struct BackupsSettings {
 }
 
 pub fn default_root(app: &AppHandle) -> PathBuf {
-    app.path().document_dir().unwrap_or_else(|_| PathBuf::from(".")).join("CubicaseBackups")
+    // Quem já tem CubicaseBackups em Documentos continua lá; instalações novas usam Cubicase\Backups na pasta do usuário.
+    crate::storage_dirs::default_backups_root(app)
 }
 
 fn settings_path(app: &AppHandle) -> Option<PathBuf> {
@@ -125,10 +126,7 @@ pub fn validate_root(candidate: &Path, forbidden_inside: &[PathBuf]) -> Result<(
 
 /// Pastas que nunca podem conter os backups: a de servidores e as dos servidores importados.
 fn forbidden_roots(app: &AppHandle) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Ok(docs) = app.path().document_dir() {
-        out.push(docs.join("CubicaseServers"));
-    }
+    let mut out = crate::storage_dirs::container_roots(app);
     out.extend(crate::panel_agent::load_imported_server_paths(app).into_iter().map(PathBuf::from));
     out
 }
