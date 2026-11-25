@@ -29,37 +29,22 @@ func newPeerConnection(cfg Config) (*webrtc.PeerConnection, error) {
 	if cfg.LoopbackCandidates {
 		se.SetIncludeLoopbackCandidate(true)
 	}
-	// Quanto o ICE espera antes de ACEITAR cada tipo de caminho. Os padrões da biblioteca (relay 2 s,
-	// NAT 0,5–1 s) fazem o relay — que fica pronto na hora — ganhar do furo de NAT quando este
-	// leva um pouco mais (medido em rede real: 1ª conexão em relay, 2ª direta). Dar mais fôlego ao
-	// caminho direto custa só alguns segundos a quem de fato precisa do relay, e cada conexão
-	// direta é banda que não passa pelo relay. Com relay forçado não há o que esperar.
+	// Quanto o ICE espera antes de ACEITAR cada tipo de caminho: o da mesma rede (host) vale na hora; o furo de
+	// NAT (srflx/prflx) ganha um pouco mais de fôlego, para dar tempo de os dois lados abrirem os mapeamentos.
 	se.SetHostAcceptanceMinWait(0)
 	se.SetSrflxAcceptanceMinWait(1500 * time.Millisecond)
 	se.SetPrflxAcceptanceMinWait(3 * time.Second)
-	if !cfg.RelayOnly {
-		se.SetRelayAcceptanceMinWait(6 * time.Second)
-	}
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	rc := webrtc.Configuration{}
 	if len(cfg.ICE.STUNURLs) > 0 {
 		rc.ICEServers = append(rc.ICEServers, webrtc.ICEServer{URLs: cfg.ICE.STUNURLs})
 	}
-	if t := cfg.ICE.TURN; t != nil {
-		// Uma URL só: cada URL abriria uma alocação no relay (ver turnselect.go).
-		if urls := selectTURNURLs(t.URLs, probeTURNUDP); len(urls) > 0 {
-			rc.ICEServers = append(rc.ICEServers, webrtc.ICEServer{URLs: urls, Username: t.Username, Credential: t.Credential})
-		}
-	}
-	if cfg.RelayOnly {
-		rc.ICETransportPolicy = webrtc.ICETransportPolicyRelay
-	}
 	return api.NewPeerConnection(rc)
 }
 
 // classifyPath resume o caminho ICE escolhido em um rótulo estável para a UI e a telemetria:
-// direct-v6, direct-v4, punched (furo de NAT via STUN), relay.
+// direct-v6, direct-v4, punched (furo de NAT via STUN).
 func classifyPath(pc *webrtc.PeerConnection) string {
 	sctp := pc.SCTP()
 	if sctp == nil {
@@ -73,9 +58,6 @@ func classifyPath(pc *webrtc.PeerConnection) string {
 }
 
 func pathLabel(localTyp, remoteTyp webrtc.ICECandidateType, localAddr, remoteAddr string) string {
-	if localTyp == webrtc.ICECandidateTypeRelay || remoteTyp == webrtc.ICECandidateTypeRelay {
-		return "relay"
-	}
 	if localTyp == webrtc.ICECandidateTypeHost && remoteTyp == webrtc.ICECandidateTypeHost {
 		if strings.Contains(localAddr, ":") || strings.Contains(remoteAddr, ":") {
 			return "direct-v6"

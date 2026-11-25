@@ -9,7 +9,7 @@ import { useFirewallHelp } from "@/lib/firewall";
 // ============================================================
 // FirewallAllowModal
 // ============================================================
-// Aparece quando a conexão está passando pelo relay porque o Windows bloqueia o cubicase-link (a pessoa clicou em
+// Aparece quando a conexão direta falhou porque o Windows bloqueia o cubicase-link (a pessoa clicou em
 // Cancelar na pergunta do Firewall). Explica o efeito e oferece o botão que desfaz o bloqueio, com UMA confirmação
 // de administrador do Windows. Ver lib/firewall.ts e src-tauri/src/firewall.rs.
 // ============================================================

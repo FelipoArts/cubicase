@@ -39,11 +39,11 @@ describe("ensureFirewallPrompted", () => {
 describe("offerFirewallIfBlocked", () => {
   it("só abre a janela quando o Windows tem um bloqueio", async () => {
     invokeMock.mockResolvedValue("allowed");
-    await offerFirewallIfBlocked();
+    expect(await offerFirewallIfBlocked()).toBe(false);
     expect(useFirewallHelp.getState().open).toBe(false);
 
     invokeMock.mockResolvedValue("blocked");
-    await offerFirewallIfBlocked();
+    expect(await offerFirewallIfBlocked()).toBe(true); // quem chamou não deve abrir o plano B também
     expect(useFirewallHelp.getState().open).toBe(true);
   });
 

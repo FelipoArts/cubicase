@@ -523,6 +523,11 @@ section {
   gap: 20px;
 }
 
+/* Seção do Plus: seis cartões, em 3 colunas (os ajustes de tela menor, mais abaixo, valem do mesmo jeito). */
+.features-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .feature-card {
   background: var(--bg-card);
   border: 1px solid var(--border);

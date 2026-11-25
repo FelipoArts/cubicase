@@ -19,7 +19,6 @@ const (
 	waitPeerTimeout    = 15 * time.Second
 	disconnectGrace    = 6 * time.Second
 	pingEvery          = 10 * time.Second
-	upgradeAfter       = 20 * time.Second
 )
 
 // Guest: escuta em 127.0.0.1 (Minecraft e proxy de mods) e leva cada conexão TCP ao host
@@ -53,7 +52,6 @@ type guestPeer struct {
 	readyOnce sync.Once
 	lastPath  string
 	pathMu    sync.Mutex
-	upgrading bool         // já tentou subir de relay para direto
 	rtt       atomic.Int64 // ms, -1 = desconhecido
 }
 
@@ -400,8 +398,7 @@ func (g *Guest) restartICE(ctx context.Context, p *guestPeer) {
 	}
 }
 
-// reportPath emite o tipo de caminho quando muda (e a latência, quando já medida). Se a conexão
-// ficou em relay, agenda UMA tentativa de subir para um caminho direto (veja scheduleUpgrade).
+// reportPath emite o tipo de caminho quando muda (e a latência, quando já medida).
 func (g *Guest) reportPath(ctx context.Context, p *guestPeer) {
 	path := classifyPath(p.pc)
 	p.pathMu.Lock()
@@ -414,35 +411,6 @@ func (g *Guest) reportPath(ctx context.Context, p *guestPeer) {
 		return
 	}
 	emitPath(g.em, path, p.rtt.Load())
-	if path == "relay" && !g.cfg.RelayOnly {
-		g.scheduleUpgrade(ctx, p)
-	}
-}
-
-// scheduleUpgrade: conexões que começam em relay costumam poder ser diretas pouco depois (os
-// mapeamentos de NAT já estão "quentes"). Passado um tempo, reinicia o ICE uma vez; se um caminho
-// direto funcionar ele passa a ser o escolhido, senão continua no relay. As conexões TCP do jogo
-// sobrevivem (a associação DTLS/SCTP continua). Cada byte que sai do relay é custo a menos.
-func (g *Guest) scheduleUpgrade(ctx context.Context, p *guestPeer) {
-	p.pathMu.Lock()
-	if p.upgrading {
-		p.pathMu.Unlock()
-		return
-	}
-	p.upgrading = true
-	p.pathMu.Unlock()
-	time.AfterFunc(upgradeAfter, func() {
-		if ctx.Err() != nil || g.currentPeer() != p {
-			return
-		}
-		p.pathMu.Lock()
-		stillRelay := p.lastPath == "relay"
-		p.pathMu.Unlock()
-		if stillRelay && p.pc.ConnectionState() == webrtc.PeerConnectionStateConnected {
-			emitInfo(g.em, "tentando um caminho direto (a conexão está em relay)")
-			g.restartICE(ctx, p)
-		}
-	})
 }
 
 // runCtl mede a latência (ping/pong) enquanto o canal de controle estiver aberto.

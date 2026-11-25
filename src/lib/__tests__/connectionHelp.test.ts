@@ -39,7 +39,7 @@ describe("connectionHelp", () => {
     useConnectionHelp.getState().show("manual");
     expect(useConnectionHelp.getState().open).toBe(true);
     expect(useConnectionHelp.getState().reason).toBe("manual");
-    expect(useConnectionHelp.getState().showAuto("relay_quota")).toBe(false);
+    expect(useConnectionHelp.getState().showAuto("direct_failed")).toBe(false); // já aberta: não reabre
   });
 
   it("o botão da Central de Ajuda abre sem servidor; abrir por um servidor guarda qual é", () => {

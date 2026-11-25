@@ -14,7 +14,7 @@ import { getSubscriptionStatus, isSubscriptionActive, type SubscriptionInfo } fr
 // O Worker continua sendo quem decide de verdade; isto só controla o que a interface mostra.
 // ============================================================
 
-export type PlusFeature = "panel" | "wake" | "link" | "address" | "private" | "team";
+export type PlusFeature = "panel" | "wake" | "link" | "address" | "custom" | "discord" | "team";
 
 interface UiState { open: boolean; feature: PlusFeature | null }
 let ui: UiState = { open: false, feature: null };

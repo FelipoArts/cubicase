@@ -62,9 +62,7 @@ export interface KnownServer {
   modLoaderVersion: string | null;
 }
 
-/** Caminho da conexão P2P: direct-v4/direct-v6/punched/relay (ver cubicase-link). */
-/** Estado do relay informado pela API: "ok", "quota" (cota do mês esgotada), "off" (desligado) ou "private_locked" (modo privado recusado: precisa do Plus). */
-export type RelayStatus = "ok" | "quota" | "off" | "private_locked";
+/** Caminho da conexão P2P: direct-v4/direct-v6/punched (ver cubicase-link). */
 
 /** Conexão do convidado pelo plano B (Radmin VPN): no lugar do túnel P2P, o Minecraft vai direto ao IP do host. */
 export interface RadminRoute {
@@ -107,16 +105,12 @@ interface AppSettings {
   // Quando o usuário aceitou o EULA do Minecraft (ISO). null = ainda não aceitou: a
   // criação/importação de servidor pede o aceite antes de gravar eula=true.
   eulaAcceptedAt: string | null;
-  // Tipo de caminho da conexão P2P atual (direto/relay) e latência — runtime, não persistido.
+  // Tipo de caminho da conexão P2P atual (direto) e latência — runtime, não persistido.
   networkPath: NetworkPathInfo | null;
-  // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
-  privateMode: boolean;
   // Contagem anônima de instalações (ver lib/installPing.ts): ligada por padrão, dá para desligar em Configurações.
   installPing: boolean;
   // Já mostramos o aviso e pedimos ao Windows a permissão de rede do cubicase-link (ver lib/firewall.ts). Uma vez por instalação.
   firewallPrompted: boolean;
-  // Estado do relay informado pela API na última conexão (cota do mês esgotada, relay desligado...) — runtime.
-  relayStatus: RelayStatus | null;
   // Conexão do convidado pelo Radmin (plano B), se for essa a ativa — runtime.
   radminRoute: RadminRoute | null;
   backupRetentionCount: number;
@@ -191,10 +185,8 @@ interface AppSettings {
   setAutoBackupEnabled: (enabled: boolean) => void;
   acceptEula: () => void;
   setNetworkPath: (p: NetworkPathInfo | null) => void;
-  setPrivateMode: (enabled: boolean) => void;
   setInstallPing: (enabled: boolean) => void;
   setFirewallPrompted: (done: boolean) => void;
-  setRelayStatus: (s: RelayStatus | null) => void;
   setRadminRoute: (r: RadminRoute | null) => void;
   setBackupRetentionCount: (count: number) => void;
   setBackupSafetyNetIntervalHours: (hours: number) => void;
@@ -278,10 +270,8 @@ export const useAppStore = create<AppSettings>()(
       autoBackupEnabled: true,
       eulaAcceptedAt: null,
       networkPath: null,
-      privateMode: false,
       installPing: true,
       firewallPrompted: false,
-      relayStatus: null,
       radminRoute: null,
       backupRetentionCount: 10,
       backupSafetyNetIntervalHours: 6,
@@ -309,10 +299,8 @@ export const useAppStore = create<AppSettings>()(
       setAutoBackupEnabled: (enabled) => set({ autoBackupEnabled: enabled }),
       acceptEula: () => set({ eulaAcceptedAt: new Date().toISOString() }),
       setNetworkPath: (p) => set({ networkPath: p }),
-      setPrivateMode: (enabled) => set({ privateMode: enabled }),
       setInstallPing: (enabled) => set({ installPing: enabled }),
       setFirewallPrompted: (done) => set({ firewallPrompted: done }),
-      setRelayStatus: (s) => set({ relayStatus: s }),
       setRadminRoute: (r) => set({ radminRoute: r }),
       setBackupRetentionCount: (count) => set({ backupRetentionCount: count }),
       setBackupSafetyNetIntervalHours: (hours) => set({ backupSafetyNetIntervalHours: hours }),
@@ -415,7 +403,6 @@ export const useAppStore = create<AppSettings>()(
         minecraftPort: state.minecraftPort,
         autoBackupEnabled: state.autoBackupEnabled,
         eulaAcceptedAt: state.eulaAcceptedAt,
-        privateMode: state.privateMode,
         installPing: state.installPing,
         firewallPrompted: state.firewallPrompted,
         backupRetentionCount: state.backupRetentionCount,

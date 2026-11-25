@@ -173,8 +173,6 @@ struct AppState {
     minecraft_process: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
     minecraft_stdin: Mutex<Option<Box<dyn std::io::Write + Send>>>,
     
-    // Modo privado (Cubicase Plus): o host só oferece o caminho pelo relay, escondendo o IP dele.
-    private_mode: AtomicBool,
     // Porta do Minecraft do servidor que este app hospeda (0 = nenhum): publicada no heartbeat junto do IP do
     // Radmin, para o convidado saber onde conectar nesse plano B.
     minecraft_port: AtomicU16,
@@ -325,24 +323,7 @@ struct NetworkStatusPayload {
     ip: Option<String>,
 }
 
-/// Tipo de caminho da conexão P2P (direct-v4, direct-v6, punched, relay) e latência em ms.
-/// Estado do relay informado pela API ao criar a sessão: "ok", "quota" (cota do mês esgotada),
-/// "off" (relay desligado) — ou "private_locked" (modo privado recusado: precisa do Plus).
-#[derive(Serialize, Clone)]
-struct RelayStatusPayload {
-    state: String,
-}
-
-/// A API recusou o modo privado por falta de assinatura/login?
-fn is_private_mode_refused(err: &str) -> bool {
-    err.contains("SUBSCRIPTION_REQUIRED") || err.contains("Não autenticado") || err.contains("Not signed in")
-}
-
-/// Lê `relay` das credenciais da sessão `link-v1` (ver buildLinkCredentials no Worker).
-fn relay_state_from_credentials(credentials: &serde_json::Value) -> Option<String> {
-    credentials.get("relay").and_then(|v| v.as_str()).map(|s| s.to_string())
-}
-
+/// Tipo de caminho da conexão P2P (direct-v4, direct-v6, punched) e latência em ms.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct NetworkPathPayload {
@@ -535,26 +516,12 @@ async fn start_network_node_impl(
     log_to_file(&app, "[start_network_node] Solicitando ConnectionSession à API central...");
     // Único transporte: P2P (cubicase-link). A API recusa pedidos sem este launcher (apps antigos).
     let launcher_arg = Some("link-v1");
-    let relay_only = mode == "host" && state.private_mode.load(Ordering::SeqCst);
-    let mut started = session_manager.start_with_relay(&short_code, &mode, local_port, launcher_arg, relay_only).await;
-    // O modo privado é do Plus. Se a assinatura venceu (ou o login expirou) a API recusa: em vez de
-    // impedir de hospedar, hospeda no modo normal e avisa — o app deve sempre ajudar, nunca travar.
-    if relay_only && started.as_ref().err().map_or(false, |e| is_private_mode_refused(e)) {
-        log_to_file(&app, "[start_network_node] Modo privado recusado pela API — hospedando no modo normal.");
-        let _ = app.emit("relay-status", RelayStatusPayload { state: "private_locked".into() });
-        state.private_mode.store(false, Ordering::SeqCst);
-        started = session_manager.start_with_relay(&short_code, &mode, local_port, launcher_arg, false).await;
-    }
+    let started = session_manager.start_with(&short_code, &mode, local_port, launcher_arg).await;
     let session_resp = started.map_err(|e| {
         let err_msg = tr!("net.credentialsFailed", error = e);
         log_to_file(&app, &err_msg);
         err_msg
     })?;
-    // Cota gratuita de relay do mês esgotada (ou relay desligado): conecta só pelo caminho direto e
-    // a UI passa a oferecer o plano B (Radmin) se a conexão direta não funcionar.
-    if let Some(relay) = relay_state_from_credentials(&session_resp.credentials) {
-        let _ = app.emit("relay-status", RelayStatusPayload { state: relay });
-    }
     if session_resp.launcher != "link-v1" {
         // A API devolveu outro provedor (servidor mais antigo que o app): não há como conectar.
         let msg = tr!("net.link.unsupported");
@@ -601,7 +568,7 @@ async fn start_network_node_impl(
                         
                         log_to_file(&app_clone, &format!("[Sidecar-Stdout] {}", trimmed));
                         
-                        // Tipo de caminho da conexão P2P (direto/relay) + latência: vai para a UI, não para o log cru.
+                        // Tipo de caminho da conexão P2P (direto) + latência: vai para a UI, não para o log cru.
                         if trimmed.starts_with('{') && trimmed.contains("\"path\"") {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
                                 if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
@@ -881,11 +848,10 @@ async fn start_network_node(
     start_network_node_with_retry(app, mode, short_code, local_port).await
 }
 
-/// Liga/desliga o modo privado (só vale para o P2P) e entrega o token atual da conta, que a API usa
-/// para confirmar o Cubicase Plus. O token fica só em memória.
+/// Entrega o token atual da conta, que a API usa para confirmar o Cubicase Plus e ligar a sessão ao perfil.
+/// O token fica só em memória.
 #[tauri::command]
-fn set_private_mode(state: tauri::State<'_, AppState>, enabled: bool, access_token: Option<String>) {
-    state.private_mode.store(enabled, Ordering::SeqCst);
+fn set_account_token(access_token: Option<String>) {
     account_auth::set(access_token);
 }
 
@@ -7141,7 +7107,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
        set_locale,
        start_network_node,
-       set_private_mode,
+       set_account_token,
        stop_network_node,
        add_minecraft_server_entry,
        find_installed_minecraft_versions,

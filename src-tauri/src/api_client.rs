@@ -361,17 +361,6 @@ impl ApiClient {
         mode: &str,
         launcher: Option<&str>,
     ) -> Result<ConnectionSessionResponse, ApiError> {
-        self.create_connection_session_with(short_code, mode, launcher, false).await
-    }
-
-    /// Como `create_connection_session`; `relay_only` pede o modo privado (só relay, esconde o IP).
-    pub async fn create_connection_session_with(
-        &self,
-        short_code: &str,
-        mode: &str,
-        launcher: Option<&str>,
-        relay_only: bool,
-    ) -> Result<ConnectionSessionResponse, ApiError> {
         let (request_id, correlation_id) = self.generate_ids();
 
         let mut body = serde_json::json!({
@@ -384,9 +373,6 @@ impl ApiClient {
         // Transporte P2P (cubicase-link): a API exige este launcher (apps antigos, sem ele, recebem 426).
         if let Some(l) = launcher {
             body["launcher"] = serde_json::Value::String(l.to_string());
-            if relay_only {
-                body["relayOnly"] = serde_json::Value::Bool(true);
-            }
         }
 
         let req = ApiRequest {

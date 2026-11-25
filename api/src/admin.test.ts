@@ -148,7 +148,7 @@ describe("rotas /admin", () => {
     const r = (await go(req("/api/v1/admin/health?refresh=1")))!;
     const body = (await r.json()) as { state: HealthState };
     expect(r.status).toBe(200);
-    expect(Object.keys(body.state.checks)).toEqual(expect.arrayContaining(["kv", "supabase", "updates", "discord", "relay"]));
+    expect(Object.keys(body.state.checks)).toEqual(expect.arrayContaining(["kv", "supabase", "updates", "discord"]));
     expect(Object.values(body.state.checks).every((c) => c.ok)).toBe(true);
   });
 

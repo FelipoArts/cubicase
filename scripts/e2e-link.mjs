@@ -1,18 +1,16 @@
 // Teste de campo da conexão (host + vários convidados) usando o cubicase-link de verdade e a infraestrutura PUBLICADA:
-// a API, a sala de sinalização (Durable Object) e o relay TURN. Não é um teste unitário: cria um servidor de teste na
+// a API e a sala de sinalização (Durable Object); a conexão é sempre direta (não há relay). Não é um teste unitário: cria um servidor de teste na
 // central, roda alguns segundos de tráfego e apaga o servidor no fim.
 //
-//   node scripts/e2e-link.mjs                       # padrão: 6 convidados, metade forçada pelo relay
-//   node scripts/e2e-link.mjs --guests 8 --relay 4  # 8 convidados, 4 forçados pelo relay
+//   node scripts/e2e-link.mjs                       # padrão: 6 convidados
+//   node scripts/e2e-link.mjs --guests 8            # 8 convidados
 //   node scripts/e2e-link.mjs --api https://...     # outra API (padrão: a de produção)
 //
 // O que verifica (tudo com os bytes conferidos por hash):
-//   1. cada convidado entra e troca dados com o "Minecraft" do host, pelo caminho direto ou pelo relay;
+//   1. cada convidado entra e troca dados com o "Minecraft" do host, pelo caminho direto;
 //   2. todos ao mesmo tempo, com várias conexões por convidado;
 //   3. um convidado que some de repente não atrapalha os outros, e um novo consegue entrar;
 //   4. o host cai e volta: os convidados se recuperam.
-//   node scripts/e2e-link.mjs --relay 3 --turn tcp  # relay só por TCP (UDP bloqueado); --turn tls = só porta 443
-// O tráfego pelo relay conta na cota do servidor de teste (alguns MB) e é pequeno.
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import net from "node:net";
@@ -26,19 +24,15 @@ const arg = (name, fallback) => {
 };
 const API = arg("api", "https://cubeforge-api.cubeforge.workers.dev");
 const GUESTS = Number(arg("guests", 6));
-const RELAY_GUESTS = Number(arg("relay", Math.floor(GUESTS / 2)));
 const BIN = arg("bin", path.join(ROOT, "src-tauri", "binaries", "cubicase-link-x86_64-pc-windows-msvc.exe"));
 const PAYLOAD_MB = Number(arg("mb", 2));
-// Como o relay é alcançado pelos convidados forçados: udp (padrão), tcp (UDP bloqueado) ou tls (só a porta 443, a que
-// passa por quase todo firewall).
-const TURN_MODE = arg("turn", "udp");
 // Laboratório de rede (lab/): o host roda em OUTRA rede simulada (prefixo de comando, ex.: "ip netns exec hostlan"), e cada
 // lado usa o STUN do laboratório, que enxerga o endereço "público" do NAT simulado. Sem isto, tudo roda na mesma máquina.
 const HOST_PREFIX = arg("host-prefix", "");
 const STUN_HOST = arg("stun-host", "");
 const STUN_GUEST = arg("stun-guest", "");
 const PHASES = new Set(arg("phases", "solo,concurrent,crash,restart").split(","));
-// Expressão regular do caminho esperado para os convidados NÃO forçados pelo relay (ex.: "punched|direct" ou "^relay$").
+// Expressão regular do caminho esperado para os convidados (ex.: "punched|direct").
 const EXPECT_PATH = arg("expect-path", "");
 
 // Vários testes ao mesmo tempo na mesma máquina (cada um com o seu host e os seus convidados): cada "slot" usa outras portas.
@@ -181,24 +175,18 @@ async function exchange(g, mb, tag) {
 let server, ownerSecret, host, labEcho = null;
 const guests = [];
 
-async function startGuest(i, forceRelay) {
+async function startGuest(i) {
   const installationId = `e2e-guest-${randomUUID().slice(0, 12)}`;
   const creds = await newSession(server.shortCode, "guest", installationId);
-  if (forceRelay && !creds.ice?.turn) throw new Error("o relay não foi liberado para este convidado (cota/relay desligado)");
-  if (forceRelay && creds.ice?.turn && TURN_MODE !== "udp") {
-    const urls = creds.ice.turn.urls.filter((u) => (TURN_MODE === "tls" ? u.startsWith("turns:") : u.startsWith("turn:") && u.includes("transport=tcp")));
-    if (!urls.length) throw new Error(`a API não ofereceu relay no modo ${TURN_MODE}`);
-    creds.ice.turn = { ...creds.ice.turn, urls };
-  }
-  const g = { name: `convidado${i}${forceRelay ? "(relay)" : "(direto)"}`, forceRelay, port: GUEST_BASE + i, creds, installationId };
-  g.peer = new Peer(g.name, { mode: "guest", ...baseCfg(creds, STUN_GUEST), relayOnly: forceRelay, localPort: g.port, modsPort: MODS_BASE + i, registryPort: REGISTRY_PORT });
+  const g = { name: `convidado${i}(direto)`, port: GUEST_BASE + i, creds, installationId };
+  g.peer = new Peer(g.name, { mode: "guest", ...baseCfg(creds, STUN_GUEST), localPort: g.port, modsPort: MODS_BASE + i, registryPort: REGISTRY_PORT });
   g.startedAt = Date.now();
   await g.peer.waitFor((e) => e.status === "online" || e.info === "listening" || e.path, 45000, "convidado pronto");
   return g;
 }
 
 async function main() {
-  log(`API: ${API} | convidados: ${GUESTS} (${RELAY_GUESTS} forçados pelo relay, via ${TURN_MODE}) | carga: ${PAYLOAD_MB} MB por troca`);
+  log(`API: ${API} | convidados: ${GUESTS} | carga: ${PAYLOAD_MB} MB por troca`);
   if (HOST_PREFIX) {
     // O "Minecraft" falso precisa estar na mesma rede do host.
     labEcho = spawn("sh", ["-c", `exec ${HOST_PREFIX} node ${path.join(ROOT, "scripts", "lab-echo.mjs")} ${MC_PORT}`], { stdio: "ignore" });
@@ -215,15 +203,15 @@ async function main() {
   log(`servidor de teste ${server.shortCode} criado`);
 
   const hostCreds = await newSession(server.shortCode, "host", `e2e-host-${randomUUID().slice(0, 8)}`, ownerSecret);
-  log(`relay disponível: ${hostCreds.relay} | STUN: ${hostCreds.ice.stunUrls.join(",")} | TURN: ${hostCreds.ice.turn ? hostCreds.ice.turn.urls.join(",") : "nenhum"}`);
-  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds, STUN_HOST), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
+  log(`STUN: ${hostCreds.ice.stunUrls.join(",")}`);
+  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds, STUN_HOST), localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
   await host.waitFor((e) => e.status === "online", 30000, "host online");
   log("host online na sala de sinalização");
 
   // 2. convidados, um de cada vez (cada um tem a própria sessão e a própria instalação)
   for (let i = 1; i <= GUESTS; i++) {
     try {
-      const g = await startGuest(i, i <= RELAY_GUESTS);
+      const g = await startGuest(i);
       guests.push(g);
       log(`${g.name} pronto em ${((Date.now() - g.startedAt) / 1000).toFixed(1)}s`);
     } catch (e) {
@@ -239,8 +227,7 @@ async function main() {
     g.path = g.peer.lastPath();
     g.solo = { ...r, ...lat };
     log(`  ${g.name.padEnd(20)} caminho=${String(g.path).padEnd(10)} ${r.ok ? "bytes ok" : "BYTES DIFERENTES"}  ${r.mbps.toFixed(1)} MB/s  latência p50=${lat.p50}ms max=${lat.max}ms`);
-    if (g.forceRelay) check(g.path === "relay", `${g.name} devia estar pelo relay, mas o caminho foi ${g.path}`);
-    if (EXPECT_PATH && !g.forceRelay) {
+    if (EXPECT_PATH) {
       const okPath = new RegExp(EXPECT_PATH).test(String(g.path));
       check(okPath, `${g.name}: caminho esperado /${EXPECT_PATH}/, veio ${g.path}`);
       if (!okPath && process.env.CUBICASE_LINK_DEBUG) {
@@ -305,7 +292,7 @@ async function main() {
   host.kill();
   await sleep(3000);
   const hostCreds2 = await newSession(server.shortCode, "host", `e2e-host-${randomUUID().slice(0, 8)}`, ownerSecret);
-  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds2, STUN_HOST), relayOnly: false, localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
+  host = new Peer("host", { mode: "host", ...baseCfg(hostCreds2, STUN_HOST), localPort: MC_PORT, registryPort: REGISTRY_PORT, maxGuests: 20 }, HOST_PREFIX);
   await host.waitFor((e) => e.status === "online", 30000, "host online de novo").catch((e) => check(false, e.message));
   let recovered = 0;
   for (const g of guests) {

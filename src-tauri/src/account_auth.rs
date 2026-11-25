@@ -1,7 +1,7 @@
 //! Token de acesso da conta (Supabase) para as chamadas à API Central que dependem de ser o
 //! assinante Cubicase Plus (criar a sessão de hospedagem) e para ligar a sessão ao perfil da conta na
 //! lista de membros do servidor. O frontend é quem faz o login e renova o token; ele entrega o valor
-//! atual aqui (comando `set_private_mode`) e o transporte HTTP o anexa ao criar sessões de host e de
+//! atual aqui (comando `set_account_token`) e o transporte HTTP o anexa ao criar sessões de host e de
 //! convidado (ver `create_session_auth` em api_client.rs). Fica apenas em memória: nunca é gravado em
 //! disco nem logado.
 

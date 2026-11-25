@@ -236,7 +236,7 @@ func TestConvidado_SalaSemHostEmiteAvisoENaoTrava(t *testing.T) {
 }
 
 func TestPathLabel(t *testing.T) {
-	H, S, P, R := webrtc.ICECandidateTypeHost, webrtc.ICECandidateTypeSrflx, webrtc.ICECandidateTypePrflx, webrtc.ICECandidateTypeRelay
+	H, S, P := webrtc.ICECandidateTypeHost, webrtc.ICECandidateTypeSrflx, webrtc.ICECandidateTypePrflx
 	cases := []struct {
 		l, r   webrtc.ICECandidateType
 		la, ra string
@@ -246,8 +246,6 @@ func TestPathLabel(t *testing.T) {
 		{H, H, "2804:1::2", "2804:2::9", "direct-v6"},
 		{H, S, "192.168.0.2", "200.1.1.1", "punched"},
 		{S, P, "200.1.1.1", "200.2.2.2", "punched"},
-		{R, S, "10.0.0.1", "200.2.2.2", "relay"},
-		{H, R, "192.168.0.2", "10.0.0.1", "relay"},
 	}
 	for _, c := range cases {
 		if got := pathLabel(c.l, c.r, c.la, c.ra); got != c.want {
@@ -339,8 +337,6 @@ func TestParseConfig(t *testing.T) {
 		"url http":       `{"mode":"host","peerId":"p","signalUrl":"https://a/b","localPort":1}`,
 		"porta":          `{"mode":"host","peerId":"p","signalUrl":"wss://a/b","localPort":0}`,
 		"stun inválido":  `{"mode":"host","peerId":"p","signalUrl":"wss://a/b","localPort":1,"ice":{"stunUrls":["http://x"]}}`,
-		"turn inválido":  `{"mode":"host","peerId":"p","signalUrl":"wss://a/b","localPort":1,"ice":{"turn":{"urls":["stun:x"]}}}`,
-		"relay sem turn": `{"mode":"guest","peerId":"p","signalUrl":"wss://a/b","localPort":1,"relayOnly":true}`,
 		"json quebrado":  `{"mode":`,
 	}
 	for name, body := range bad {
@@ -452,13 +448,13 @@ func TestStreamEmitter_UmaLinhaJSONPorEvento(t *testing.T) {
 	em := newStreamEmitter(&buf)
 	emitStatusOnline(em)
 	emitWarning(em, "host_unreachable", "x")
-	emitPath(em, "relay", -1)
+	emitPath(em, "punched", -1)
 	emitPath(em, "direct-v6", 12)
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	want := []string{
 		`{"ip":"p2p","status":"online"}`,
 		`{"detail":"x","warning":"host_unreachable"}`,
-		`{"path":"relay"}`,
+		`{"path":"punched"}`,
 		`{"path":"direct-v6","rttMs":12}`,
 	}
 	if len(lines) != len(want) {

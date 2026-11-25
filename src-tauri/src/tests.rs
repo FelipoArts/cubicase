@@ -1228,25 +1228,6 @@ fn percent_decode_handles_multibyte_and_invalid_sequences_without_panic() {
 }
 
 #[test]
-fn modo_privado_recusado_pela_api_e_reconhecido_nos_dois_idiomas() {
-    assert!(is_private_mode_refused("[SUBSCRIPTION_REQUIRED] O modo privado é um recurso do Cubicase Plus. (technicalId: x)"));
-    assert!(is_private_mode_refused("[BAD_REQUEST] Não autenticado. (technicalId: x)"));
-    assert!(is_private_mode_refused("[BAD_REQUEST] Not signed in. (technicalId: x)"));
-    // Outras falhas (rede, 503...) NÃO podem ser tratadas como "precisa do Plus".
-    assert!(!is_private_mode_refused("[HTTP_ERROR] connection refused (technicalId: x)"));
-    assert!(!is_private_mode_refused("[INTERNAL_ERROR] O transporte P2P não está configurado neste servidor. (technicalId: x)"));
-}
-
-#[test]
-fn estado_do_relay_vem_das_credenciais_da_sessao() {
-    let quota = serde_json::json!({ "relay": "quota", "ice": { "stunUrls": [] } });
-    assert_eq!(relay_state_from_credentials(&quota).as_deref(), Some("quota"));
-    // Servidor antigo (sem o campo): nada a informar.
-    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "peerId": "k" })), None);
-    assert_eq!(relay_state_from_credentials(&serde_json::json!({ "relay": 3 })), None);
-}
-
-#[test]
 fn linhas_do_log_tem_data_e_hora_legiveis_e_cada_execucao_comeca_com_separador() {
     use chrono::TimeZone;
     let t = chrono::Local.with_ymd_and_hms(2026, 10, 8, 19, 11, 30).unwrap();

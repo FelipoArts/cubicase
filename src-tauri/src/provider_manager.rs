@@ -33,7 +33,7 @@ impl ProviderManager {
     }
 
     /// Inicia o sidecar do transporte P2P (cubicase-link). A configuração (que inclui o token da
-    /// sala e as credenciais do relay) vai pelo STDIN do processo — nunca para um arquivo em disco.
+    /// sala e os servidores STUN) vai pelo STDIN do processo — nunca para um arquivo em disco.
     /// O sidecar sai sozinho se o stdin fechar, então o `CommandChild` precisa continuar vivo no
     /// estado do app enquanto a rede estiver de pé (já é assim para todo provedor).
     async fn start_link(
@@ -87,7 +87,6 @@ pub fn build_link_config(credentials: &serde_json::Value, mode: &str, local_port
         "signalUrl": signal_url,
         "signalToken": signal_token,
         "ice": credentials.get("ice").cloned().unwrap_or_else(|| serde_json::json!({ "stunUrls": [] })),
-        "relayOnly": credentials.get("relayOnly").and_then(|v| v.as_bool()).unwrap_or(false),
         "localPort": local_port,
         // Servidor HTTP local do app (lista/arquivos de mods) e proxy de mods do convidado.
         "registryPort": 25567,
@@ -104,15 +103,16 @@ mod tests {
     fn link_config_maps_session_credentials_and_fixed_ports() {
         let creds = serde_json::json!({
             "signalUrl": "wss://api.example/api/v1/link/ws/ABC123",
-            "signalToken": "tok", "peerId": "sess-1", "relayOnly": true,
-            "ice": { "stunUrls": ["stun:x:1"], "turn": { "urls": ["turn:t:3478"], "username": "u", "credential": "c" } },
+            "signalToken": "tok", "peerId": "sess-1",
+            "ice": { "stunUrls": ["stun:x:1"] },
         });
         let cfg = build_link_config(&creds, "host", 25565).unwrap();
         assert_eq!(cfg["mode"], "host");
         assert_eq!(cfg["peerId"], "sess-1");
         assert_eq!(cfg["signalToken"], "tok");
-        assert_eq!(cfg["relayOnly"], true);
-        assert_eq!(cfg["ice"]["turn"]["username"], "u");
+        assert_eq!(cfg["ice"]["stunUrls"][0], "stun:x:1");
+        // Sem relay: nada de TURN nem de modo privado na configuração do sidecar.
+        assert!(cfg.get("relayOnly").is_none() && cfg["ice"].get("turn").is_none());
         assert_eq!((cfg["localPort"].as_u64(), cfg["registryPort"].as_u64(), cfg["modsPort"].as_u64()), (Some(25565), Some(25567), Some(25568)));
     }
 

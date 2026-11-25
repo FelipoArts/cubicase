@@ -56,7 +56,7 @@ Estes estão no `.gitignore` de propósito (segredos ou build local):
   real; recrie a partir do template se precisar.
 - **`api/.dev.vars`** — segredos do Worker (Cloudflare) para `wrangler dev`:
   `SUPABASE_SERVICE_ROLE_KEY`, `LINK_TOKEN_SECRET` (assinatura dos tokens de
-  sinalização), `TURN_SECRET` (o mesmo do coturn) e, para os recursos que usam,
+  sinalização) e, para os recursos que usam,
   `STRIPE_*`, `RESEND_API_KEY` e `CURSEFORGE_API_KEY`. Em produção os mesmos nomes
   são configurados com `wrangler secret put`.
 - **`test_config.json`** — na verdade este *está* versionado (contém só uma
@@ -89,8 +89,6 @@ Para trabalhar só na UI sem o shell Tauri: `npm run dev`.
   (repo separado: `github.com/FelipoArts/cubicase-play`, usado para
   `play.cubicase.net`, publicado via GitHub Pages).
 - **Cloudflare (`wrangler login`)** — só se for mexer/deployar o Worker em `api/`.
-- **Oracle Cloud (relay)** — só se for mexer no servidor de reserva (coturn): veja
-  `infra/relay/README.md`.
 
 ## 8. O que é opcional / não precisa copiar
 

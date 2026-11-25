@@ -104,7 +104,7 @@ function funnelHtml(o){
 }
 
 function overviewHtml(o){
-  var d=o.downloads,a=o.accounts,s=o.subscriptions,v=o.servers,r=o.relay,html='<div class="grid">';
+  var d=o.downloads,a=o.accounts,s=o.subscriptions,v=o.servers,html='<div class="grid">';
   var ins=o.installs;
   html+=kpi(ins&&ins.ok?n(ins.total):'—','instalações (únicas, com o ping da versão nova)');
   html+=kpi(ins&&ins.ok?n(ins.active7d):'—','ativas nos últimos 7 dias'+(ins&&ins.ok?' · 24 h: '+n(ins.active24h):''));
@@ -113,7 +113,6 @@ function overviewHtml(o){
   html+=kpi(s.ok?n(s.active):'—','assinantes do Plus');
   html+=kpi(v.ok?n(v.registered):'—','servidores criados');
   html+=kpi(v.ok?n(v.live):'—','servidores com sinal agora');
-  html+=kpi(r.ok?bytes(r.totalBytes):'—','relay em '+(r.ok?esc(r.month):'—'));
   html+='</div>';
   html+=installsHtml(ins);
   html+=funnelHtml(o);
@@ -122,7 +121,6 @@ function overviewHtml(o){
   html+=d.ok?sect('Versões publicadas (última: '+esc(d.latest||'—')+')','<div class="scroll"><table><tr><th>Versão</th><th>Publicada</th><th>Downloads</th><th>Checagens</th></tr>'+d.releases.map(function(x){return '<tr><td>'+esc(x.tag)+'</td><td>'+esc(when(x.publishedAt))+'</td><td>'+n(x.installers)+'</td><td>'+n(x.updateChecks)+'</td></tr>'}).join('')+'</table></div><p class="muted">Contagem do GitHub: baixar pelo site e pelo atualizador do app contam aqui.</p>'):sect('Downloads',failed(d));
   html+=s.ok?sect('Assinaturas','<p>'+Object.keys(s.byStatus).map(function(k){return esc(k)+': <strong>'+n(s.byStatus[k])+'</strong>'}).join(' · ')+(Object.keys(s.byStatus).length?'':'nenhuma ainda')+'</p>'):sect('Assinaturas',failed(s));
   html+=v.ok?sect('Servidores com sinal agora','<p>'+(Object.keys(v.byStatus).length?Object.keys(v.byStatus).map(function(k){return esc(k)+': <strong>'+n(v.byStatus[k])+'</strong>'}).join(' · '):'nenhum')+'</p>'):sect('Servidores',failed(v));
-  html+=r.ok?sect('Relay — maiores consumidores do mês','<div class="scroll"><table><tr><th>Servidor</th><th>Tráfego</th></tr>'+(r.top.length?r.top.map(function(x){return '<tr><td>'+esc(x.shortCode)+'</td><td>'+bytes(x.bytes)+'</td></tr>'}).join(''):'<tr><td colspan="2">sem consumo</td></tr>')+'</table></div><p class="muted">'+n(r.servers)+' servidor(es) usaram o relay neste mês.</p>'):sect('Relay',failed(r));
   return html
 }
 

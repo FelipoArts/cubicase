@@ -3,12 +3,12 @@
 # CubeForge Dash — Project Context
 
 ## Overview
-CubeForge Dash is a Tauri v2 desktop app that simplifies creating and sharing Minecraft servers. It connects friends peer-to-peer (WebRTC, with a TURN relay as fallback) to avoid port forwarding.
+CubeForge Dash is a Tauri v2 desktop app that simplifies creating and sharing Minecraft servers. It connects friends peer-to-peer (WebRTC, direct connection with no relay server) to avoid port forwarding.
 
 ## Stack
 - **Frontend**: Next.js (static export) + React 19 + TypeScript + Zustand + Tailwind v4 + Framer Motion
 - **Desktop Shell**: Tauri v2 (Rust backend)
-- **Sidecar**: Go binary (`cubicase-link`) for P2P networking (WebRTC via Pion); relay = coturn (`infra/relay`)
+- **Sidecar**: Go binary (`cubicase-link`) for P2P networking (WebRTC via Pion); no relay server — Radmin VPN is the plan B when a direct connection fails
 - **Build**: `npm run tauri dev` / `npm run tauri build`
 
 ## Key Architecture Decisions

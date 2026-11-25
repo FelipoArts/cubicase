@@ -22,8 +22,6 @@ type Config struct {
 	SignalURL   string    `json:"signalUrl"`
 	SignalToken string    `json:"signalToken"`
 	ICE         ICEConfig `json:"ice"`
-	// RelayOnly força o uso do relay (modo privado, benefício do Plus).
-	RelayOnly bool `json:"relayOnly"`
 	// LocalPort: no host, a porta do servidor Minecraft local; no convidado, a porta
 	// local em 127.0.0.1 onde o Minecraft deve conectar.
 	LocalPort int `json:"localPort"`
@@ -37,15 +35,10 @@ type Config struct {
 	LoopbackCandidates bool `json:"loopbackCandidates,omitempty"`
 }
 
+// ICEConfig: só STUN. A conexão é direta entre os computadores (furo de NAT); o Cubicase não usa servidor de relay.
+// Campos antigos como "turn" e "relayOnly" que ainda cheguem no JSON são ignorados.
 type ICEConfig struct {
-	STUNURLs []string    `json:"stunUrls"`
-	TURN     *TURNConfig `json:"turn,omitempty"`
-}
-
-type TURNConfig struct {
-	URLs       []string `json:"urls"`
-	Username   string   `json:"username"`
-	Credential string   `json:"credential"`
+	STUNURLs []string `json:"stunUrls"`
 }
 
 const (
@@ -119,19 +112,6 @@ func (c *Config) normalize() error {
 		if !strings.HasPrefix(s, "stun:") && !strings.HasPrefix(s, "stuns:") {
 			return fmt.Errorf("URL STUN inválida: %q", s)
 		}
-	}
-	if t := c.ICE.TURN; t != nil {
-		if len(t.URLs) == 0 {
-			return errors.New("turn.urls vazio")
-		}
-		for _, s := range t.URLs {
-			if !strings.HasPrefix(s, "turn:") && !strings.HasPrefix(s, "turns:") {
-				return fmt.Errorf("URL TURN inválida: %q", s)
-			}
-		}
-	}
-	if c.RelayOnly && c.ICE.TURN == nil {
-		return errors.New("relayOnly exige um servidor TURN")
 	}
 	return nil
 }

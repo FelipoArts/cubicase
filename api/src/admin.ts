@@ -24,7 +24,6 @@ export interface AdminEnv extends SupabaseEnv {
   ADMIN_TOKEN?: string;
   /** URL de um webhook do Discord (canal só seu) para os alertas de serviço fora do ar. */
   ADMIN_DISCORD_WEBHOOK?: string;
-  TURN_URLS?: string;
   /** Imagens de perfil: a moderação apaga os arquivos denunciados (ver profile-moderation.ts). */
   PROFILE_IMAGES?: R2Bucket;
 }
@@ -103,14 +102,7 @@ async function expectOk(p: Probes, url: string, init?: RequestInit): Promise<str
   return `HTTP ${res.status}`;
 }
 
-function turnHost(env: AdminEnv): { host: string; port: number } | null {
-  const first = (env.TURN_URLS ?? '').split(',').map((s) => s.trim()).find((u) => u.startsWith('turn:') && !u.includes('transport=udp'));
-  const m = first ? /^turns?:([^:?]+):?(\d+)?/.exec(first) : null;
-  return m ? { host: m[1], port: Number(m[2] ?? 3478) } : null;
-}
-
 export async function runHealthChecks(env: AdminEnv, p: Probes): Promise<CheckResult[]> {
-  const turn = turnHost(env);
   const jobs: Promise<CheckResult>[] = [
     timed('kv', 'Registro de servidores (KV)', async () => {
       await env.CUBEFORGE_REGISTRY.get('admin:ping');
@@ -120,7 +112,6 @@ export async function runHealthChecks(env: AdminEnv, p: Probes): Promise<CheckRe
     timed('updates', 'Atualizações do app (GitHub)', () => expectOk(p, `https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json`)),
     timed('discord', 'Discord', () => expectOk(p, 'https://discord.com/api/v10/gateway')),
   ];
-  if (turn) jobs.push(timed('relay', 'Relay de conexão (TURN)', async () => { await p.tcp(turn.host, turn.port, 5000); return `${turn.host}:${turn.port} aceitando conexões`; }));
   return Promise.all(jobs);
 }
 
@@ -284,16 +275,6 @@ async function servers(env: AdminEnv, now: number) {
   return { registered: registered.length, live, byStatus };
 }
 
-async function relay(env: AdminEnv, now: number) {
-  const d = new Date(now);
-  const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  const keys = (await listKeys(env.CUBEFORGE_REGISTRY, 'relayuse:', 5)).filter((k) => k.endsWith(`:${month}`)).slice(0, 500);
-  const rows: { shortCode: string; bytes: number }[] = [];
-  for (const k of keys) rows.push({ shortCode: k.split(':')[1], bytes: Number(await env.CUBEFORGE_REGISTRY.get(k)) || 0 });
-  rows.sort((a, b) => b.bytes - a.bytes);
-  return { month, servers: rows.length, totalBytes: rows.reduce((s, r) => s + r.bytes, 0), top: rows.slice(0, 10) };
-}
-
 /** Das contas criadas: quantas chegaram a cada etapa (perfil, servidor na biblioteca, computador pareado, Plus) + servidores que já tiveram convidado. */
 async function activation(env: AdminEnv) {
   const distinct = async (path: string): Promise<number> => {
@@ -316,16 +297,15 @@ export function resetOverviewCache(): void { overviewCache = null; }
 
 export async function collectOverview(env: AdminEnv, f: typeof fetch = defaultProbes.fetch, now = Date.now(), force = false) {
   if (!force && overviewCache && now - overviewCache.at < OVERVIEW_CACHE_MS) return overviewCache.value;
-  const [dl, acc, sub, srv, rly, ins, act] = await Promise.all([
+  const [dl, acc, sub, srv, ins, act] = await Promise.all([
     section(() => downloads(f)),
     section(() => accounts(env, now)),
     section(() => subscriptions(env)),
     section(() => servers(env, now)),
-    section(() => relay(env, now)),
     section(() => installs(env, now)),
     section(() => activation(env)),
   ]);
-  const value = { generatedAt: new Date(now).toISOString(), downloads: dl, accounts: acc, subscriptions: sub, servers: srv, relay: rly, installs: ins, activation: act };
+  const value = { generatedAt: new Date(now).toISOString(), downloads: dl, accounts: acc, subscriptions: sub, servers: srv, installs: ins, activation: act };
   overviewCache = { at: now, value };
   return value;
 }

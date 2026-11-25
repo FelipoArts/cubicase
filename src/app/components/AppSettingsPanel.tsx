@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, X, Archive, Palette, User as UserIcon, Sparkles, Home, Monitor, Globe, Server, ShieldCheck, BedDouble, Check, Lock } from "lucide-react";
+import { Settings, X, Archive, Palette, User as UserIcon, Sparkles, Home, Monitor, Globe, Server, BedDouble, Check, Lock } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { join } from "@tauri-apps/api/path";
@@ -11,7 +11,6 @@ import { errorMessage } from "@/lib/errorMessage";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useAppStore } from "@/app/store";
 import { Switch } from "@/app/components/Switch";
-import { useConnectionHelp } from "@/lib/connectionHelp";
 import { AppearanceSettings } from "@/app/components/AppearanceSettings";
 import { BackupFolderSettings } from "@/app/components/BackupFolderSettings";
 import type { PlusFeature } from "@/lib/plusUi";
@@ -99,11 +98,8 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
   }, []);
 
   const defaultTab = useAppStore((s) => s.defaultTab);
-  const privateMode = useAppStore((s) => s.privateMode);
-  const setPrivateMode = useAppStore((s) => s.setPrivateMode);
   const installPing = useAppStore((s) => s.installPing);
   const setInstallPing = useAppStore((s) => s.setInstallPing);
-  const relayStatus = useAppStore((s) => s.relayStatus);
   const setDefaultTab = useAppStore((s) => s.setDefaultTab);
 
   const autoBackupEnabled = useAppStore((s) => s.autoBackupEnabled);
@@ -365,31 +361,6 @@ export function AppSettingsPanel({ isOpen, onClose, initialCategory, onOpenPlus 
 
       <Section title={t("settings.backups.folder.title")} hint={t("settings.backups.folder.hint")}>
         <BackupFolderSettings />
-      </Section>
-
-      <Section title={t("settings.network.label")} hint={t("settings.network.hint")}>
-        {relayStatus === "quota" && <p className="text-xs text-sky-600 dark:text-sky-400">{t("settings.network.quotaNote")}</p>}
-        <div className="flex items-start justify-between gap-4 p-4 rounded-2xl border border-theme-card bg-theme-card">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              <span className="text-sm font-bold text-theme-primary">{t("settings.private.label")}</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300">Plus</span>
-            </div>
-            <p className="text-xs text-theme-secondary mt-1 leading-relaxed">{t("settings.private.desc")}</p>
-          </div>
-          <Switch
-            checked={privateMode && plusActive}
-            onChange={() => { if (plusActive) setPrivateMode(!privateMode); else onOpenPlus?.("private"); }}
-            title={plusActive ? undefined : t("settings.private.lockedTitle")}
-          />
-        </div>
-        {!plusActive && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => onOpenPlus?.("private")} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors cursor-pointer"><Lock className="w-3.5 h-3.5" />{t("plus.locked.unlock")}</button>
-            <button type="button" onClick={() => { onClose(); useConnectionHelp.getState().show("private_locked"); }} className="h-9 px-3.5 rounded-xl border border-theme-card hover:bg-theme-card text-xs font-bold text-theme-primary transition-colors cursor-pointer">{t("settings.private.withoutPlus")}</button>
-          </div>
-        )}
       </Section>
 
       <Section title={t("settings.privacy.title")} hint={t("settings.privacy.hint")}>

@@ -7,7 +7,7 @@ import { generateShortCode } from "@/lib/shortCode";
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
-import { useAppStore, type RelayStatus, type ServerStatus } from "@/app/store";
+import { useAppStore, type ServerStatus } from "@/app/store";
 import { remove } from "@tauri-apps/plugin-fs";
 import { getJREPath } from "@/lib/jre";
 import {
@@ -352,7 +352,6 @@ export default function Home() {
   useEffect(() => {
     let unlistenStatus: (() => void) | null = null;
     let unlistenPath: (() => void) | null = null;
-    let unlistenRelay: (() => void) | null = null;
     let unlistenLogs: (() => void) | null = null;
     let unlistenMcStatus: (() => void) | null = null;
     let unlistenMcLogs: (() => void) | null = null;
@@ -377,8 +376,6 @@ export default function Home() {
         const prev = useAppStore.getState().networkPath;
         useAppStore.getState().setNetworkPath({ path: event.payload.path, rttMs: event.payload.rttMs ?? null });
         useConnectionHelp.getState().setTarget(null);
-        // Caiu no relay: se o Windows tem um bloqueio para o programa, oferece o botão que desfaz.
-        if (event.payload.path === "relay") void offerFirewallIfBlocked();
         if (prev?.path !== event.payload.path) {
           const rtt = event.payload.rttMs != null ? ` · ${event.payload.rttMs} ms` : "";
           setLogs((logs) => [...logs, t("net.path.log", { label: t(pathLabelKey(event.payload.path)), rtt })]);
@@ -386,30 +383,12 @@ export default function Home() {
       });
       if (cancelled) unPath(); else unlistenPath = unPath;
 
-      // A API informa o estado do relay ao criar a sessão (cota do mês, modo privado recusado...).
-      const unRelay = await listen<{ state: RelayStatus }>("relay-status", (event) => {
-        const state = event.payload.state;
-        useAppStore.getState().setRelayStatus(state);
-        if (state === "private_locked") {
-          // O app hospedou no modo normal: desliga a chave para não parecer ativa e explica o motivo.
-          useAppStore.getState().setPrivateMode(false);
-          pushDiagnostic({
-            level: "warning",
-            source: t("diag.source.network"),
-            title: t("settings.private.fellBack.title"),
-            message: t("settings.private.fellBack.message"),
-          });
-        }
-      });
-      if (cancelled) unRelay(); else unlistenRelay = unRelay;
-
       const unStatus = await listen<{ status: string; ip: string | null }>("network-status", (event) => {
         if (event.payload.status !== "online" && useAppStore.getState().radminRoute) return;
         const newNetStatus = event.payload.status === "online" ? "online" : "offline";
         setNetStatus(newNetStatus);
         if (event.payload.status !== "online") {
           useAppStore.getState().setNetworkPath(null);
-          useAppStore.getState().setRelayStatus(null);
         }
 
         if (event.payload.status === "online") {
@@ -544,8 +523,11 @@ export default function Home() {
           // o usuário sem saída. Só se nunca chegou a conectar (caminho ainda desconhecido) — uma queda
           // de conexão já estabelecida se resolve sozinha pela reconexão automática.
           if (isDirectFailureCode(event.payload.code) && useAppStore.getState().networkPath === null) {
-            // Sem relay neste mês: a frase da janela explica que o limite gratuito acabou.
-            useConnectionHelp.getState().showAuto(useAppStore.getState().relayStatus === "quota" ? "relay_quota" : "direct_failed");
+            // Antes do plano B: se o Windows está bloqueando o programa de conexão (a pessoa negou a pergunta do
+            // Firewall), o botão "Permitir" resolve. Só se não for isso, oferece o Radmin VPN.
+            void offerFirewallIfBlocked().then((offered) => {
+              if (!offered) useConnectionHelp.getState().showAuto("direct_failed");
+            });
           }
         }
       );
@@ -741,7 +723,6 @@ export default function Home() {
       cancelled = true;
       unlistenStatus?.();
       unlistenPath?.();
-      unlistenRelay?.();
       unlistenLogs?.();
       unlistenMcStatus?.();
       unlistenMcLogs?.();
@@ -889,17 +870,15 @@ export default function Home() {
     };
   }, []);
 
-  // Transporte de rede preferido (quando este app HOSPEDA): o Rust lê isto ao subir a rede.
-  // Modo privado: o Rust precisa da chave ligada/desligada e do token ATUAL da conta (a API confere o
-  // Cubicase Plus com ele). O token renova sozinho, então reenvia a cada mudança de sessão.
-  const privateMode = useAppStore((s) => s.privateMode);
+  // O Rust precisa do token ATUAL da conta para a API ligar a sessão ao perfil (lista de membros) e confirmar o
+  // Cubicase Plus. O token renova sozinho, então reenvia a cada mudança de sessão.
   useEffect(() => {
     const push = (token: string | null) =>
-      invoke("set_private_mode", { enabled: privateMode, accessToken: token }).catch((err) => console.warn("[rede] set_private_mode falhou:", err));
+      invoke("set_account_token", { accessToken: token }).catch((err) => console.warn("[rede] set_account_token falhou:", err));
     supabase.auth.getSession().then(({ data }) => void push(data.session?.access_token ?? null)).catch(() => void push(null));
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => void push(session?.access_token ?? null));
     return () => sub.subscription.unsubscribe();
-  }, [privateMode]);
+  }, []);
 
   // Link de convite (cubicase://join/<shortCode>, ver play.cubicase.net/<slug>)
   // — mesmo padrão do listener de login acima, ver src/lib/joinDeepLink.ts.

@@ -155,7 +155,7 @@ export function ServerLookEditor({ shortCode, plusActive }: Props) {
               )}
               <button
                 type="button"
-                onClick={() => (plusActive ? bannerInput.current?.click() : openPlus())}
+                onClick={() => (plusActive ? bannerInput.current?.click() : openPlus("custom"))}
                 disabled={bannerBusy}
                 aria-label={t(hasBanner ? "look.banner.change" : "look.banner.choose")}
                 className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition-all hover:bg-black/45 hover:opacity-100 focus-visible:bg-black/45 focus-visible:opacity-100 cursor-pointer"

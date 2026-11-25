@@ -58,7 +58,7 @@ export function ProfileEditor() {
 
   /** Clicar na foto ou no banner: com Plus escolhe um arquivo; sem Plus, abre a explicação do Plus. */
   function requestImage(kind: ImageKind) {
-    if (!plusActive) { openPlus(); return; }
+    if (!plusActive) { openPlus("custom"); return; }
     if (!profile) { setImgError(t("images.needProfile")); return; }
     setImgError(null);
     (kind === "avatar" ? avatarInput : bannerInput).current?.click();

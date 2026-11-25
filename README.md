@@ -13,14 +13,14 @@ Site: <https://cubicase.net> · Tutorial: <https://cubicase.net/tutorial/> · En
 - Convida amigos por um **código curto** (ou link), sem port forwarding.
 - Gerencia mundo (backups automáticos, restaurar), jogadores (whitelist, ops, bans), mods e modpacks (Modrinth + CurseForge).
 - Exporta/importa servidores como pacote `.cubicase`.
-- **Cubicase Plus** (opcional, assinatura): painel web remoto, servidor que acorda sob demanda, link e endereço de conexão personalizados.
+- **Cubicase Plus** (opcional, assinatura): painel web remoto, servidor que acorda sob demanda, link e endereço de conexão personalizados, personalização do perfil e do servidor (foto, banner e selo) e controle pelo Discord.
 
 ## Como funciona (resumo)
 
 | Peça | Tecnologia |
 |---|---|
 | App desktop | Tauri v2 (Rust) + Next.js (exportação estática) + React 19 + TypeScript + Zustand + Tailwind v4 |
-| Rede host ⇄ convidado | P2P (WebRTC via Pion) no sidecar em Go `src-tauri/sidecars/cubicase-link`, com relay TURN (coturn) como reserva — ver `infra/relay/` |
+| Rede host ⇄ convidado | P2P (WebRTC via Pion) no sidecar em Go `src-tauri/sidecars/cubicase-link`, conexão direta (sem servidor de relay); o plano B é o Radmin VPN |
 | API central | Cloudflare Worker (`api/`): registro de servidores, sessões de rede, painel remoto (Durable Objects), assinaturas (Stripe) |
 | Contas | Supabase |
 | Site | `docs/` (estático, GitHub Pages) |

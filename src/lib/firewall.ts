@@ -10,7 +10,7 @@ import { t } from "@/i18n";
 // O transporte P2P abre portas e, na primeira vez, o Windows pergunta se o programa pode usar a rede. Aqui:
 //  - ensureFirewallPrompted: faz essa pergunta aparecer num momento previsível (início do host / da conexão do
 //    convidado), com uma explicação antes. Roda uma vez por instalação.
-//  - offerFirewallIfBlocked: se a conexão caiu no relay e o Windows tem um BLOQUEIO para o programa (o que
+//  - offerFirewallIfBlocked: se a conexão direta falhou e o Windows tem um BLOQUEIO para o programa (o que
 //    acontece ao clicar em Cancelar na pergunta), oferece o botão que desfaz isso. Ver src-tauri/src/firewall.rs.
 // ============================================================
 
@@ -63,15 +63,20 @@ export const useFirewallHelp = create<FirewallHelpStore>((set, get) => ({
 }));
 
 /**
- * Chamar quando a conexão passou a usar o relay: se o Windows tem um bloqueio para o programa, abre a janela com
- * o botão "Permitir". Leitura sem administrador, no máximo uma vez por sessão; nunca lança.
+ * Chamar quando a conexão direta falhou: se o Windows tem um bloqueio para o programa, abre a janela com o botão
+ * "Permitir" e devolve true (quem chamou NÃO deve abrir também o plano B). Leitura sem administrador, no máximo
+ * uma vez por sessão; nunca lança.
  */
-export async function offerFirewallIfBlocked(): Promise<void> {
-  if (useFirewallHelp.getState().offered) return;
+export async function offerFirewallIfBlocked(): Promise<boolean> {
+  if (useFirewallHelp.getState().offered) return false;
   try {
     const status = await invoke<string>("firewall_status");
-    if (status === "blocked") useFirewallHelp.getState().show();
+    if (status === "blocked") {
+      useFirewallHelp.getState().show();
+      return true;
+    }
   } catch {
     // não deu para ler o Firewall: segue sem a oferta
   }
+  return false;
 }

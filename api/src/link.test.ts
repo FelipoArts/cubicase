@@ -2,12 +2,12 @@
 // Transporte P2P — tokens, credenciais e sala de sinalização (LinkRoom)
 // ============================================================
 // Roda o Worker e o Durable Object de verdade (Miniflare). Os segredos de teste vêm de
-// vitest.config.mts (LINK_TOKEN_SECRET, TURN_SECRET, TURN_URLS, LINK_MAX_GUESTS=3).
+// vitest.config.mts (LINK_TOKEN_SECRET, LINK_MAX_GUESTS=3).
 // ============================================================
 
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
-import { signLinkToken, verifyLinkToken, makeTurnCredentials, buildLinkCredentials, LINK_TOKEN_TTL_SECONDS, relayQuotaBytes, relayUsageKey, signRelayUsage, verifyRelayUsageSignature } from "./link";
+import { signLinkToken, verifyLinkToken, buildLinkCredentials, LINK_TOKEN_TTL_SECONDS } from "./link";
 
 const BASE = "https://example.com";
 const SECRET = "segredo-de-teste-do-link-0123456789";
@@ -45,32 +45,15 @@ describe("token de sinalização (JWT HS256)", () => {
   });
 });
 
-describe("credenciais do relay (TURN)", () => {
-  it("segue o esquema REST do coturn: username = expiração:id, credential = HMAC-SHA1 em base64", async () => {
-    const now = 1_700_000_000_000;
-    const c = await makeTurnCredentials({ TURN_SECRET: "segredo", TURN_URLS: "turn:t.example:3478, turns:t.example:443?transport=tcp" }, "sess-9", now);
-    expect(c!.urls).toEqual(["turn:t.example:3478", "turns:t.example:443?transport=tcp"]);
-    expect(c!.username).toBe(`${1_700_000_000 + LINK_TOKEN_TTL_SECONDS}:sess-9`);
-    // Conferência independente (outra implementação do HMAC, via Web Crypto no teste).
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("segredo"), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(c!.username)));
-    expect(c!.credential).toBe(Buffer.from(mac).toString("base64"));
-  });
-
-  it("sem segredo/URL ou com TURN_DISABLED=1 não emite nada (freio de custo)", async () => {
-    expect(await makeTurnCredentials({ TURN_URLS: "turn:x:1" }, "p")).toBeNull();
-    expect(await makeTurnCredentials({ TURN_SECRET: "s" }, "p")).toBeNull();
-    expect(await makeTurnCredentials({ TURN_SECRET: "s", TURN_URLS: "turn:x:1", TURN_DISABLED: "1" }, "p")).toBeNull();
-  });
-
-  it("relayOnly só vale quando existe relay para usar", async () => {
-    const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p", relayOnly: true };
-    const sem = await buildLinkCredentials({ LINK_TOKEN_SECRET: SECRET }, base);
-    expect(sem.relayOnly).toBe(false);
-    expect(sem.ice.turn).toBeUndefined();
-    const com = await buildLinkCredentials({ LINK_TOKEN_SECRET: SECRET, TURN_SECRET: "s", TURN_URLS: "turn:x:1" }, base);
-    expect(com.relayOnly).toBe(true);
-    expect(com.signalUrl).toBe("wss://api.exemplo.test/api/v1/link/ws/ABC123");
+describe("credenciais de conexão (sem relay)", () => {
+  it("só STUN; os campos antigos do relay ficam fixos para apps antigos", async () => {
+    const c = await buildLinkCredentials({ LINK_TOKEN_SECRET: SECRET }, { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest", peerId: "p" });
+    expect(c.signalUrl).toBe("wss://api.exemplo.test/api/v1/link/ws/ABC123");
+    expect(c.ice.stunUrls.length).toBeGreaterThan(0);
+    expect((c.ice as any).turn).toBeUndefined();
+    // Apps antigos ainda leem estes dois campos: nunca pedem relay nem mostram cota.
+    expect(c.relayOnly).toBe(false);
+    expect(c.relay).toBe("off");
   });
 });
 
@@ -116,7 +99,7 @@ describe("sessão link-v1 na API", () => {
     expect(d.credentials.signalUrl).toBe(`wss://example.com/api/v1/link/ws/${shortCode}`);
     expect(d.credentials.peerId).toBe(d.sessionId);
     expect(d.credentials.ice.stunUrls.length).toBeGreaterThan(0);
-    expect(d.credentials.ice.turn.urls[0]).toMatch(/^turn:/);
+    expect(d.credentials.ice.turn).toBeUndefined(); // não há relay
     const claims = await verifyLinkToken({ LINK_TOKEN_SECRET: SECRET }, d.credentials.signalToken);
     expect(claims).toMatchObject({ sc: shortCode, role: "host", pid: d.sessionId });
 
@@ -141,10 +124,13 @@ describe("sessão link-v1 na API", () => {
     expect(a2.body.data.sessionId).not.toBe(a.body.data.sessionId);
   });
 
-  it("modo privado (relayOnly) exige login e Plus", async () => {
+  it("app antigo que pede o modo privado (relayOnly) recebe uma conexão normal, sem erro e sem relay", async () => {
     const { shortCode } = await createServer();
     const r = await createLinkSession(shortCode, "guest", { relayOnly: true });
-    expect(r.status).toBe(401);
+    expect(r.status).toBe(201);
+    expect(r.body.data.credentials.relayOnly).toBe(false);
+    expect(r.body.data.credentials.relay).toBe("off");
+    expect(r.body.data.credentials.ice.turn).toBeUndefined();
   });
 
   it("pedido sem o launcher link-v1 não vira Tailscale por engano: recebe 426", async () => {
@@ -332,17 +318,7 @@ describe("rotas /connection-sessions exigem o token da própria sessão", () => 
   });
 });
 
-describe("credenciais do relay e cadastro", () => {
-  it("o relay do convidado vence antes do token (a alocação cai e o consumo é medido)", async () => {
-    const { shortCode, secret } = await createServer();
-    const now = Math.floor(Date.now() / 1000);
-    const g = (await createLinkSession(shortCode, "guest")).body.data.credentials.ice.turn;
-    const h = (await createLinkSession(shortCode, "host", { secret })).body.data.credentials.ice.turn;
-    const exp = (t: any) => Number(t.username.split(":")[0]) - now;
-    expect(exp(g)).toBeLessThanOrEqual(12 * 3600 + 5);
-    expect(exp(h)).toBeGreaterThan(24 * 3600);
-  });
-
+describe("cadastro", () => {
   it("POST /servers tem limite por IP", async () => {
     const headers = { "Content-Type": "application/json", "CF-Connecting-IP": "198.51.100.77" };
     await env.CUBEFORGE_REGISTRY.delete("ratelimit:create-server:198.51.100.77");
@@ -450,92 +426,6 @@ describe("descoberta lê a presença direto da sala (sem esperar o KV)", () => {
   });
 });
 
-// ---------------- cota mensal de relay ----------------
-
-describe("cota mensal de relay", () => {
-  const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p", relayOnly: false };
-  const withRelay = { LINK_TOKEN_SECRET: SECRET, TURN_SECRET: "s", TURN_URLS: "turn:x:1" };
-
-  it("cota esgotada: não emite credenciais do relay e avisa o motivo", async () => {
-    const ok = await buildLinkCredentials(withRelay, base);
-    expect(ok.relay).toBe("ok");
-    const sem = await buildLinkCredentials(withRelay, { ...base, relayOnly: true, relayAllowed: false });
-    expect(sem.relay).toBe("quota");
-    expect(sem.ice.turn).toBeUndefined();
-    expect(sem.relayOnly).toBe(false); // relay forçado sem relay deixaria o host inalcançável
-    expect((await buildLinkCredentials({ LINK_TOKEN_SECRET: SECRET }, base)).relay).toBe("off");
-  });
-
-  it("a chave de uso muda a cada mês (UTC) e o padrão da cota é 5 GiB", () => {
-    expect(relayUsageKey("ABC123", Date.UTC(2026, 9, 31, 23, 59))).toBe("relayuse:ABC123:2026-10");
-    expect(relayUsageKey("ABC123", Date.UTC(2026, 10, 1, 0, 0))).toBe("relayuse:ABC123:2026-11");
-    expect(relayQuotaBytes({})).toBe(5 * 1024 ** 3);
-    expect(relayQuotaBytes({ RELAY_FREE_MONTHLY_BYTES: "1000" })).toBe(1000);
-    expect(relayQuotaBytes({ RELAY_FREE_MONTHLY_BYTES: "lixo" })).toBe(5 * 1024 ** 3);
-  });
-
-  it("a assinatura do medidor só vale para o corpo exato e com o segredo certo", async () => {
-    const sig = await signRelayUsage({ TURN_SECRET: "s" }, '{"a":1}');
-    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":1}', sig)).toBe(true);
-    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":2}', sig)).toBe(false);
-    expect(await verifyRelayUsageSignature({ TURN_SECRET: "outro" }, '{"a":1}', sig)).toBe(false);
-    expect(await verifyRelayUsageSignature({ TURN_SECRET: "s" }, '{"a":1}', "zz")).toBe(false);
-    expect(await verifyRelayUsageSignature({}, '{"a":1}', sig)).toBe(false);
-  });
-
-  async function report(entries: Array<{ peerId: string; bytes: number }>, opts: { ts?: number; sign?: boolean } = {}) {
-    const raw = JSON.stringify({ ts: opts.ts ?? Date.now(), entries });
-    const sig = opts.sign === false ? "0".repeat(64) : await signRelayUsage({ TURN_SECRET: (env as any).TURN_SECRET }, raw);
-    const res = await SELF.fetch(`${BASE}/api/v1/internal/relay-usage`, { method: "POST", headers: { "X-Relay-Signature": sig }, body: raw });
-    return { status: res.status, body: (await res.json()) as any };
-  }
-  const used = async (sc: string) => Number(await env.CUBEFORGE_REGISTRY.get(relayUsageKey(sc)) ?? 0);
-
-  it("o medidor soma o consumo no servidor dono da sessão e, ao passar da cota, o relay é cortado", async () => {
-    const { shortCode } = await createServer();
-    const g = await createLinkSession(shortCode, "guest");
-    expect(g.body.data.credentials.relay).toBe("ok");
-    const peerId = g.body.data.credentials.peerId;
-
-    const r1 = await report([{ peerId, bytes: 1000 }, { peerId, bytes: 500 }, { peerId: "sessao-que-nao-existe", bytes: 99 }]);
-    expect(r1.status).toBe(200);
-    expect(r1.body.data).toMatchObject({ servers: 1, unknown: 1 });
-    expect(await used(shortCode)).toBe(1500);
-
-    await env.CUBEFORGE_REGISTRY.put(relayUsageKey(shortCode), String(5 * 1024 ** 3)); // cota cheia
-    const cheio = await createLinkSession(shortCode, "guest", { installationId: "install-outro-01" });
-    expect(cheio.status).toBe(201); // conectar continua possível (direto), só não há relay
-    expect(cheio.body.data.credentials.relay).toBe("quota");
-    expect(cheio.body.data.credentials.ice.turn).toBeUndefined();
-    expect(cheio.body.data.credentials.ice.stunUrls.length).toBeGreaterThan(0);
-  });
-
-  it("servidor de host Plus não tem cota; sem a marca volta a ter", async () => {
-    const { shortCode } = await createServer();
-    await env.CUBEFORGE_REGISTRY.put(relayUsageKey(shortCode), String(50 * 1024 ** 3));
-    expect((await createLinkSession(shortCode, "guest")).body.data.credentials.relay).toBe("quota");
-    await env.CUBEFORGE_REGISTRY.put(`linkplus:${shortCode}`, "1");
-    expect((await createLinkSession(shortCode, "guest", { installationId: "install-plus-0001" })).body.data.credentials.relay).toBe("ok");
-  });
-
-  it("recusa assinatura inválida e lote antigo (replay)", async () => {
-    const { shortCode } = await createServer();
-    const g = await createLinkSession(shortCode, "guest");
-    const peerId = g.body.data.credentials.peerId;
-    expect((await report([{ peerId, bytes: 10 }], { sign: false })).status).toBe(403);
-    expect((await report([{ peerId, bytes: 10 }], { ts: Date.now() - 11 * 60 * 1000 })).status).toBe(400);
-    expect(await used(shortCode)).toBe(0);
-  });
-
-  it("valores absurdos são ignorados em vez de corromper a contagem", async () => {
-    const { shortCode } = await createServer();
-    const peerId = (await createLinkSession(shortCode, "guest")).body.data.credentials.peerId;
-    const r = await report([{ peerId, bytes: -5 }, { peerId, bytes: 1e15 }, { peerId, bytes: Number.NaN as any }, { peerId, bytes: 42 }]);
-    expect(r.body.data.unknown).toBe(3);
-    expect(await used(shortCode)).toBe(42);
-  });
-});
-
 // ---------------- conta no token de link ----------------
 
 describe("conta no token de link (uid)", () => {
@@ -558,8 +448,8 @@ describe("conta no token de link (uid)", () => {
   });
 
   it("buildLinkCredentials só grava o uid quando recebe a conta", async () => {
-    const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p", relayOnly: false };
-    const cfg = { ...e, TURN_SECRET: "t", TURN_URLS: "turn:x:3478" };
+    const base = { origin: "https://api.exemplo.test", shortCode: "ABC123", role: "guest" as const, peerId: "p" };
+    const cfg = { ...e };
     const a = await buildLinkCredentials(cfg, { ...base, userId: UID });
     expect(await verifyLinkToken(e, a.signalToken)).toMatchObject({ uid: UID });
     const b = await buildLinkCredentials(cfg, base);

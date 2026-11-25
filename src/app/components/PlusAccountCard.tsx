@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BedDouble, Globe, Link2, Loader2, ShieldCheck, Smartphone, Sparkles, Users, type LucideIcon } from "lucide-react";
+import { ArrowRight, BedDouble, Globe, Link2, Loader2, MessagesSquare, Palette, Smartphone, Sparkles, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDateTime, useT, type TKey } from "@/i18n";
 import { tierOf, type PlusStreakView } from "@/lib/profileCatalog";
@@ -52,7 +52,8 @@ const PERKS: { id: string; icon: LucideIcon; labelKey: TKey }[] = [
   { id: "wake", icon: BedDouble, labelKey: "plusCard.perk.wake" },
   { id: "link", icon: Link2, labelKey: "plusCard.perk.link" },
   { id: "address", icon: Globe, labelKey: "plusCard.perk.address" },
-  { id: "private", icon: ShieldCheck, labelKey: "plusCard.perk.private" },
+  { id: "custom", icon: Palette, labelKey: "plusCard.perk.custom" },
+  { id: "discord", icon: MessagesSquare, labelKey: "plusCard.perk.discord" },
   { id: "team", icon: Users, labelKey: "plusCard.perk.team" },
 ];
 

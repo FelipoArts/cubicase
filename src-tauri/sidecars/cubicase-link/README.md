@@ -11,7 +11,7 @@ não ligado ao app (a integração é a Fase 4).
   HTTP do app (`registryPort`, lista/arquivos de mods), `ctl` → ping/pong de latência.
 - **Convidado**: escuta em `127.0.0.1:localPort` (Minecraft) e `127.0.0.1:modsPort` (mods); cada conexão TCP vira um
   DataChannel. Negocia com o host assim que a sala anuncia `host_online`.
-- Caminho: ICE tenta direto (IPv6/IPv4/furo de NAT) e cai no relay TURN só se necessário.
+- Caminho: ICE tenta direto (IPv6/IPv4/furo de NAT). Não há servidor de relay: se a conexão direta falhar, o app oferece o Radmin VPN.
 - A conexão ativa **sobrevive** à queda da sinalização; o ICE reinicia sozinho em oscilações de rede.
 
 ## Contrato com o app
@@ -24,16 +24,14 @@ Configuração por `--config <arquivo>` ou `--stdin` (primeira linha JSON); morr
   "peerId": "<sessão>",
   "signalUrl": "wss://.../link/<código>",
   "signalToken": "<jwt da sessão>",
-  "ice": { "stunUrls": ["stun:stun.l.google.com:19302"],
-           "turn": { "urls": ["turn:turn.cubicase.net:3478"], "username": "...", "credential": "..." } },
-  "relayOnly": false,
+  "ice": { "stunUrls": ["stun:stun.l.google.com:19302"] },
   "localPort": 25565, "registryPort": 25567, "modsPort": 25568, "maxGuests": 20
 }
 ```
 
 Eventos no stdout (uma linha JSON cada): `{"status":"online","ip":"p2p"}`, `{"info":...}`,
 `{"warning":"host_unreachable|signal_lost|signal_unreachable|connection_lost|peer_failed|mods_proxy_unavailable",...}`,
-`{"recovered":...}`, `{"path":"direct-v4|direct-v6|punched|relay","rttMs":N}` e, fatal,
+`{"recovered":...}`, `{"path":"direct-v4|direct-v6|punched","rttMs":N}` e, fatal,
 `{"error":"config_decode_failed|config_missing|config_read_failed|listen_local_failed|room_full|internal_error","detail":...}`.
 
 ## Sinalização (JSON por mensagem WebSocket)
@@ -53,13 +51,11 @@ do host, queda da sinalização, sala cheia, WebSocket real). Não cobrem NAT de
 
 ## Teste de campo (infraestrutura real)
 
-Os testes acima usam uma sala de sinalização simulada. Para exercitar o que está PUBLICADO (API, sala no Cloudflare e o
-relay da Oracle) com este mesmo programa, rode da raiz do projeto:
+Os testes acima usam uma sala de sinalização simulada. Para exercitar o que está PUBLICADO (API e sala no Cloudflare)
+com este mesmo programa, rode da raiz do projeto:
 
 ```bash
-node scripts/e2e-link.mjs --guests 8 --relay 4              # 8 convidados, 4 forçados pelo relay
-node scripts/e2e-link.mjs --guests 4 --relay 4 --turn tcp   # relay só por TCP (rede que bloqueia UDP)
-node scripts/e2e-link.mjs --guests 4 --relay 4 --turn tls   # relay só pela porta 443
+node scripts/e2e-link.mjs --guests 8    # 8 convidados, todos pelo caminho direto
 ```
 
 Cria um servidor de teste na central, troca MBs de dados conferidos por hash entre um "Minecraft" falso e cada convidado,

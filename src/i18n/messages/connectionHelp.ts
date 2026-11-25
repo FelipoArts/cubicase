@@ -5,8 +5,6 @@ export default defineMessages({
   "pt-BR": {
     "connhelp.title": "Não conseguiu conectar? Tem um jeito fácil",
     "connhelp.why.direct_failed": "Não foi possível ligar os dois computadores diretamente. Isso acontece em algumas internets (algumas operadoras e redes de empresa ou faculdade bloqueiam esse tipo de conexão). Não é culpa sua nem do seu amigo.",
-    "connhelp.why.relay_quota": "O limite gratuito da conexão de reserva deste mês acabou, e a conexão direta não funcionou nessas redes. Sem problema: dá pra jogar do mesmo jeito usando um programa gratuito.",
-    "connhelp.why.private_locked": "O modo privado (que esconde o seu endereço) faz parte do Cubicase Plus. Se você não quer assinar, o Radmin VPN abaixo também resolve, de graça.",
     "connhelp.why.manual": "Se a conexão normal não funcionar, use este caminho alternativo. Funciona em quase qualquer internet e é gratuito.",
     "connhelp.intro": "A solução mais simples é o Radmin VPN: um programa gratuito que faz os dois computadores se enxergarem como se estivessem na mesma casa. Os dois precisam ter o programa. Siga os passos: cada um fica marcado sozinho quando está pronto.",
 
@@ -67,9 +65,9 @@ export default defineMessages({
     "connhelp.close": "Fechar",
 
     "firewall.prewarm.title": "O Windows vai pedir uma permissão de rede",
-    "firewall.prewarm.message": "Para seus amigos se conectarem direto ao seu computador, o Windows vai perguntar se o Cubicase pode usar a rede. Clique em Permitir. Se você negar, o Cubicase continua funcionando, mas a conexão passa por um relay: é mais lenta e tem um limite mensal de uso. Dá para permitir depois.",
+    "firewall.prewarm.message": "Para seus amigos se conectarem direto ao seu computador, o Windows vai perguntar se o Cubicase pode usar a rede. Clique em Permitir. Se você negar, a conexão direta com seus amigos pode não funcionar. Dá para permitir depois.",
     "firewall.modal.title": "O Windows está bloqueando a conexão direta",
-    "firewall.modal.body": "A permissão de rede do Cubicase foi negada no Windows. Por isso a conexão com seus amigos está passando pelo relay, que é mais lenta e tem um limite mensal de uso (sem o Cubicase Plus). Permitir faz a conexão ser direta: mais rápida e sem esse limite.",
+    "firewall.modal.body": "A permissão de rede do Cubicase foi negada no Windows. Por isso a conexão direta com seus amigos não está funcionando. Permitir resolve, sem instalar nada. Se preferir não permitir, dá para jogar com o Radmin VPN, que o Cubicase também ensina.",
     "firewall.modal.how": "Ao clicar em Permitir, o Windows vai pedir uma confirmação de administrador, uma única vez. O Cubicase só libera a entrada de rede do programa de conexão (cubicase-link.exe) e não mexe em mais nada do seu Firewall.",
     "firewall.modal.allow": "Permitir",
     "firewall.modal.later": "Agora não",
@@ -89,8 +87,6 @@ export default defineMessages({
   en: {
     "connhelp.title": "Can't connect? There's an easy way",
     "connhelp.why.direct_failed": "The two computers couldn't be linked directly. That happens on some internet connections (some providers, workplaces and schools block this kind of connection). It's nobody's fault.",
-    "connhelp.why.relay_quota": "This month's free backup connection allowance is used up, and the direct connection didn't work on these networks. No problem: you can still play using a free program.",
-    "connhelp.why.private_locked": "Private mode (which hides your address) is part of Cubicase Plus. If you'd rather not subscribe, the Radmin VPN below also solves it, for free.",
     "connhelp.why.manual": "If the normal connection doesn't work, use this alternative. It works on almost any internet connection and it's free.",
     "connhelp.intro": "The simplest fix is Radmin VPN: a free program that makes both computers see each other as if they were in the same house. Both of you need it. Follow the steps: each one is checked off by itself when it's ready.",
 
@@ -151,9 +147,9 @@ export default defineMessages({
     "connhelp.close": "Close",
 
     "firewall.prewarm.title": "Windows will ask for a network permission",
-    "firewall.prewarm.message": "So your friends can connect straight to your computer, Windows will ask whether Cubicase may use the network. Click Allow. If you deny it, Cubicase still works, but the connection goes through a relay: it is slower and has a monthly usage limit. You can allow it later.",
+    "firewall.prewarm.message": "So your friends can connect straight to your computer, Windows will ask whether Cubicase may use the network. Click Allow. If you deny it, the direct connection with your friends may not work. You can allow it later.",
     "firewall.modal.title": "Windows is blocking the direct connection",
-    "firewall.modal.body": "Cubicase's network permission was denied in Windows. That is why the connection with your friends is going through the relay, which is slower and has a monthly usage limit (without Cubicase Plus). Allowing it makes the connection direct: faster and without that limit.",
+    "firewall.modal.body": "Cubicase's network permission was denied in Windows. That is why the direct connection with your friends isn't working. Allowing it fixes that, with nothing to install. If you'd rather not allow it, you can play with Radmin VPN, which Cubicase also walks you through.",
     "firewall.modal.how": "When you click Allow, Windows will ask for an administrator confirmation, just once. Cubicase only opens the network entry of the connection program (cubicase-link.exe) and changes nothing else in your Firewall.",
     "firewall.modal.allow": "Allow",
     "firewall.modal.later": "Not now",
