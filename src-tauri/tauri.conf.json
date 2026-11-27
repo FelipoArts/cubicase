@@ -58,6 +58,7 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper", "silent": true },
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",

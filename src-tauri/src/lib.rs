@@ -38,6 +38,7 @@ mod mc_report;
 mod backups_dir;
 mod storage_dirs;
 mod firewall;
+mod webview_check;
 mod owner_secret;
 mod server_inspect;
 mod upgrade;
@@ -6919,6 +6920,11 @@ fn hide_window_to_tray(window: tauri::WebviewWindow) {
 }
 
 pub fn run() {
+  // Sem o WebView2 a janela nem abre (e o erro padrão é só "Could not find the WebView2 Runtime", em inglês):
+  // avisa antes, de forma clara, com a opção de baixar. Ver webview_check.rs.
+  if !webview_check::ensure_webview2() {
+    return;
+  }
   let registry = Arc::new(ServerRegistry {
       entries: Mutex::new(BTreeMap::new()),
   });

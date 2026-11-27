@@ -53,7 +53,10 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 portable-pty = "0.8"
 
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Com", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Globalization"] }
+# Já fazem parte da árvore (o Tauri usa): só declarados aqui para chamar a API oficial que acha o WebView2.
+webview2-com-sys = "0.39.1"
+windows-core = "0.62.2"
 
 [dev-dependencies]
 tempfile = "3"
