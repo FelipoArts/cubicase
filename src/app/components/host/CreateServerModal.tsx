@@ -271,7 +271,7 @@ export function CreateServerModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             transition={{ type: "spring", duration: 0.4 }}
-            className="relative w-full max-w-md bg-theme-card rounded-[2rem] border-theme-card shadow-2xl p-8 z-10 space-y-6"
+            className="relative w-full max-w-md lg:max-w-4xl max-h-[92vh] overflow-y-auto bg-theme-card rounded-[2rem] border-theme-card shadow-2xl p-8 z-10 space-y-6"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -311,7 +311,9 @@ export function CreateServerModal({
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="grid gap-y-4 lg:grid-cols-2 lg:gap-x-8">
+                {/* Em telas largas o formulário vira duas colunas: identidade e versão à esquerda, recursos e aceite à direita */}
+                <div className="space-y-4">
                 {/* Nome do Servidor */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-theme-secondary uppercase tracking-wide">{t("create.serverName")}</label>
@@ -653,6 +655,9 @@ export function CreateServerModal({
                   </div>
                 )}
 
+                </div>
+
+                <div className="space-y-4">
                 {/* RAM */}
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -706,9 +711,10 @@ export function CreateServerModal({
                 </div>
 
                 <EulaConsentBox consent={eula} />
+                </div>
 
                 {/* Botões */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-theme-card">
+                <div className="flex justify-end gap-3 pt-4 border-t border-theme-card lg:col-span-2">
                   <button
                     type="button"
                     onClick={onClose}
