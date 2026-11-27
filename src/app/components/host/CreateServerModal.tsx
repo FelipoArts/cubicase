@@ -86,6 +86,8 @@ export function CreateServerModal({
   const [versionSearchQuery, setVersionSearchQuery] = useState("");
   const [showAllVersions, setShowAllVersions] = useState(false);
   const versionDropdownRef = useRef<HTMLDivElement>(null);
+  // Em telas largas a lista flutua sobre o modal (sem criar rolagem dentro dele); se não couber embaixo, abre para cima.
+  const [versionDropUp, setVersionDropUp] = useState(false);
 
   // Carregar versões Forge quando tipo = forge e versão mudar
   useEffect(() => {
@@ -271,7 +273,7 @@ export function CreateServerModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             transition={{ type: "spring", duration: 0.4 }}
-            className="relative w-full max-w-md lg:max-w-4xl max-h-[92vh] overflow-y-auto bg-theme-card rounded-[2rem] border-theme-card shadow-2xl p-8 z-10 space-y-6"
+            className="relative w-full max-w-md lg:max-w-4xl max-h-[92vh] overflow-y-auto lg:max-h-none lg:overflow-visible bg-theme-card rounded-[2rem] border-theme-card shadow-2xl p-8 z-10 space-y-6"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -390,7 +392,12 @@ export function CreateServerModal({
                   {/* Botão do dropdown */}
                   <button
                     type="button"
-                    onClick={() => setVersionDropdownOpen(!versionDropdownOpen)}
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const below = window.innerHeight - rect.bottom;
+                      setVersionDropUp(below < 360 && rect.top > below);
+                      setVersionDropdownOpen(!versionDropdownOpen);
+                    }}
                     disabled={manifestLoading}
                     className="w-full h-12 px-4 border border-theme-card bg-transparent rounded-2xl focus:border-indigo-500 focus:outline-none transition-all text-sm font-semibold text-theme-primary flex items-center justify-between"
                   >
@@ -404,7 +411,7 @@ export function CreateServerModal({
 
                   {/* Dropdown */}
                   {versionDropdownOpen && (
-                    <div className="absolute z-50 mt-1 w-full bg-theme-card border border-theme-card rounded-2xl shadow-xl overflow-hidden">
+                    <div className={cn("static mt-1 lg:absolute z-50 w-full bg-theme-card border border-theme-card rounded-2xl shadow-xl overflow-hidden", versionDropUp && "lg:bottom-full lg:mb-1")}>
                       {/* Campo de busca */}
                       <div className="p-2 border-b border-theme-card">
                         <input
@@ -421,7 +428,7 @@ export function CreateServerModal({
                       </div>
 
                       {/* Lista de versões */}
-                      <div className="max-h-64 overflow-y-auto">
+                      <div className="max-h-64 lg:max-h-48 overflow-y-auto">
                         {(() => {
                           if (!versionManifest) {
                             return (
