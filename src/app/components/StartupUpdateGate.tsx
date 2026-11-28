@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useUpdaterStore } from "@/app/updater";
@@ -23,8 +23,11 @@ export function StartupUpdateGate({ children }: { children: ReactNode }) {
   const phase = useUpdaterStore((s) => s.phase);
   const { resolvedTheme } = useTheme();
   const { t } = useT();
+  // O tema só é conhecido no cliente: antes de montar, o logo é o mesmo do HTML do servidor (senão a hidratação reclama).
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     void useUpdaterStore.getState().runStartupUpdate();
   }, []);
 
@@ -36,7 +39,7 @@ export function StartupUpdateGate({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-theme-bg flex items-center justify-center p-6">
       <div className="w-full max-w-xs text-center space-y-6">
-        <img src={resolvedTheme === "dark" ? "/icon-dark.png" : "/icon.png"} alt="Cubicase" className="h-10 mx-auto" />
+        <img src={mounted && resolvedTheme === "dark" ? "/icon-dark.png" : "/icon.png"} alt="Cubicase" className="h-10 mx-auto" />
         <div className="space-y-2">
           <p className="text-sm font-semibold text-theme-primary">
             {updating
