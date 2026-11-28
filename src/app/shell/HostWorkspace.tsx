@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  AlertTriangle, BedDouble, Check, ChevronDown, Copy, FolderOpen, Gauge, Globe, LayoutDashboard, Loader2, Package, Play, Plus, RefreshCw, Settings, Users, X,
+  AlertTriangle, BedDouble, Check, ChevronDown, Copy, FolderOpen, Gauge, Globe, LayoutDashboard, Link2, Loader2, Package, Play, Plus, RefreshCw, Settings, Users, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { inviteLinkUrl } from "@/lib/inviteLink";
 import { isPrimaryDisabled, isStopAction } from "@/lib/hosting";
 import { PlayersPanel } from "@/app/components/host/PlayersPanel";
 import { PerformancePanel } from "@/app/components/host/PerformancePanel";
@@ -47,7 +48,7 @@ function Banner({ kind, icon, children, action }: { kind: keyof typeof BANNER_CL
 export function HostWorkspace({ c }: { c: HostController }) {
   const { t, rich } = c;
   const {
-    selectedServer, serverInfo, serverTypeLabel, displayShortCode, headline, serverStatus, hosting, sessionActive, retryInSecs,
+    selectedServer, serverInfo, serverTypeLabel, displayShortCode, inviteSlug, headline, serverStatus, hosting, sessionActive, retryInSecs,
     friendsHint, preparing, serverInstallProgress, idleShutdownWarning, lastCrashInfo, showCrashDetail, setShowCrashDetail,
     wakeOnDemandServerInfo, copiedText, copyToClipboard,
   } = c;
@@ -131,6 +132,8 @@ export function HostWorkspace({ c }: { c: HostController }) {
   const dotCls = tone === "good" ? "bg-emerald-500" : tone === "bad" ? "bg-rose-500" : tone === "idle" ? "bg-slate-400" : "bg-amber-500 animate-pulse";
 
   const code = displayShortCode ? `CF-${displayShortCode}` : null;
+  // O link de convite existe desde que o servidor tem código (não depende de estar ligado): quem abre vê o servidor e entra quando ele ligar.
+  const inviteLink = inviteSlug ? inviteLinkUrl(inviteSlug) : null;
   const stopAction = isStopAction(headline);
   const busy = headline === "preparing" || headline === "starting" || headline === "stopping";
 
@@ -255,6 +258,17 @@ export function HostWorkspace({ c }: { c: HostController }) {
                 <span className="font-mono text-sm font-bold">{code}</span>
                 {copiedText === code ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-theme-secondary group-hover:text-indigo-600" />}
               </button>
+              {inviteLink && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(inviteLink)}
+                  title={t("host.copyInvite")}
+                  className="group flex items-center gap-2 px-3 py-2 rounded-xl bg-theme-muted border border-theme-card hover:border-indigo-400 cursor-pointer"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-theme-secondary">{t("host.link")}</span>
+                  {copiedText === inviteLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Link2 className="w-3.5 h-3.5 text-theme-secondary group-hover:text-indigo-600" />}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => c.setShowRegenerateCode(true)}
