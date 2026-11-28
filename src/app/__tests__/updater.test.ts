@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: (...a: unknown[]) => re
 const pushDiagnostic = vi.fn();
 vi.mock("@/app/diagnostics", () => ({ pushDiagnostic: (...a: unknown[]) => pushDiagnostic(...a) }));
 
-import { useUpdaterStore, UPDATE_RETRY_COOLDOWN_MS } from "../updater";
+import { useUpdaterStore, UPDATE_RETRY_COOLDOWN_MS, STARTUP_CHECK_TIMEOUT_MS, resetStartupForTests } from "../updater";
 
 function makeUpdate(downloadAndInstall: () => Promise<void>, version = "9.9.9") {
   return { version, body: "notas", downloadAndInstall } as never;
@@ -111,5 +111,72 @@ describe("updater: instalar e tentar de novo", () => {
     const s = useUpdaterStore.getState();
     expect(s.phase).toBe("error");
     expect(s.lastFailureAt).toBe(Date.now());
+  });
+});
+
+describe("updater: atualizar antes de abrir", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    checkMock.mockReset();
+    relaunchMock.mockReset();
+    pushDiagnostic.mockReset();
+    resetStore();
+    useUpdaterStore.setState({ startup: "checking", startupCheckOk: false });
+    resetStartupForTests();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("sem versão nova, abre o app e dispensa a segunda checagem", async () => {
+    checkMock.mockResolvedValue(null);
+    await useUpdaterStore.getState().runStartupUpdate();
+    const s = useUpdaterStore.getState();
+    expect(s.startup).toBe("open");
+    expect(s.startupCheckOk).toBe(true);
+    expect(relaunchMock).not.toHaveBeenCalled();
+  });
+
+  it("com versão nova, instala e reinicia sem mostrar o app", async () => {
+    const download = vi.fn(async () => {});
+    checkMock.mockResolvedValue(makeUpdate(download, "10.0.0"));
+    await useUpdaterStore.getState().runStartupUpdate();
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(relaunchMock).toHaveBeenCalledTimes(1);
+    // o app reinicia: o portão continua fechado até lá, para a interface antiga não piscar
+    expect(useUpdaterStore.getState().startup).toBe("updating");
+    expect(useUpdaterStore.getState().phase).toBe("ready");
+  });
+
+  it("se a instalação falhar, abre na versão atual com o botão de tentar de novo", async () => {
+    checkMock.mockResolvedValue(makeUpdate(async () => { throw new Error("rede caiu"); }));
+    await useUpdaterStore.getState().runStartupUpdate();
+    const s = useUpdaterStore.getState();
+    expect(s.startup).toBe("open");
+    expect(s.phase).toBe("error");
+    expect(relaunchMock).not.toHaveBeenCalled();
+  });
+
+  it("sem internet (a checagem falha), abre o app e pede a checagem normal depois", async () => {
+    checkMock.mockRejectedValue(new Error("offline"));
+    await useUpdaterStore.getState().runStartupUpdate();
+    const s = useUpdaterStore.getState();
+    expect(s.startup).toBe("open");
+    expect(s.startupCheckOk).toBe(false);
+    expect(pushDiagnostic).toHaveBeenCalledTimes(1);
+  });
+
+  it("rede que não responde: depois do limite, abre o app", async () => {
+    checkMock.mockReturnValue(new Promise(() => {}));
+    const run = useUpdaterStore.getState().runStartupUpdate();
+    expect(useUpdaterStore.getState().startup).toBe("checking");
+    await vi.advanceTimersByTimeAsync(STARTUP_CHECK_TIMEOUT_MS + 1);
+    await run;
+    expect(useUpdaterStore.getState().startup).toBe("open");
+    expect(useUpdaterStore.getState().startupCheckOk).toBe(false);
+  });
+
+  it("chamadas repetidas (efeito montado duas vezes) checam uma vez só", async () => {
+    checkMock.mockResolvedValue(null);
+    await Promise.all([useUpdaterStore.getState().runStartupUpdate(), useUpdaterStore.getState().runStartupUpdate()]);
+    expect(checkMock).toHaveBeenCalledTimes(1);
   });
 });

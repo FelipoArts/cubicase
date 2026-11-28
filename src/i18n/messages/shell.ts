@@ -32,6 +32,9 @@ export default defineMessages({
     "update.installFailed.title": "Falha ao instalar atualização",
     "update.installFailed.message": "Não foi possível baixar ou instalar a nova versão. Tente novamente mais tarde.",
     "update.source": "Atualização",
+    "update.startup.checking": "Abrindo o Cubicase...",
+    "update.startup.updating": "Atualizando o Cubicase{version}",
+    "update.startup.hint": "Leva só um instante. O Cubicase abre sozinho em seguida.",
 
     "theme.toLight": "Mudar para modo claro",
     "theme.toDark": "Mudar para modo escuro",
@@ -67,6 +70,9 @@ export default defineMessages({
     "update.installFailed.title": "Failed to install update",
     "update.installFailed.message": "Couldn't download or install the new version. Please try again later.",
     "update.source": "Update",
+    "update.startup.checking": "Opening Cubicase...",
+    "update.startup.updating": "Updating Cubicase{version}",
+    "update.startup.hint": "Just a moment. Cubicase will open on its own afterwards.",
 
     "theme.toLight": "Switch to light mode",
     "theme.toDark": "Switch to dark mode",

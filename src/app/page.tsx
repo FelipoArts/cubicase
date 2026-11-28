@@ -50,6 +50,7 @@ import type { HostViewProps } from "@/app/components/host/useHostController";
 import type { GuestViewProps } from "@/app/components/guest/useGuestController";
 import { NewShell } from "@/app/shell/NewShell";
 import { goToHostTab } from "@/app/shell/hostNav";
+import { StartupUpdateGate } from "@/app/components/StartupUpdateGate";
 
 // ============================================================
 // Page
@@ -60,7 +61,7 @@ import { goToHostTab } from "@/app/shell/hostNav";
 // estado ao alternar entre abas.
 // ============================================================
 
-export default function Home() {
+function Home() {
   // Re-renderiza o shell ao trocar o idioma (t() fora do hook lê o idioma atual).
   useT();
   const [mounted, setMounted] = useState(false);
@@ -79,11 +80,12 @@ export default function Home() {
   // compete com as outras chamadas de rede do startup) e depois a cada 4h
   // enquanto o app fica aberto (útil pro host, que roda por horas).
   useEffect(() => {
-    const checkForUpdates = useUpdaterStore.getState().checkForUpdates;
-    const initial = setTimeout(checkForUpdates, 5000);
+    const { checkForUpdates, startupCheckOk } = useUpdaterStore.getState();
+    // A checagem da abertura (StartupUpdateGate) já respondeu? Então não repete; senão tenta de novo daqui a pouco.
+    const initial = startupCheckOk ? undefined : setTimeout(checkForUpdates, 5000);
     const interval = setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
     return () => {
-      clearTimeout(initial);
+      if (initial) clearTimeout(initial);
       clearInterval(interval);
     };
   }, []);
@@ -1174,5 +1176,14 @@ export default function Home() {
         }}
       />
     </div>
+  );
+}
+
+// Atualiza antes de abrir: o app só aparece depois da checagem (e da instalação, havendo versão nova).
+export default function Page() {
+  return (
+    <StartupUpdateGate>
+      <Home />
+    </StartupUpdateGate>
   );
 }

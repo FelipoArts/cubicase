@@ -17,6 +17,12 @@ import { t } from "@/i18n";
 
 export type UpdaterPhase = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
 
+/** Portão de abertura: o app só mostra a interface depois de checar (e instalar) a atualização — ver StartupUpdateGate. */
+export type StartupPhase = "checking" | "updating" | "open";
+
+/** Quanto o app espera pela checagem ao abrir. Passou disso (rede lenta/offline), abre normalmente e tenta de novo depois. */
+export const STARTUP_CHECK_TIMEOUT_MS = 4000;
+
 /** Espera mínima depois de uma falha antes de aceitar "tentar de novo" (evita martelar o servidor de updates). */
 export const UPDATE_RETRY_COOLDOWN_MS = 5000;
 
@@ -31,6 +37,12 @@ interface UpdaterState {
   lastFailureAt: number | null;
   /** true durante o cooldown pós-falha — só para a UI (a trava de verdade usa lastFailureAt). */
   cooling: boolean;
+  /** Portão de abertura (ver StartupPhase). Começa em "checking" e vira "open" quando o app pode aparecer. */
+  startup: StartupPhase;
+  /** A checagem da abertura chegou a uma resposta (com ou sem versão nova)? Se não, o app refaz a checagem sozinho logo depois. */
+  startupCheckOk: boolean;
+  /** Ao abrir: checa a atualização e, havendo, baixa, instala e reinicia ANTES de mostrar o app. Nunca trava: erro/demora abre normalmente. */
+  runStartupUpdate: () => Promise<void>;
   checkForUpdates: () => Promise<void>;
   installAndRestart: () => Promise<void>;
   /** Refaz a checagem e tenta instalar de novo, sem precisar fechar o app. */
@@ -42,6 +54,24 @@ interface UpdaterState {
 // entre a checagem e a instalação abriria uma janela em que dois cliques rápidos
 // passariam pelo teste de fase. Este flag fecha essa janela.
 let busy = false;
+// A abertura roda uma vez só (o React em dev monta os efeitos duas vezes).
+let startupRun: Promise<void> | null = null;
+
+/** Só para testes: a abertura é de uma vez só por execução do app. */
+export function resetStartupForTests() {
+  startupRun = null;
+}
+
+/** `check()` com limite de tempo: quem espera não fica preso a uma rede que não responde. */
+function checkWithTimeout(ms: number): Promise<Update | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    check().then(
+      (u) => { clearTimeout(timer); resolve(u); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
 
 export const useUpdaterStore = create<UpdaterState>((set, get) => {
   function fail(e: unknown) {
@@ -89,6 +119,36 @@ export const useUpdaterStore = create<UpdaterState>((set, get) => {
     update: null,
     lastFailureAt: null,
     cooling: false,
+    startup: "checking",
+    startupCheckOk: false,
+
+    runStartupUpdate: () => {
+      startupRun ??= (async () => {
+        let update: Update | null;
+        try {
+          update = await checkWithTimeout(STARTUP_CHECK_TIMEOUT_MS);
+        } catch (e) {
+          // Sem internet, rede lenta ou fora do Tauri: abre o app e a checagem normal tenta de novo em seguida.
+          set({ startup: "open", startupCheckOk: false });
+          pushDiagnostic({ level: "info", title: t("update.checkFailed.title"), message: t("update.checkFailed.message"), detail: String(e), source: t("update.source") });
+          return;
+        }
+        if (!update) {
+          set({ startup: "open", startupCheckOk: true });
+          return;
+        }
+        set({ phase: "available", version: update.version, notes: update.body ?? null, update, dismissed: false, startup: "updating", startupCheckOk: true });
+        busy = true;
+        try {
+          await runInstall(update);
+        } finally {
+          busy = false;
+        }
+        // Instalou: o app reinicia e a tela de atualização fica até lá. Falhou: abre na versão atual, com o botão de tentar de novo.
+        if (get().phase !== "ready") set({ startup: "open" });
+      })();
+      return startupRun;
+    },
 
     checkForUpdates: async () => {
       if (busy || get().phase === "checking" || get().phase === "downloading" || get().phase === "ready") return;
