@@ -26,11 +26,14 @@ export interface InstallMeta { f: string; l: string; v: string; o: string; s?: n
 
 /** Mesmos bits do app (src/lib/milestones.ts). */
 export const MILESTONE_BITS = [
-  { key: 'account', bit: 1, label: 'Entrou numa conta' },
-  { key: 'server_installed', bit: 2, label: 'Criou/instalou um servidor' },
-  { key: 'server_started', bit: 4, label: 'Ligou o servidor' },
-  { key: 'invited', bit: 8, label: 'Copiou o convite' },
-  { key: 'player_joined', bit: 16, label: 'Teve 2+ jogadores juntos' },
+  { key: 'account', bit: 1, label: 'Entrou numa conta', group: 'host' },
+  { key: 'server_installed', bit: 2, label: 'Criou/instalou um servidor', group: 'host' },
+  { key: 'start_attempted', bit: 32, label: 'Pediu para ligar o servidor', group: 'host' },
+  { key: 'server_started', bit: 4, label: 'Ligou o servidor', group: 'host' },
+  { key: 'invited', bit: 8, label: 'Copiou o convite', group: 'host' },
+  { key: 'player_joined', bit: 16, label: 'Teve 2+ jogadores juntos', group: 'host' },
+  { key: 'guest_added', bit: 64, label: 'Adicionou o servidor de um amigo', group: 'guest' },
+  { key: 'guest_connected', bit: 128, label: 'Entrou no servidor de um amigo', group: 'guest' },
 ] as const;
 export const ERROR_BITS = [
   { key: 'install_failed', bit: 1, label: 'Falha ao criar/instalar o servidor' },
@@ -101,10 +104,13 @@ export function summarizeInstalls(items: InstallMeta[], now: number) {
     if (perDay.has(k)) perDay.set(k, perDay.get(k)! + 1);
   }
   // Funil: quantas instalações (ativas ou não) já alcançaram cada etapa.
-  const funnel = [
+  // Dois caminhos: quem hospeda e quem só entra no servidor de um amigo (cada etapa de um funil só se compara com o seu).
+  const stages = (group: 'host' | 'guest') => [
     { key: 'installed', label: 'Instalou e abriu o app', count: items.length },
-    ...MILESTONE_BITS.map((m) => ({ key: m.key, label: m.label, count: items.filter((i) => ((i.s ?? 0) & m.bit) !== 0).length })),
+    ...MILESTONE_BITS.filter((m) => m.group === group).map((m) => ({ key: m.key, label: m.label, count: items.filter((i) => ((i.s ?? 0) & m.bit) !== 0).length })),
   ];
+  const funnel = stages('host');
+  const guestFunnel = stages('guest');
   // Retenção por semana de chegada: voltou a aparecer pelo menos N dias depois da primeira vez (só coortes já "maduras").
   const weekStart = (t: number) => { const d = new Date(t); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
   const cohorts = new Map<string, { size: number; d1: number; d7: number; d14: number; maxAge: number }>();
@@ -155,6 +161,7 @@ export function summarizeInstalls(items: InstallMeta[], now: number) {
     systems: [...byOs].map(([os, count]) => ({ os, count })).sort((a, b) => b.count - a.count),
     newPerDay: [...perDay].map(([date, count]) => ({ date, count })),
     funnel,
+    guestFunnel,
     retention,
     gone: {
       total: gone.length,

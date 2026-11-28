@@ -35,7 +35,7 @@ import { radminAddress, radminProbe } from "@/lib/radmin";
 import { useUpdaterStore } from "@/app/updater";
 import { getVersion } from "@tauri-apps/api/app";
 import { sendInstallPing } from "@/lib/installPing";
-import { applySnapshot } from "@/lib/milestones";
+import { applySnapshot, markMilestone } from "@/lib/milestones";
 import { analyzeCrashText } from "@/lib/crashAnalyzer";
 import { createLagMonitor } from "@/lib/lagDetector";
 import { usePerfStore, type PerfState } from "@/lib/perfMonitor";
@@ -132,6 +132,10 @@ function Home() {
   // que um netStatus "online" era, na verdade, a conexão do Convidado.
   const [netMode, setNetMode] = useState<"host" | "guest" | null>(null);
   const [netIp, setNetIp] = useState<string | null>(null);
+  // Marco anônimo: entrou no servidor de um amigo (o caminho de quem só joga). Ver lib/milestones.ts.
+  useEffect(() => {
+    if (netStatus === "online" && netMode === "guest") markMilestone("guest_connected");
+  }, [netStatus, netMode]);
   // Status único da hospedagem (servidor + rede), publicado pelo backend
   // ("hosting-status", ver src-tauri/src/hosting.rs). A UI do host deriva tudo
   // daqui — não há mais estado local de "iniciando rede".

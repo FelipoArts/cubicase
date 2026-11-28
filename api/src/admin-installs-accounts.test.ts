@@ -76,13 +76,30 @@ describe("funil, retenção, sumiram e falhas", () => {
       m(T0 - 1 * DAY, T0 - 1000, "0.8.4", 1),                           // nova
     ];
     const s = summarizeInstalls(items, T0);
-    expect(s.funnel.map((x) => x.count)).toEqual([4, 3, 2, 1, 1, 1]);
+    expect(s.funnel.map((x) => x.count)).toEqual([4, 3, 2, 0, 1, 1, 1]);
+    expect(s.guestFunnel.map((x) => x.count)).toEqual([4, 0, 0]);
     expect(s.gone.total).toBe(2);
     expect(s.gone.byStage.map((x) => x.label).sort()).toEqual(["Criou/instalou um servidor", "Só abriu o app"]);
     expect(s.errors.find((x) => x.key === "server_start_failed")).toMatchObject({ installs: 1, gone: 1 });
     const old = s.retention.find((r) => r.size === 3)!;
     expect([old.d1, old.d7, old.d14]).toEqual([2, 1, 1]); // 1 dia: duas voltaram; 7 e 14 dias: só a ativa
     expect(s.retention.find((r) => r.size === 1)!.d7).toBeNull(); // coorte nova demais para medir 7 dias
+  });
+});
+
+describe("funil de quem só joga", () => {
+  const m = (s: number): InstallMeta => ({ f: new Date(T0 - 5 * DAY).toISOString(), l: new Date(T0 - 1000).toISOString(), v: "0.8.11", o: "windows", s });
+  it("conta quem adicionou e quem entrou no servidor de um amigo, separado do funil de quem hospeda", () => {
+    const s = summarizeInstalls([m(64 | 128), m(64), m(0), m(2 | 32)], T0);
+    expect(s.guestFunnel.map((x) => [x.key, x.count])).toEqual([["installed", 4], ["guest_added", 2], ["guest_connected", 1]]);
+    expect(s.funnel.map((x) => [x.key, x.count])).toEqual([["installed", 4], ["account", 0], ["server_installed", 1], ["start_attempted", 1], ["server_started", 0], ["invited", 0], ["player_joined", 0]]);
+  });
+  it("aceita os bits novos no ping (até 255) e continua ignorando o que passa disso", async () => {
+    await clearPrefix(INSTALL_PREFIX);
+    await recordInstallPing(env, { id: ID, v: "0.8.11", os: "windows", s: 255, e: 0 }, T0);
+    await recordInstallPing(env, { id: ID, v: "0.8.11", os: "windows", s: 256, e: 0 }, T0 + 130_000);
+    const [row] = await listInstalls(env.CUBEFORGE_REGISTRY);
+    expect(row.s).toBe(255);
   });
 });
 

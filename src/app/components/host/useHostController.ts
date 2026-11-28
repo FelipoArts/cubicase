@@ -379,6 +379,7 @@ export function useHostController({
 
     clearPreparingTimer();
     setPreparing(true);
+    markMilestone("start_attempted");
     try {
       setRunningServer(info.name);
       onSetLogs([]);

@@ -12,6 +12,7 @@ import { fetch } from "@tauri-apps/plugin-http";
 import { join } from "@tauri-apps/api/path";
 import { useAppStore, type KnownServer, type ServerStatus } from "@/app/store";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { markMilestone } from "@/lib/milestones";
 import { pushDiagnostic } from "@/app/diagnostics";
 import { installFabricClient, installForgeClient, getInstanceDir, getLocalServerPort, findInstalledFabricVersion, findInstalledForgeVersion } from "@/lib/clientSetup";
 
@@ -597,6 +598,7 @@ export function useGuestController({
         connectName: server.connectName ?? null,
       };
       addKnownServer(known);
+      markMilestone("guest_added");
       return { ok: true, server: known };
     } catch {
       return { ok: false, reason: "network_error" };

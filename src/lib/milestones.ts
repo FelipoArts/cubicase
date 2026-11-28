@@ -12,6 +12,9 @@ export const MILESTONES = {
   server_started: 4,     // ligou um servidor (ficou online)
   invited: 8,            // copiou o código/link de convite
   player_joined: 16,     // havia 2 ou mais jogadores online ao mesmo tempo
+  start_attempted: 32,   // pediu para ligar um servidor (separa "nunca tentou ligar" de "tentou e não subiu")
+  guest_added: 64,       // adicionou o servidor de um amigo (por código ou link de convite)
+  guest_connected: 128,  // conseguiu entrar no servidor de um amigo (o caminho de quem só joga)
 } as const;
 export type Milestone = keyof typeof MILESTONES;
 
